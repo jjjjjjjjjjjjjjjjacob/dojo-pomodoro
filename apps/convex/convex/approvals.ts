@@ -93,7 +93,6 @@ export const applyApproval = mutation({
       code: outCode,
       shareContact: rsvp.shareContact,
     });
-    console.log("identity", identity);
     return { ok: true as const, code: outCode, redeemUrl, user: identity };
   },
 });
