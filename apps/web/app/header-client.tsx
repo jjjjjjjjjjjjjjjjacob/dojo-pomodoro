@@ -4,7 +4,6 @@ import {
   SignedOut,
   SignInButton,
   SignOutButton,
-  useAuth,
   useUser,
 } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
@@ -46,9 +45,24 @@ export default function HeaderClient() {
           </Link>
         )}
       </SignedIn>
+      <SignedOut>
+        <SignInButton>
+          <Button
+            variant="outline"
+            className="text-primary border-primary/30"
+            size="sm"
+          >
+            Sign in
+          </Button>
+        </SignInButton>
+      </SignedOut>
       <SignedIn>
         <SignOutButton>
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            className="text-primary border-primary/30"
+            size="sm"
+          >
             Sign out
           </Button>
         </SignOutButton>
