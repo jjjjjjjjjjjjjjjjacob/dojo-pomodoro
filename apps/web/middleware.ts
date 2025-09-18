@@ -72,6 +72,8 @@ export default clerkMiddleware(async (auth, req) => {
       if (!status && !password) {
         // No RSVP found - should be on main page to enter password
         correctPath = `/events/${eventRoute.eventId}`;
+      } else if (!status && password) {
+        correctPath = `/events/${eventRoute.eventId}/rsvp`;
       } else if (status) {
         switch (status.status) {
           case "pending":
@@ -91,6 +93,9 @@ export default clerkMiddleware(async (auth, req) => {
         // Status is null but password exists - redirect to main event page
         correctPath = `/events/${eventRoute.eventId}`;
       }
+      console.log("correctPath", correctPath);
+      console.log("pathname", pathname);
+      console.log("status", status);
 
       // Redirect if not on the correct page
       if (pathname !== correctPath) {

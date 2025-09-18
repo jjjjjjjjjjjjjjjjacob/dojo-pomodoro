@@ -29,7 +29,9 @@ export default function EventPage({
   const searchParams = useSearchParams();
   const { isSignedIn, isLoaded } = useAuth();
 
-  const eventQuery = useQuery(convexQuery(api.events.get, { eventId: eventId as Id<"events"> }));
+  const eventQuery = useQuery(
+    convexQuery(api.events.get, { eventId: eventId as Id<"events"> }),
+  );
   const event = eventQuery.data;
 
   const queryParamPassword = searchParams?.get("password") || "";
@@ -59,7 +61,7 @@ export default function EventPage({
 
     if (isSignedIn) {
       // If signed in, go to RSVP page with password - layout will handle routing
-      // router.push(`/events/${eventId}/rsvp?${searchParameters}`);
+      router.push(`/events/${eventId}/rsvp?${searchParameters}`);
     } else {
       // Not signed in: redirect to sign-in with intended destination
       const requestUrl = `/events/${eventId}/rsvp?${searchParameters}`;
