@@ -3,7 +3,7 @@ import { v } from "convex/values";
 
 function hasJwtDoorOrHost(identity: any) {
   const role = identity?.role as string | null | undefined;
-  return role === "org:door" || role === "org:host";
+  return role === "org:member" || role === "org:admin";
 }
 
 export const byCode = query({

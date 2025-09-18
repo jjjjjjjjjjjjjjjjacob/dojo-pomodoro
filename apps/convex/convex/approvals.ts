@@ -33,7 +33,7 @@ export const applyApproval = mutation({
 
     // Authorization: rely on roles embedded in JWT
     const role = (identity as any).role;
-    const hasHostRole = role === "org:host" || role === "org:admin";
+    const hasHostRole = role === "org:admin";
     if (!hasHostRole) throw new Error("Forbidden: host role required");
 
     const now = Date.now();
@@ -112,7 +112,7 @@ export const approve = mutation({
 
     // Authorization: rely on roles in JWT
     const role = (identity as any).role;
-    const hasHostRole = role === "org:host" || role === "org:admin";
+    const hasHostRole = role === "org:admin";
     if (!hasHostRole) throw new Error("Forbidden: host role required");
 
     const now = Date.now();
@@ -168,7 +168,7 @@ export const deny = mutation({
 
     // Authorization: rely on roles in JWT
     const role = (identity as any).role;
-    const hasHostRole = role === "org:host" || role === "org:admin";
+    const hasHostRole = role === "org:admin";
     if (!hasHostRole) throw new Error("Forbidden: host role required");
 
     const now = Date.now();

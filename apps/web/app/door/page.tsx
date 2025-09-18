@@ -26,9 +26,7 @@ export default function DoorPortal() {
   const isDoor = !!(
     (orgRole && ["admin", "host", "door"].includes(orgRole)) ||
     (typeof has === "function" &&
-      (has({ role: "org:admin" }) ||
-        has({ role: "org:host" }) ||
-        has({ role: "org:door" })))
+      (has({ role: "org:admin" }) || has({ role: "org:member" })))
   );
   const [code, setCode] = useState("");
   const [lastAction, setLastAction] = useState<string | null>(null);

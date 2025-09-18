@@ -14,19 +14,14 @@ export default function Home() {
   const isHost = useMemo(() => {
     if (!isSignedIn) return false;
     if (orgRole && ["admin", "host"].includes(orgRole)) return true;
-    if (typeof has === "function")
-      return has({ role: "org:admin" }) || has({ role: "org:host" });
+    if (typeof has === "function") return has({ role: "org:admin" });
     return false;
   }, [isSignedIn, orgRole, has]);
   const isDoor = useMemo(() => {
     if (!isSignedIn) return false;
     if (orgRole && ["admin", "host", "door"].includes(orgRole)) return true;
     if (typeof has === "function")
-      return (
-        has({ role: "org:admin" }) ||
-        has({ role: "org:host" }) ||
-        has({ role: "org:door" })
-      );
+      return has({ role: "org:admin" }) || has({ role: "org:member" });
     return false;
   }, [isSignedIn, orgRole, has]);
   const [password, setPassword] = useState("");

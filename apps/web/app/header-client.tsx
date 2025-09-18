@@ -14,15 +14,11 @@ function useRoleFlags() {
   const orgRoleSet = new Set(
     user?.organizationMemberships?.map((membership) => membership.role) || [],
   );
-  const isHost = !!(
-    (isSignedIn && orgRoleSet.has("org:admin" as const)) ||
-    orgRoleSet.has("org:host" as const)
-  );
-  const isDoor = !!(
-    (isSignedIn && orgRoleSet.has("org:admin" as const)) ||
-    orgRoleSet.has("org:host" as const) ||
-    orgRoleSet.has("org:door" as const)
-  );
+  const isHost = isSignedIn && orgRoleSet.has("org:admin" as const);
+  const isDoor =
+    isSignedIn &&
+    (orgRoleSet.has("org:admin" as const) ||
+      orgRoleSet.has("org:member" as const));
   return { isHost, isDoor };
 }
 
