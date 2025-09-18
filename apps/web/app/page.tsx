@@ -1,0 +1,92 @@
+"use client";
+import { useState, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { useAction } from "convex/react";
+import { api } from "@convex/_generated/api";
+import Link from "next/link";
+import { SignedIn, useAuth, useSession } from "@clerk/nextjs";
+
+export default function Home() {
+  const { isSignedIn, orgRole, has } = useAuth();
+
+  const isHost = useMemo(() => {
+    if (!isSignedIn) return false;
+    if (orgRole && ["admin", "host"].includes(orgRole)) return true;
+    if (typeof has === "function")
+      return has({ role: "org:admin" }) || has({ role: "org:host" });
+    return false;
+  }, [isSignedIn, orgRole, has]);
+  const isDoor = useMemo(() => {
+    if (!isSignedIn) return false;
+    if (orgRole && ["admin", "host", "door"].includes(orgRole)) return true;
+    if (typeof has === "function")
+      return (
+        has({ role: "org:admin" }) ||
+        has({ role: "org:host" }) ||
+        has({ role: "org:door" })
+      );
+    return false;
+  }, [isSignedIn, orgRole, has]);
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const resolve = useAction(api.credentialsNode.resolveEventByPassword);
+
+  const onSubmit = useCallback(async () => {
+    const trimmedPassword = password.trim();
+    if (!trimmedPassword) {
+      setMessage("Enter your list code.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setMessage("");
+      const res = await resolve({ password: trimmedPassword });
+      if (res?.ok && res.eventId) {
+        // Pass the code along in search params to the event page
+        const searchParams = new URLSearchParams({
+          password: trimmedPassword,
+        }).toString();
+        router.push(`/events/${res.eventId}?${searchParams}`);
+      } else {
+        setMessage("No active event matches that password.");
+      }
+    } catch (error: unknown) {
+      const errorDetails = error as Error;
+      setMessage(errorDetails?.message || "Error resolving event");
+    } finally {
+      setLoading(false);
+    }
+  }, [password, resolve, router]);
+
+  return (
+    <main className="min-h-[calc(100vh-56px)] flex items-center justify-center p-6">
+      <div className="w-full max-w-md space-y-4">
+        <h1 className="text-2xl font-semibold text-primary">
+          Enter Event Password
+        </h1>
+        <p className="text-sm text-foreground/70 text-primary">
+          Enter the password you received to access your event.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onSubmit();
+            }}
+            className="border border-primary/20 placeholder:text-primary/30"
+          />
+          <Button onClick={onSubmit} disabled={loading}>
+            {loading ? "Checking..." : "Continue"}
+          </Button>
+        </div>
+        {message && <div className="text-sm text-red-500">{message}</div>}
+      </div>
+    </main>
+  );
+}

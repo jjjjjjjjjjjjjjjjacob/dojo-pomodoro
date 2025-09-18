@@ -1,0 +1,19 @@
+{
+  "name": "@dojo/convex",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "npx convex dev",
+    "deploy": "npx convex deploy",
+    "test": "bun test",
+    "test:run": "bun test"
+  },
+  "dependencies": {
+    "convex": "^1.27.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "convex-test": "^0.0.38",
+    "vitest": "^3.2.4"
+  }
+}

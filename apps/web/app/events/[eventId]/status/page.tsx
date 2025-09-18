@@ -1,0 +1,93 @@
+"use client";
+import React, { use } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { convexQuery } from "@convex-dev/react-query";
+import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
+import { useAuth } from "@clerk/nextjs";
+import { Spinner } from "@/components/ui/spinner";
+
+export default function StatusPage({
+  params,
+}: {
+  params: Promise<{ eventId: string }>;
+}) {
+  const { eventId } = use(params);
+  const { isSignedIn, isLoaded } = useAuth();
+
+  // Only query when auth is loaded and user is signed in
+  const statusQuery = useQuery(
+    convexQuery(
+      api.rsvps.statusForUserEvent,
+      isLoaded && isSignedIn ? { eventId: eventId as Id<"events"> } : "skip",
+    ),
+  );
+  const eventQuery = useQuery(convexQuery(api.events.get, { eventId: eventId as Id<"events"> }));
+
+  const status = statusQuery.data;
+  const event = eventQuery.data;
+
+  // Show loading while auth is initializing
+  if (!isLoaded) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="flex items-center text-primary justify-center py-10">
+          <Spinner />
+        </div>
+      </main>
+    );
+  }
+
+  // If not signed in (shouldn't happen due to middleware, but safety check)
+  if (!isSignedIn) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="text-center text-red-500">
+          <p>Please sign in to view your RSVP status.</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen flex items-center justify-center p-6">
+      {eventQuery.isLoading || statusQuery.isLoading || !event ? (
+        <div className="flex items-center text-primary justify-center py-10">
+          <Spinner />
+        </div>
+      ) : (
+        <div className="w-full max-w-2xl space-y-6 text-center">
+          <header className="space-y-1">
+            <h1 className="text-2xl font-semibold text-primary">RSVP Status</h1>
+            <p className="text-sm font-semibold text-foreground/70 text-primary">
+              {event.name} @ {event.location}
+            </p>
+            <p className="text-sm text-foreground/70 text-primary"></p>
+          </header>
+          {status?.status === "pending" && (
+            <div className="flex flex-col text-sm text-primary gap-2">
+              <p>
+                Your request is{" "}
+                <span className="font-medium">pending host approval</span>.
+                You’ll receive instructions once approved.
+              </p>
+              <p className="font-medium">
+                IMPORTANT: Approval is necessary to access the event.
+              </p>
+            </div>
+          )}
+          {status?.status === "denied" && (
+            <div className="text-sm">
+              Sorry, you were denied. You can try a different list password.
+            </div>
+          )}
+          {!status?.status && (
+            <div className="text-sm text-foreground/70">
+              No request on file yet.
+            </div>
+          )}
+        </div>
+      )}
+    </main>
+  );
+}
