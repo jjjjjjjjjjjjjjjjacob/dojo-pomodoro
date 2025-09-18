@@ -1,9 +1,8 @@
 {
-  "buildCommand": "cd ../../ && bun install && cd apps/web && bun run build",
-  "installCommand": "cd ../../ && bun install",
+  "buildCommand": "bun run build",
+  "installCommand": "bun install",
   "framework": "nextjs",
   "outputDirectory": ".next",
-  "rootDirectory": "apps/web",
   "functions": {
     "app/**/*.ts": {
       "maxDuration": 30
