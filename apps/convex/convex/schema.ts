@@ -55,6 +55,7 @@ export default defineSchema({
     passwordSalt: v.string(), // base64
     passwordIterations: v.number(), // pbkdf2 iterations
     passwordFingerprint: v.string(), // HMAC-SHA256 hex/base64
+    generateQR: v.optional(v.boolean()), // whether to generate QR codes for this list
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"]) // lookup for a given event

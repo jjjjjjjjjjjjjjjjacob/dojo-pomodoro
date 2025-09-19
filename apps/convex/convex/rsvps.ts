@@ -147,10 +147,19 @@ export const statusForUserEvent = query({
     const denied = pick("denied");
     const attending = pick("attending");
     const chosen = approved || pending || denied || attending || rsvps[0];
+
+    // Get list credential info to check generateQR setting
+    const listCredential = await ctx.db
+      .query("listCredentials")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .filter((q) => q.eq(q.field("listKey"), chosen.listKey))
+      .unique();
+
     return {
       listKey: chosen.listKey,
       status: chosen.status as "approved" | "pending" | "denied" | "attending",
       shareContact: chosen.shareContact,
+      generateQR: listCredential?.generateQR ?? false, // default to true for backward compatibility
     } as const;
   },
 });

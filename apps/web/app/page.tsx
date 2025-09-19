@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
 import Link from "next/link";
 import { SignedIn, useAuth, useSession } from "@clerk/nextjs";
+import { useTracking } from "@/app/hooks/use-tracking";
 
 export default function Home() {
   const { isSignedIn, orgRole, has } = useAuth();
@@ -29,6 +30,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const resolve = useAction(api.credentialsNode.resolveEventByPassword);
+  const { trackPageView, trackEvent, trackError } = useTracking();
+
+  // Track home page view
+  useEffect(() => {
+    trackPageView("Home Page");
+  }, [trackPageView]);
 
   const onSubmit = useCallback(async () => {
     const trimmedPassword = password.trim();
@@ -41,12 +48,19 @@ export default function Home() {
       setMessage("");
       const res = await resolve({ password: trimmedPassword });
       if (res?.ok && res.eventId) {
+        trackEvent("Event Access", {
+          eventId: res.eventId,
+          method: "password",
+        });
         // Pass the code along in search params to the event page
         const searchParams = new URLSearchParams({
           password: trimmedPassword,
         }).toString();
         router.push(`/events/${res.eventId}?${searchParams}`);
       } else {
+        trackError("Invalid Event Password", {
+          password: trimmedPassword,
+        });
         setMessage("No active event matches that password.");
       }
     } catch (error: unknown) {

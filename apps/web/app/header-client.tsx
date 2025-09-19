@@ -8,6 +8,8 @@ import {
 } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useTracking } from "@/app/hooks/use-tracking";
+import { useEffect } from "react";
 
 function useRoleFlags() {
   const { isSignedIn, user } = useUser();
@@ -24,6 +26,15 @@ function useRoleFlags() {
 
 export default function HeaderClient() {
   const { isHost, isDoor } = useRoleFlags();
+  const { isSignedIn } = useUser();
+  const { trackUserSignIn, trackUserSignOut } = useTracking();
+
+  // Track sign-in/sign-out state changes
+  useEffect(() => {
+    if (isSignedIn) {
+      trackUserSignIn();
+    }
+  }, [isSignedIn, trackUserSignIn]);
 
   return (
     <header className="fixed top-0 w-full flex items-center justify-end gap-2 p-3">
@@ -58,6 +69,7 @@ export default function HeaderClient() {
             variant="outline"
             className="text-primary border-primary/30"
             size="sm"
+            onClick={() => trackUserSignOut()}
           >
             Sign out
           </Button>

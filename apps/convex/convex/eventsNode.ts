@@ -21,7 +21,11 @@ export const create = action({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(),
-    lists: v.array(v.object({ listKey: v.string(), password: v.string() })),
+    lists: v.array(v.object({
+      listKey: v.string(),
+      password: v.string(),
+      generateQR: v.optional(v.boolean())
+    })),
     customFields: v.optional(
       v.array(
         v.object({
@@ -73,7 +77,7 @@ export const create = action({
     }
 
     const derivedCredentials: CredentialData[] = args.lists.map(
-      ({ listKey, password }) => {
+      ({ listKey, password, generateQR }) => {
         const { saltB64, hashB64, iterations } = hashPassword(password);
         const fingerprint = hmacFingerprint(fingerprintSecret, password);
         return {
@@ -82,6 +86,7 @@ export const create = action({
           passwordSalt: saltB64,
           passwordIterations: iterations,
           passwordFingerprint: fingerprint,
+          generateQR,
         };
       },
     );

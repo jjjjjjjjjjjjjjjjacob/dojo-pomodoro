@@ -290,6 +290,11 @@ export default function TicketClientPage({
   );
 
   const renderApprovedContent = () => {
+    // Check if this list should generate QR codes
+    if (status?.generateQR === false) {
+      return renderNoQRContent();
+    }
+
     if (isRedemptionLoading) {
       return renderRedemptionLoading();
     }
@@ -328,6 +333,24 @@ export default function TicketClientPage({
       </div>
       <div className="text-xs text-primary/60">
         Your RSVP needs to be approved before your QR code will be available.
+      </div>
+    </div>
+  );
+
+  const renderNoQRContent = () => (
+    <div className="rounded p-3 space-y-2">
+      <div className="font-medium text-sm text-primary">
+        ✓ {status?.listKey?.toUpperCase()} Confirmed
+      </div>
+      <div className="text-xs text-primary/70">
+        {status?.listKey?.toLowerCase() === "ga" ? (
+          <>GA: General Admission - Name verification at door</>
+        ) : (
+          <>This list does not use QR codes for entry</>
+        )}
+      </div>
+      <div className="text-xs text-primary/60 mt-2">
+        Please provide your name at the door for entry verification.
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ export const insertWithCreds = mutation({
         passwordSalt: v.string(),
         passwordIterations: v.number(),
         passwordFingerprint: v.string(),
+        generateQR: v.optional(v.boolean()),
       })
     ),
   },

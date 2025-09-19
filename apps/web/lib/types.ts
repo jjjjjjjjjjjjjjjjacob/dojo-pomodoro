@@ -50,6 +50,7 @@ export interface ListCredential {
   passwordSalt: string;
   passwordIterations: number;
   passwordFingerprint: string;
+  generateQR?: boolean;
   createdAt: number;
 }
 
@@ -200,6 +201,7 @@ export interface ListCredentialInput {
   id?: string;
   listKey: string;
   password: string;
+  generateQR?: boolean;
 }
 
 // API response types

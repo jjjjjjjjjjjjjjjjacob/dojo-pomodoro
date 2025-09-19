@@ -37,6 +37,7 @@ import {
   ApplicationError,
   UseFormReturn,
 } from "@/lib/types";
+import { useTracking } from "@/app/hooks/use-tracking";
 
 export default function RsvpPage({
   params,
@@ -48,8 +49,11 @@ export default function RsvpPage({
   const searchParams = useSearchParams();
   const { user } = useUser();
   const { openUserProfile } = useClerk();
+  const { trackPageView, trackRSVPSubmission, trackError } = useTracking();
 
-  const status = useQuery(api.rsvps.statusForUserEvent, { eventId: eventId as Id<"events"> });
+  const status = useQuery(api.rsvps.statusForUserEvent, {
+    eventId: eventId as Id<"events">,
+  });
   const event = useQuery(api.events.get, { eventId: eventId as Id<"events"> });
   const userDoc = useQuery(
     api.users.getByClerkUser,
@@ -67,7 +71,6 @@ export default function RsvpPage({
   const [name, setName] = useState<string>("");
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
-  const [share, setShare] = useState(true);
   const [message, setMessage] = useState("");
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -89,6 +92,16 @@ export default function RsvpPage({
     }
   }, [password, eventId, router]);
 
+  // Track page view
+  useEffect(() => {
+    if (event) {
+      trackPageView("RSVP Page", {
+        eventId,
+        eventName: event.name,
+      });
+    }
+  }, [event, eventId, trackPageView]);
+
   // Resolve list by password
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +109,10 @@ export default function RsvpPage({
       if (!password) return;
       try {
         setChecking(true);
-        const res = await resolve({ eventId: eventId as Id<"events">, password });
+        const res = await resolve({
+          eventId: eventId as Id<"events">,
+          password,
+        });
         if (!cancelled) {
           if (res?.ok) setListKey(res.listKey);
           else setMessage("Invalid password for this event.");
@@ -234,14 +250,29 @@ export default function RsvpPage({
         eventId: eventId as Id<"events">,
         listKey,
         note: note || undefined,
-        shareContact: share,
+        shareContact: true,
       });
+
+      trackRSVPSubmission({
+        eventId,
+        eventName: event?.name,
+        listKey: listKey || undefined,
+      });
+
       toast.success("RSVP submitted");
       router.replace(`/events/${eventId}/status`);
     } catch (error: unknown) {
       const errorDetails = error as ApplicationError | Error;
       const message = errorDetails?.message || "Failed to submit request";
       setMessage(message);
+
+      trackError("RSVP Submission Failed", {
+        eventId,
+        eventName: event?.name,
+        listKey: listKey || undefined,
+        error: message,
+      });
+
       toast.error("Request failed", { description: message });
     } finally {
       setSubmitting(false);
@@ -300,15 +331,6 @@ export default function RsvpPage({
                     />
                   </div>
                   <div className="flex items-center gap-3">
-                    <label className="text-sm flex items-center gap-2 text-primary">
-                      <Checkbox
-                        checked={share}
-                        onCheckedChange={(checked) =>
-                          setShare(checked === true)
-                        }
-                      />
-                      Share my contact with the hosts
-                    </label>
                     <Button
                       type="submit"
                       disabled={

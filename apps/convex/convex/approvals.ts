@@ -93,7 +93,6 @@ export const applyApproval = mutation({
       code: outCode,
       shareContact: rsvp.shareContact,
     });
-    console.log("identity", identity);
     return { ok: true as const, code: outCode, redeemUrl, user: identity };
   },
 });
@@ -113,7 +112,7 @@ export const approve = mutation({
     // Authorization: rely on roles in JWT
     const role = (identity as any).role;
     const hasHostRole = role === "org:admin";
-    if (!hasHostRole) throw new Error("Forbidden: host role required");
+    if (!hasHostRole) throw new Error("Forbidden: admin role required");
 
     const now = Date.now();
     await ctx.db.patch(rsvpId, { status: "approved", updatedAt: now });

@@ -21,11 +21,13 @@ export default async function TicketServerPage({
   }
 
   // Pre-load event data on the server
-  const eventPreload = await preloadQuery(api.events.get, { eventId: eventId as Id<"events"> });
+  const eventPreload = await preloadQuery(api.events.get, {
+    eventId: eventId as Id<"events">,
+  });
 
   // Pre-load RSVP status for the current user
   const statusPreload = await preloadQuery(api.rsvps.statusForUserEvent, {
-    eventId: eventId as Id<"events">
+    eventId: eventId as Id<"events">,
   });
 
   // Pass the preloaded data to the client component
@@ -37,3 +39,4 @@ export default async function TicketServerPage({
     />
   );
 }
+

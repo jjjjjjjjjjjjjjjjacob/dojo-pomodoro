@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FlyerUpload } from "@/components/flyer-upload";
 import { CustomFieldsBuilderForm } from "@/components/custom-fields-builder";
 import { toast } from "sonner";
@@ -48,8 +49,8 @@ export default function NewEventClient() {
       eventTime: "19:00",
       flyerStorageId: null,
       lists: [
-        { listKey: "vip", password: "" },
-        { listKey: "ga", password: "" },
+        { listKey: "vip", password: "", generateQR: true },
+        { listKey: "ga", password: "", generateQR: false },
       ],
       customFieldsJson: "[]",
     },
@@ -60,11 +61,15 @@ export default function NewEventClient() {
   const addList = () =>
     form.setValue("lists", [
       ...(form.getValues("lists") || []),
-      { listKey: "", password: "" },
+      { listKey: "", password: "", generateQR: true },
     ]);
-  const setList = (i: number, key: keyof ListCredentialInput, val: string) => {
+  const setList = (i: number, key: keyof ListCredentialInput, val: string | boolean) => {
     const copy = [...(form.getValues("lists") || [])];
-    copy[i][key] = val;
+    if (key === "generateQR") {
+      copy[i].generateQR = val as boolean;
+    } else {
+      copy[i][key] = val as string;
+    }
     form.setValue("lists", copy);
   };
   const removeList = (i: number) => {
@@ -212,21 +217,35 @@ export default function NewEventClient() {
           <div className="rounded border p-3 space-y-2">
             <div className="font-medium text-sm">Lists & Passwords</div>
             {(lists || []).map((lp, idx) => (
-              <div key={idx} className="grid grid-cols-2 gap-2 items-center">
+              <div key={idx} className="grid grid-cols-3 gap-2 items-center">
                 <Input
                   placeholder="List (e.g. vip)"
                   value={lp.listKey}
                   onChange={(e) => setList(idx, "listKey", e.target.value)}
                 />
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Password"
-                    value={lp.password}
-                    onChange={(e) => setList(idx, "password", e.target.value)}
-                  />
+                <Input
+                  placeholder="Password"
+                  value={lp.password}
+                  onChange={(e) => setList(idx, "password", e.target.value)}
+                />
+                <div className="flex gap-2 items-center">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`qr-${idx}`}
+                      checked={lp.generateQR ?? true}
+                      onCheckedChange={(checked) => setList(idx, "generateQR", checked === true)}
+                    />
+                    <label
+                      htmlFor={`qr-${idx}`}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      QR
+                    </label>
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
+                    size="sm"
                     onClick={() => removeList(idx)}
                   >
                     Remove

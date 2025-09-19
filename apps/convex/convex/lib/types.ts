@@ -74,4 +74,5 @@ export type CredentialData = {
   passwordSalt: string;
   passwordIterations: number;
   passwordFingerprint: string;
+  generateQR?: boolean;
 };
