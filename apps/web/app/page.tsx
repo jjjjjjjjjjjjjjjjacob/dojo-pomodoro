@@ -38,7 +38,7 @@ export default function Home() {
   }, [trackPageView]);
 
   const onSubmit = useCallback(async () => {
-    const normalizedPassword = password.trim().toLowerCase();
+    const normalizedPassword = password.trim();
     if (!normalizedPassword) {
       setMessage("Enter your list code.");
       return;

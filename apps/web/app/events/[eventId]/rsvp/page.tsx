@@ -66,7 +66,7 @@ export default function RsvpPage({
       : "skip",
   );
 
-  const password = (searchParams?.get("password") || "").toLowerCase();
+  const password = (searchParams?.get("password") || "").trim();
   const [listKey, setListKey] = useState<string | null>(null);
   const [name, setName] = useState<string>("");
   const [custom, setCustom] = useState<Record<string, string>>({});
