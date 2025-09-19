@@ -1,19 +1,28 @@
 "use client";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useHapticContext } from "@/contexts/haptic-context";
 
 type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
   onValueChange?: (value: string) => void;
+  hapticFeedback?: boolean;
 };
 
-export function Select({ className, onChange, onValueChange, children, ...props }: SelectProps) {
+export function Select({ className, onChange, onValueChange, hapticFeedback = true, children, ...props }: SelectProps) {
+  const { trigger } = useHapticContext();
+
+  const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    if (hapticFeedback) {
+      trigger("selection");
+    }
+    onChange?.(event);
+    onValueChange?.(event.target.value);
+  };
+
   return (
     <select
       className={cn("border rounded px-2 py-1 text-sm bg-background", className)}
-      onChange={(e) => {
-        onChange?.(e);
-        onValueChange?.(e.target.value);
-      }}
+      onChange={handleChange}
       {...props}
     >
       {children}

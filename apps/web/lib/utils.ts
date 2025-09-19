@@ -11,15 +11,17 @@ export function cn(...inputs: ClassValue[]) {
 export function formatEventDateTime(timestamp: number): string {
   const date = new Date(timestamp);
   const day = date.toLocaleDateString(undefined, { weekday: "long" });
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const dayOfMonth = String(date.getDate()).padStart(2, "0");
-  const year = String(date.getFullYear()).slice(-2);
+  const formattedDate = date.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "2-digit",
+  });
   const time = date.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
     hour12: true
   });
-  return `${day} ${month}.${dayOfMonth}.${year} at ${time}`;
+  return `${day} ${formattedDate.replace(/\//g, ".")} at ${time}`;
 }
 
 export function copyEventLink(eventId: string): void {

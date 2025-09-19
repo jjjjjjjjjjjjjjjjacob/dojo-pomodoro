@@ -20,7 +20,7 @@ export function DoorPortalClient() {
     <section className="space-y-3">
       <p className="text-sm">Enter a redemption code to validate and redeem.</p>
       <div className="flex gap-2">
-        <Input className="flex-1" placeholder="Enter redemption code" value={code} onChange={(e) => setCode(e.target.value)} />
+        <Input className="flex-1" placeholder="Enter redemption code" value={code} onChange={(e) => setCode(e.target.value.trim())} />
         <Button onClick={() => setLastAction("checked")}>Check</Button>
       </div>
       <div className="rounded border border-foreground/10 p-4 text-sm space-y-2">

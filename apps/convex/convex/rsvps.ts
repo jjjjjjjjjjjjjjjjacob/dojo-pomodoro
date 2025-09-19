@@ -114,6 +114,7 @@ export const listForEvent = query({
           note: r.note,
           status: r.status,
           contact,
+          metadata: user?.metadata,
           redemptionStatus,
           redemptionCode: redemption?.code,
           createdAt: r.createdAt,
@@ -236,5 +237,57 @@ export const acceptRsvp = mutation({
       updatedAt: Date.now(),
     });
     return { ok: true as const };
+  },
+});
+
+export const listUserTickets = query({
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const clerkUserId = identity.subject;
+
+    // Get all RSVPs for the user
+    const userRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
+      .collect();
+
+    // Get event details and redemption codes for each RSVP
+    const ticketsWithDetails = await Promise.all(
+      userRsvps.map(async (rsvp) => {
+        const event = await ctx.db.get(rsvp.eventId);
+
+        // Get redemption code if user is approved/attending
+        let redemptionInfo = null;
+        if (rsvp.status === "approved" || rsvp.status === "attending") {
+          const redemption = await ctx.db
+            .query("redemptions")
+            .withIndex("by_event_user", (q) =>
+              q.eq("eventId", rsvp.eventId).eq("clerkUserId", clerkUserId)
+            )
+            .unique();
+
+          if (redemption) {
+            redemptionInfo = {
+              code: redemption.code,
+              listKey: redemption.listKey,
+              redeemedAt: redemption.redeemedAt,
+            };
+          }
+        }
+
+        return {
+          rsvp,
+          event,
+          redemption: redemptionInfo,
+        };
+      })
+    );
+
+    // Sort by event date (newest first)
+    return ticketsWithDetails.sort((a, b) => {
+      if (!a.event || !b.event) return 0;
+      return b.event.eventDate - a.event.eventDate;
+    });
   },
 });

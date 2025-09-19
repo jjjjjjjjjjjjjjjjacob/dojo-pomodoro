@@ -38,15 +38,15 @@ export default function Home() {
   }, [trackPageView]);
 
   const onSubmit = useCallback(async () => {
-    const trimmedPassword = password.trim();
-    if (!trimmedPassword) {
+    const normalizedPassword = password.trim().toLowerCase();
+    if (!normalizedPassword) {
       setMessage("Enter your list code.");
       return;
     }
     try {
       setLoading(true);
       setMessage("");
-      const res = await resolve({ password: trimmedPassword });
+      const res = await resolve({ password: normalizedPassword });
       if (res?.ok && res.eventId) {
         trackEvent("Event Access", {
           eventId: res.eventId,
@@ -54,12 +54,12 @@ export default function Home() {
         });
         // Pass the code along in search params to the event page
         const searchParams = new URLSearchParams({
-          password: trimmedPassword,
+          password: normalizedPassword,
         }).toString();
         router.push(`/events/${res.eventId}?${searchParams}`);
       } else {
         trackError("Invalid Event Password", {
-          password: trimmedPassword,
+          password: normalizedPassword,
         });
         setMessage("No active event matches that password.");
       }
@@ -84,7 +84,7 @@ export default function Home() {
           <Input
             placeholder="Password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.target.value.trim())}
             onKeyDown={(e) => {
               if (e.key === "Enter") onSubmit();
             }}

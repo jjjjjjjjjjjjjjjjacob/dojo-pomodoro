@@ -50,8 +50,9 @@ export const applyApproval = mutation({
 
     let outCode: string;
     if (!existingRedemption) {
-      // Generate code (use provided or fallback)
-      outCode = code || genFallbackCode();
+      // Generate code (use provided or fallback) and store in uppercase
+      const rawCode = code || genFallbackCode();
+      outCode = rawCode.toUpperCase();
       await ctx.db.insert("redemptions", {
         eventId: rsvp.eventId,
         clerkUserId: rsvp.clerkUserId,
@@ -129,7 +130,7 @@ export const approve = mutation({
         eventId: rsvp.eventId,
         clerkUserId: rsvp.clerkUserId,
         listKey: rsvp.listKey,
-        code: genFallbackCode(),
+        code: genFallbackCode().toUpperCase(),
         createdAt: now,
         disabledAt: undefined,
         redeemedAt: undefined,

@@ -176,10 +176,12 @@ export default function TicketClientPage({
     if (!timestamp) return "";
     const date = new Date(timestamp);
     const day = date.toLocaleDateString(undefined, { weekday: "long" });
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const dayOfMonth = String(date.getDate()).padStart(2, "0");
-    const year = String(date.getFullYear()).slice(-2);
-    return `${day} ${month}.${dayOfMonth}.${year}`;
+    const formattedDate = date.toLocaleDateString("en-US", {
+      month: "2-digit",
+      day: "2-digit",
+      year: "2-digit",
+    });
+    return `${day} ${formattedDate.replace(/\//g, ".")}`;
   }, [event?.eventDate]);
 
   // Clear loading state variables

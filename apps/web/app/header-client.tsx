@@ -7,9 +7,18 @@ import {
   useUser,
 } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import Link from "next/link";
 import { useTracking } from "@/app/hooks/use-tracking";
 import { useEffect } from "react";
+import DojoPomodoreIcon from "@/components/icons/dojo-pomodoro-icon";
+import { LogOut, LogIn } from "lucide-react";
 
 function useRoleFlags() {
   const { isSignedIn, user } = useUser();
@@ -52,29 +61,56 @@ export default function HeaderClient() {
           </Link>
         )}
       </SignedIn>
-      <SignedOut>
-        <SignInButton>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <Button
-            variant="outline"
-            className="text-primary border-primary/30"
-            size="sm"
+            variant="ghost"
+            size="lg"
+            className="text-primary border-primary/30 aspect-square p-1"
           >
-            Sign in
+            <DojoPomodoreIcon size={32} />
           </Button>
-        </SignInButton>
-      </SignedOut>
-      <SignedIn>
-        <SignOutButton>
-          <Button
-            variant="outline"
-            className="text-primary border-primary/30"
-            size="sm"
-            onClick={() => trackUserSignOut()}
-          >
-            Sign out
-          </Button>
-        </SignOutButton>
-      </SignedIn>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <SignedIn>
+            {/* TODO: Uncomment when profile page is implemented
+            <DropdownMenuItem asChild>
+              <Link href="/profile" className="flex items-center gap-2">
+                <User size={16} />
+                Profile
+              </Link>
+            </DropdownMenuItem>
+            */}
+            {/* TODO: Uncomment when tickets page is implemented
+            <DropdownMenuItem asChild>
+              <Link href="/tickets" className="flex items-center gap-2">
+                <Ticket size={16} />
+                My Tickets
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            */}
+            <SignOutButton>
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-primary! hover:text-primary!"
+                onClick={() => trackUserSignOut()}
+              >
+                <LogOut size={16} className="text-primary" />
+                Sign Out
+              </DropdownMenuItem>
+            </SignOutButton>
+          </SignedIn>
+          <SignedOut>
+            <SignInButton>
+              <DropdownMenuItem className="flex items-center gap-2 text-primary! hover:text-primary!">
+                <LogIn size={16} className="text-primary" />
+                Sign In
+              </DropdownMenuItem>
+            </SignInButton>
+          </SignedOut>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </header>
   );
 }

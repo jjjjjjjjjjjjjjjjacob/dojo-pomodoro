@@ -13,14 +13,15 @@ export function DoorPortalClient() {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [lastAction, setLastAction] = useState<string | null>(null);
-  const status = useQuery(api.redemptions.validate, code ? { code } : "skip") as RedemptionStatusResponse | undefined;
+  const normalizedCode = code.toUpperCase();
+  const status = useQuery(api.redemptions.validate, code ? { code: normalizedCode } : "skip") as RedemptionStatusResponse | undefined;
   const redeem = useMutation(api.redemptions.redeem);
   const unredeem = useMutation(api.redemptions.unredeem);
   return (
     <section className="space-y-3">
       <p className="text-sm">Enter a redemption code to validate and redeem.</p>
       <div className="flex gap-2">
-        <Input className="flex-1" placeholder="Enter redemption code" value={code} onChange={(e) => setCode(e.target.value)} />
+        <Input className="flex-1" placeholder="Enter redemption code" value={code} onChange={(e) => setCode(e.target.value.trim())} />
         <Button onClick={() => setLastAction("checked")}>Check</Button>
       </div>
       <div className="rounded border border-foreground/10 p-4 text-sm space-y-2">
@@ -32,8 +33,8 @@ export function DoorPortalClient() {
           </div>
         )}
         <div className="flex gap-2">
-          <Button disabled={!code || !status || (status as any).status !== "valid"} onClick={async () => { await redeem({ code }); setLastAction("redeemed"); toast.success("Redeemed"); }}>Redeem</Button>
-          <Button variant="outline" disabled={!code || !status || (status as any).status !== "redeemed"} onClick={async () => { await unredeem({ code }); setLastAction("unredeemed"); toast.success("Un-redeemed"); }}>Un-redeem</Button>
+          <Button disabled={!code || !status || (status as any).status !== "valid"} onClick={async () => { await redeem({ code: normalizedCode }); setLastAction("redeemed"); toast.success("Redeemed"); }}>Redeem</Button>
+          <Button variant="outline" disabled={!code || !status || (status as any).status !== "redeemed"} onClick={async () => { await unredeem({ code: normalizedCode }); setLastAction("unredeemed"); toast.success("Un-redeemed"); }}>Un-redeem</Button>
         </div>
         {lastAction && <div className="text-foreground/70">Last action: {lastAction}</div>}
       </div>

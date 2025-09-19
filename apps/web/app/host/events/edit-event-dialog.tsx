@@ -285,12 +285,12 @@ export default function EditEventDialog({ event }: { event: Event }) {
                   <Input
                     placeholder="List key (e.g. vip)"
                     value={listPassword.listKey}
-                    onChange={(e) => setList(index, "listKey", e.target.value)}
+                    onChange={(e) => setList(index, "listKey", e.target.value.trim())}
                   />
                   <Input
                     placeholder="New password (leave blank to keep)"
                     value={listPassword.password}
-                    onChange={(e) => setList(index, "password", e.target.value)}
+                    onChange={(e) => setList(index, "password", e.target.value.trim())}
                   />
                   <Button
                     type="button"

@@ -134,7 +134,11 @@ export default function NewEventClient() {
               <FormItem>
                 <FormLabel>Name</FormLabel>
                 <FormControl>
-                  <Input placeholder="Event name" {...field} />
+                  <Input
+                    placeholder="Event name"
+                    {...field}
+                    onChange={(e) => field.onChange(e.target.value.trim())}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -151,6 +155,7 @@ export default function NewEventClient() {
                   <Input
                     placeholder="host1@example.com, host2@example.com"
                     {...field}
+                    onChange={(e) => field.onChange(e.target.value.trim())}
                   />
                 </FormControl>
                 <FormMessage />
@@ -165,7 +170,11 @@ export default function NewEventClient() {
               <FormItem>
                 <FormLabel>Location</FormLabel>
                 <FormControl>
-                  <Input placeholder="Venue" {...field} />
+                  <Input
+                    placeholder="Venue"
+                    {...field}
+                    onChange={(e) => field.onChange(e.target.value.trim())}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -221,12 +230,12 @@ export default function NewEventClient() {
                 <Input
                   placeholder="List (e.g. vip)"
                   value={lp.listKey}
-                  onChange={(e) => setList(idx, "listKey", e.target.value)}
+                  onChange={(e) => setList(idx, "listKey", e.target.value.trim())}
                 />
                 <Input
                   placeholder="Password"
                   value={lp.password}
-                  onChange={(e) => setList(idx, "password", e.target.value)}
+                  onChange={(e) => setList(idx, "password", e.target.value.trim())}
                 />
                 <div className="flex gap-2 items-center">
                   <div className="flex items-center space-x-2">

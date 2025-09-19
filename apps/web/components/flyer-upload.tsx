@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
@@ -63,7 +64,13 @@ export function FlyerUpload({ value, onChange }: Props) {
         ) : value ? (
           <div className="flex items-center gap-3">
             {preview?.url ? (
-              <img src={preview.url} alt="Flyer preview" className="h-20 w-20 object-cover rounded" />
+              <Image
+                src={preview.url}
+                alt="Flyer preview"
+                width={80}
+                height={80}
+                className="h-20 w-20 object-cover rounded"
+              />
             ) : (
               <div className="h-20 w-20 bg-foreground/10 rounded" />
             )}

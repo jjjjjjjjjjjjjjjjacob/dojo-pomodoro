@@ -53,11 +53,16 @@ function AlertDialogDescription(
 }
 
 function AlertDialogAction(
-  { children, onClick, ...rest }: React.ComponentProps<typeof Button>,
+  { children, onClick, hapticType = "success", ...rest }: React.ComponentProps<typeof Button>,
 ) {
   return (
     <BaseClose asChild>
-      <Button data-slot="alert-dialog-action" onClick={onClick} {...rest}>
+      <Button
+        data-slot="alert-dialog-action"
+        onClick={onClick}
+        hapticType={hapticType}
+        {...rest}
+      >
         {children}
       </Button>
     </BaseClose>
@@ -65,11 +70,17 @@ function AlertDialogAction(
 }
 
 function AlertDialogCancel(
-  { children, onClick, ...rest }: React.ComponentProps<typeof Button>,
+  { children, onClick, hapticType = "light", ...rest }: React.ComponentProps<typeof Button>,
 ) {
   return (
     <BaseClose asChild>
-      <Button data-slot="alert-dialog-cancel" variant="outline" onClick={onClick} {...rest}>
+      <Button
+        data-slot="alert-dialog-cancel"
+        variant="outline"
+        onClick={onClick}
+        hapticType={hapticType}
+        {...rest}
+      >
         {children}
       </Button>
     </BaseClose>

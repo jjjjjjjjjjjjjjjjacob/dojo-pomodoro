@@ -21,9 +21,9 @@ export function CustomFieldsBuilderForm() {
       <div className="font-medium text-sm">Custom RSVP Fields</div>
       {fields.map((field, index) => (
         <div key={index} className="grid grid-cols-4 gap-2 items-center">
-          <Input placeholder="key (e.g. instagram)" value={field.key} onChange={(e) => set(index, "key", e.target.value)} />
-          <Input placeholder="Label" value={field.label} onChange={(e) => set(index, "label", e.target.value)} />
-          <Input placeholder="Placeholder" value={field.placeholder || ""} onChange={(e) => set(index, "placeholder", e.target.value)} />
+          <Input placeholder="key (e.g. instagram)" value={field.key} onChange={(e) => set(index, "key", e.target.value.trim())} />
+          <Input placeholder="Label" value={field.label} onChange={(e) => set(index, "label", e.target.value.trim())} />
+          <Input placeholder="Placeholder" value={field.placeholder || ""} onChange={(e) => set(index, "placeholder", e.target.value.trim())} />
           <label className="text-xs flex items-center gap-2">
             <input type="checkbox" checked={!!field.required} onChange={(e) => set(index, "required", e.target.checked)} /> Required
           </label>
@@ -50,9 +50,9 @@ export function CustomFieldsEditor({ initial, onChange }: { initial?: CustomFiel
       <div className="font-medium text-sm">Custom RSVP Fields</div>
       {fields.map((field, index) => (
         <div key={index} className="grid grid-cols-4 gap-2 items-center">
-          <Input placeholder="key (e.g. instagram)" value={field.key} onChange={(e) => set(index, "key", e.target.value)} />
-          <Input placeholder="Label" value={field.label} onChange={(e) => set(index, "label", e.target.value)} />
-          <Input placeholder="Placeholder" value={field.placeholder || ""} onChange={(e) => set(index, "placeholder", e.target.value)} />
+          <Input placeholder="key (e.g. instagram)" value={field.key} onChange={(e) => set(index, "key", e.target.value.trim())} />
+          <Input placeholder="Label" value={field.label} onChange={(e) => set(index, "label", e.target.value.trim())} />
+          <Input placeholder="Placeholder" value={field.placeholder || ""} onChange={(e) => set(index, "placeholder", e.target.value.trim())} />
           <label className="text-xs flex items-center gap-2">
             <input type="checkbox" checked={!!field.required} onChange={(e) => set(index, "required", e.target.checked)} /> Required
           </label>

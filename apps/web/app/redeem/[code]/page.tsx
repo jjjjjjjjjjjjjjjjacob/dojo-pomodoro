@@ -10,7 +10,8 @@ export default function RedeemPage({
 }: {
   params: Promise<{ code: string }>;
 }) {
-  const { code } = use(params);
+  const { code: rawCode } = use(params);
+  const code = rawCode.toUpperCase();
   const status = useQuery(api.redemptions.validate, { code });
   const redeem = useMutation(api.redemptions.redeem);
   const unredeem = useMutation(api.redemptions.unredeem);
@@ -31,7 +32,7 @@ export default function RedeemPage({
     <main className="max-w-3xl mx-auto p-6 space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Redemption</h1>
-        <p className="text-sm text-foreground/70">Code: {code}</p>
+        <p className="text-sm text-foreground/70">Code: {rawCode}</p>
       </header>
       <section className="space-y-3">
         <div className="rounded border border-foreground/10 p-4 text-sm space-y-2">

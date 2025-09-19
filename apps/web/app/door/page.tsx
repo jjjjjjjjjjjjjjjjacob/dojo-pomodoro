@@ -124,7 +124,7 @@ export default function DoorPortal() {
                 className="flex-1"
                 placeholder="Enter redemption code"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={(e) => setCode(e.target.value.trim())}
               />
               <Button onClick={() => setLastAction("checked")}>Check</Button>
             </div>

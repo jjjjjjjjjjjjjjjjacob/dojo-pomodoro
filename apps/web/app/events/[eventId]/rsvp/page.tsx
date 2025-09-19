@@ -66,7 +66,7 @@ export default function RsvpPage({
       : "skip",
   );
 
-  const password = searchParams?.get("password") || "";
+  const password = (searchParams?.get("password") || "").toLowerCase();
   const [listKey, setListKey] = useState<string | null>(null);
   const [name, setName] = useState<string>("");
   const [custom, setCustom] = useState<Record<string, string>>({});
@@ -320,17 +320,17 @@ export default function RsvpPage({
                     isSignedIn={!!user}
                   />
                   <div className="rounded border border-primary/30 p-3 space-y-2">
-                    <div className="font-medium text-sm text-primary">
-                      Note for Hosts (optional)
+                    <div className="font-medium text-xs text-primary">
+                      NOTE FOR HOSTS (optional)
                     </div>
                     <Textarea
                       placeholder="Anything hosts should know"
                       className="border border-primary/20 placeholder:text-primary/30 text-primary"
                       value={note}
-                      onChange={(e) => setNote(e.target.value)}
+                      onChange={(e) => setNote(e.target.value.trim())}
                     />
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center">
                     <Button
                       type="submit"
                       disabled={

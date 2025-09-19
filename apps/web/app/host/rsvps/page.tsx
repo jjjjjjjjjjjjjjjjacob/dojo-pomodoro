@@ -21,9 +21,17 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 import { toast } from "sonner";
 import { useDebounce } from "@/lib/hooks/use-debounce";
-import { MoreHorizontal, QrCode, ToggleLeft, ToggleRight } from "lucide-react";
+import { MoreHorizontal, QrCode, ToggleLeft, ToggleRight, Info } from "lucide-react";
 import {
   ColumnDef,
   flexRender,
@@ -80,7 +88,38 @@ export default function RsvpsPage() {
         header: "Guest",
         accessorFn: (r: any) =>
           r.name || r.contact?.email || r.contact?.phone || "(no contact)",
-        cell: (ctx) => <span>{ctx.getValue() as string}</span>,
+        cell: (ctx) => {
+          const guestName = ctx.getValue() as string;
+          const rsvp = ctx.row.original;
+          const metadata = rsvp.metadata;
+          const hasMetadata = metadata && Object.keys(metadata).length > 0;
+          const metadataEntries = hasMetadata ? Object.entries(metadata).slice(0, 3) : [];
+
+          if (!hasMetadata) {
+            return <span>{guestName}</span>;
+          }
+
+          return (
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="flex items-center gap-1 cursor-context-menu">
+                  <span>{guestName}</span>
+                  <Info className="w-3 h-3 text-muted-foreground" />
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuLabel>Additional Info</ContextMenuLabel>
+                <ContextMenuSeparator />
+                {metadataEntries.map(([key, value]) => (
+                  <ContextMenuItem key={key} className="flex flex-col items-start">
+                    <span className="text-xs text-muted-foreground capitalize">{key}</span>
+                    <span className="text-sm">{String(value)}</span>
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        },
       },
       {
         id: "listKey",

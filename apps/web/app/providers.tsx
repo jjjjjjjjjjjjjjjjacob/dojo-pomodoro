@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConvexReactClient } from "convex/react";
 import { Toaster } from "@/components/ui/sonner";
 import { PostHogProvider } from "./posthog-provider";
+import { HapticProvider } from "@/contexts/haptic-context";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
 const convex = new ConvexReactClient(convexUrl);
@@ -26,8 +27,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       <PostHogProvider>
         <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
           <QueryClientProvider client={queryClient}>
-            {children}
-            <Toaster position="top-center" />
+            <HapticProvider>
+              {children}
+              <Toaster position="top-center" />
+            </HapticProvider>
           </QueryClientProvider>
         </ConvexProviderWithClerk>
       </PostHogProvider>

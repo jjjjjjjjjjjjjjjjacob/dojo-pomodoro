@@ -78,7 +78,7 @@ export default function DeniedPage({
               <Input
                 placeholder="Different list password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={(e) => setNewPassword(e.target.value.trim())}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleTryNewPassword();
                 }}

@@ -10,12 +10,7 @@ import {
   FormControl,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Event,
-  CustomField,
-  UseFormReturn,
-  RSVPFormData
-} from "@/lib/types";
+import { Event, CustomField, UseFormReturn, RSVPFormData } from "@/lib/types";
 
 export function GuestInfoFields({
   form,
@@ -42,7 +37,7 @@ export function GuestInfoFields({
 }) {
   return (
     <div className="rounded border border-primary/30 p-3 space-y-2">
-      <div className="font-semibold text-sm text-primary">Your Info</div>
+      <div className="font-semibold text-sm text-primary">YOUR INFO</div>
       <FormField
         control={form.control}
         name="name"
@@ -50,7 +45,7 @@ export function GuestInfoFields({
         render={({ field }) => (
           <FormItem>
             <FormLabel className="text-primary text-xs font-medium">
-              Name <span className="text-xs text-primary/70">(required)</span>
+              NAME <span className="text-xs text-primary/70">(required)</span>
             </FormLabel>
             <FormControl>
               <Input
@@ -58,8 +53,8 @@ export function GuestInfoFields({
                 className="border border-primary/20 placeholder:text-primary/50 text-primary"
                 value={name}
                 onChange={(e) => {
-                  setName(e.target.value);
-                  field.onChange(e);
+                  setName(e.target.value.trim());
+                  field.onChange(e.target.value.trim());
                 }}
               />
             </FormControl>
@@ -74,7 +69,9 @@ export function GuestInfoFields({
           name={`custom.${customField.key}` as keyof RSVPFormData}
           rules={
             customField.required
-              ? { required: `${customField.label || customField.key} is required` }
+              ? {
+                  required: `${customField.label || customField.key} is required`,
+                }
               : undefined
           }
           render={({ field }) => (
@@ -87,12 +84,19 @@ export function GuestInfoFields({
               </FormLabel>
               <FormControl>
                 <Input
-                  placeholder={customField.placeholder || customField.label || customField.key}
+                  placeholder={
+                    customField.placeholder ||
+                    customField.label ||
+                    customField.key
+                  }
                   className="border border-primary/20 placeholder:text-primary/50 text-primary"
                   value={custom[customField.key] || ""}
                   onChange={(e) => {
-                    setCustom((m) => ({ ...m, [customField.key]: e.target.value }));
-                    field.onChange(e);
+                    setCustom((m) => ({
+                      ...m,
+                      [customField.key]: e.target.value.trim(),
+                    }));
+                    field.onChange(e.target.value.trim());
                   }}
                 />
               </FormControl>
@@ -104,7 +108,7 @@ export function GuestInfoFields({
 
       <div className="flex flex-col gap-1">
         <Label className="text-sm flex items-center gap-2 text-xs text-primary font-medium">
-          Phone
+          PHONE
         </Label>
         <div className="flex gap-4">
           <Input
@@ -119,7 +123,7 @@ export function GuestInfoFields({
               onClick={() => openUserProfile?.()}
               className="border-primary/30 text-primary/70"
             >
-              Update
+              UPDATE
             </Button>
           ) : (
             <div className="text-xs text-primary/60 flex items-center">

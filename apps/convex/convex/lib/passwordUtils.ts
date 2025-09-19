@@ -11,7 +11,7 @@ const DIGEST = "sha256";
 export function hmacFingerprint(secret: string, password: string): string {
   return crypto
     .createHmac("sha256", secret)
-    .update(password, "utf8")
+    .update(password.toLowerCase(), "utf8")
     .digest("hex");
 }
 
@@ -20,7 +20,7 @@ export function hmacFingerprint(secret: string, password: string): string {
  */
 export function hashPassword(password: string) {
   const salt = crypto.randomBytes(16);
-  const hash = crypto.pbkdf2Sync(password, salt, ITERATIONS, KEYLEN, DIGEST);
+  const hash = crypto.pbkdf2Sync(password.toLowerCase(), salt, ITERATIONS, KEYLEN, DIGEST);
   return {
     saltB64: salt.toString("base64"),
     hashB64: hash.toString("base64"),
@@ -38,7 +38,7 @@ export function verifyPassword(
   iterations: number
 ): boolean {
   const salt = Buffer.from(storedSalt, "base64");
-  const candidate = crypto.pbkdf2Sync(password, salt, iterations, KEYLEN, DIGEST);
+  const candidate = crypto.pbkdf2Sync(password.toLowerCase(), salt, iterations, KEYLEN, DIGEST);
   const stored = Buffer.from(storedHash, "base64");
 
   // Timing-safe comparison

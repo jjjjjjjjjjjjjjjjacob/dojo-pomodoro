@@ -9,9 +9,10 @@ function hasJwtDoorOrHost(identity: any) {
 export const byCode = query({
   args: { code: v.string() },
   handler: async (ctx, { code }) => {
+    const normalizedCode = code.toUpperCase();
     const rec = await ctx.db
       .query("redemptions")
-      .withIndex("by_code", (q) => q.eq("code", code))
+      .withIndex("by_code", (q) => q.eq("code", normalizedCode))
       .unique();
     if (!rec) return { status: "invalid" as const };
 
@@ -31,9 +32,10 @@ export const byCode = query({
 export const validate = query({
   args: { code: v.string() },
   handler: async (ctx, { code }) => {
+    const normalizedCode = code.toUpperCase();
     const rec = await ctx.db
       .query("redemptions")
-      .withIndex("by_code", (q) => q.eq("code", code))
+      .withIndex("by_code", (q) => q.eq("code", normalizedCode))
       .unique();
     if (!rec) return { status: "invalid" as const };
 
@@ -59,9 +61,10 @@ export const redeem = mutation({
     if (!hasJwtDoorOrHost(identity))
       throw new Error("Forbidden: door/host role required");
 
+    const normalizedCode = code.toUpperCase();
     const rec = await ctx.db
       .query("redemptions")
-      .withIndex("by_code", (q) => q.eq("code", code))
+      .withIndex("by_code", (q) => q.eq("code", normalizedCode))
       .unique();
     if (!rec) throw new Error("Invalid code");
     if (rec.disabledAt) throw new Error("Invalid code");
@@ -84,9 +87,10 @@ export const unredeem = mutation({
     if (!hasJwtDoorOrHost(identity))
       throw new Error("Forbidden: door/host role required");
 
+    const normalizedCode = code.toUpperCase();
     const rec = await ctx.db
       .query("redemptions")
-      .withIndex("by_code", (q) => q.eq("code", code))
+      .withIndex("by_code", (q) => q.eq("code", normalizedCode))
       .unique();
     if (!rec) throw new Error("Invalid code");
 
