@@ -1,7 +1,65 @@
+// Set up environment variables first
+process.env.NODE_ENV = 'test'
+process.env.NEXT_PUBLIC_POSTHOG_KEY = ''
+
+// Clear all modules to ensure clean mocking
+jest.resetModules()
+
+// Mock PostHog module IMMEDIATELY - prevent any real loading
+jest.doMock('posthog-js', () => ({
+  __esModule: true,
+  default: {
+    init: jest.fn(),
+    identify: jest.fn(),
+    reset: jest.fn(),
+    capture: jest.fn(),
+    isFeatureEnabled: jest.fn(() => false),
+    onFeatureFlags: jest.fn(),
+    getFeatureFlag: jest.fn(),
+    feature_flags: {},
+    loaded: jest.fn(),
+  },
+}), { virtual: true })
+
+// Mock the specific module that's causing issues
+jest.doMock('posthog-js/dist/main.js', () => ({
+  __esModule: true,
+  default: {
+    init: jest.fn(),
+    identify: jest.fn(),
+    reset: jest.fn(),
+    capture: jest.fn(),
+    isFeatureEnabled: jest.fn(() => false),
+    onFeatureFlags: jest.fn(),
+    getFeatureFlag: jest.fn(),
+    feature_flags: {},
+    loaded: jest.fn(),
+  },
+}), { virtual: true })
+
+// Mock modules BEFORE any imports
+const React = require('react')
+
+// Mock HapticProvider context immediately before any imports
+jest.doMock('@/contexts/haptic-context', () => {
+  return {
+    __esModule: true,
+    HapticProvider: ({ children }) => React.createElement('div', { 'data-testid': 'haptic-provider' }, children),
+    useHapticContext: () => ({
+      settings: { enabled: true, intensity: 'medium' },
+      updateSettings: jest.fn(),
+      trigger: jest.fn(() => true),
+      isSupported: true,
+    }),
+  }
+}, { virtual: true })
+
 import '@testing-library/jest-dom'
 
 // Global mocks
 global.jest = require('jest')
+
+// PostHog already mocked above
 
 // Mock Clerk
 jest.mock('@clerk/nextjs', () => ({
@@ -128,6 +186,25 @@ jest.mock('react', () => ({
   }),
 }))
 
+// PostHog already mocked above
+
+// HapticProvider already mocked above
+
+// Mock useHaptic hook
+jest.mock('@/lib/hooks/use-haptic', () => ({
+  useHaptic: () => ({
+    hapticFeedback: jest.fn(() => true),
+    isHapticSupported: () => true,
+    cleanup: jest.fn(),
+  }),
+}))
+
+// Mock PostHog provider
+jest.mock('@/app/posthog-provider', () => ({
+  PostHogProvider: ({ children }) => children,
+  usePostHog: () => ({ posthog: null }),
+}))
+
 // Mock other dependencies
 jest.mock('sonner', () => ({
   toast: {
@@ -156,6 +233,48 @@ Object.defineProperty(window, 'location', {
     search: '',
     pathname: '/',
   },
+  writable: true,
+})
+
+// Mock navigator.userAgent for PostHog
+Object.defineProperty(global.navigator, 'userAgent', {
+  value: 'Mozilla/5.0 (Node.js) AppleWebKit/537.36 (KHTML, like Gecko) jsdom/20.0.0',
+  writable: true,
+})
+
+// Mock localStorage and other browser APIs
+const localStorageMock = {
+  getItem: jest.fn(() => null),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+  length: 0,
+  key: jest.fn(() => null),
+}
+
+// Set up global mocks for browser APIs
+Object.defineProperty(window, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+})
+
+Object.defineProperty(global, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+})
+
+// Mock document methods
+Object.defineProperty(document, 'createElement', {
+  value: jest.fn(() => ({
+    style: {},
+    setAttribute: jest.fn(),
+    getAttribute: jest.fn(),
+    appendChild: jest.fn(),
+    removeChild: jest.fn(),
+    click: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+  })),
   writable: true,
 })
 

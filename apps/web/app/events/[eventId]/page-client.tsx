@@ -48,6 +48,12 @@ export default function EventPageClient({
 
   const onSubmitLocal = useCallback(() => {
     const passwordValue = password.trim();
+    console.log('[DEBUG] Event page password entry:', {
+      original: password,
+      trimmed: passwordValue,
+      length: passwordValue.length,
+      fromQueryParams: queryParamPassword
+    });
     if (!passwordValue) {
       setMessage("Enter your list password.");
       return;

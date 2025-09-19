@@ -39,6 +39,11 @@ export default function Home() {
 
   const onSubmit = useCallback(async () => {
     const normalizedPassword = password.trim();
+    console.log('[DEBUG] Home page password entry:', {
+      original: password,
+      normalized: normalizedPassword,
+      length: normalizedPassword.length
+    });
     if (!normalizedPassword) {
       setMessage("Enter your list code.");
       return;
@@ -46,6 +51,7 @@ export default function Home() {
     try {
       setLoading(true);
       setMessage("");
+      console.log('[DEBUG] Sending password to backend:', normalizedPassword);
       const res = await resolve({ password: normalizedPassword });
       if (res?.ok && res.eventId) {
         trackEvent("Event Access", {

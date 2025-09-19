@@ -12,6 +12,9 @@ const nextConfig: NextConfig = {
   typescript: {
     tsconfigPath: "./tsconfig.build.json",
   },
+  experimental: {
+    forceSwcTransforms: true,
+  },
   webpack: (config, { dev }) => {
     // Exclude test files from webpack bundling
     config.module = config.module || {};

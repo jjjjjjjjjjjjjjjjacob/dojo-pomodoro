@@ -67,7 +67,7 @@ export default function HeaderClient() {
           <Button
             variant="ghost"
             size="lg"
-            className="text-primary border-primary/30 aspect-square p-1"
+            className="text-primary border-primary/30 aspect-square p-1 animate-in fade-in duration-600"
           >
             <DojoPomodoreIcon size={32} />
           </Button>

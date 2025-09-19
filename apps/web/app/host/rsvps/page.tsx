@@ -326,6 +326,16 @@ export default function RsvpsPage() {
     columns: cols,
     state: { sorting, pagination: { pageIndex, pageSize } },
     onSortingChange: setSorting,
+    onPaginationChange: (updater) => {
+      if (typeof updater === 'function') {
+        const newPagination = updater({ pageIndex, pageSize });
+        setPageIndex(newPagination.pageIndex);
+        setPageSize(newPagination.pageSize);
+      } else {
+        setPageIndex(updater.pageIndex);
+        setPageSize(updater.pageSize);
+      }
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -406,7 +416,7 @@ export default function RsvpsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.previousPage()}
+            onClick={() => setPageIndex(pageIndex - 1)}
             disabled={!table.getCanPreviousPage()}
           >
             Previous
@@ -414,7 +424,7 @@ export default function RsvpsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.nextPage()}
+            onClick={() => setPageIndex(pageIndex + 1)}
             disabled={!table.getCanNextPage()}
           >
             Next

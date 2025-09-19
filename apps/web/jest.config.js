@@ -14,7 +14,7 @@ const customJestConfig = {
     '!**/node_modules/**',
   ],
   transform: {
-    '^.+\\.(js|jsx|ts|tsx)$': ['@babel/preset-env', '@babel/preset-react', '@babel/preset-typescript'],
+    '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   transformIgnorePatterns: [

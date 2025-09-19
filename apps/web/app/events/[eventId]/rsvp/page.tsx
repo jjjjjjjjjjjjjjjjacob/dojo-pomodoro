@@ -67,6 +67,11 @@ export default function RsvpPage({
   );
 
   const password = (searchParams?.get("password") || "").trim();
+  console.log('[DEBUG] RSVP page password from URL:', {
+    raw: searchParams?.get("password"),
+    trimmed: password,
+    length: password.length
+  });
   const [listKey, setListKey] = useState<string | null>(null);
   const [name, setName] = useState<string>("");
   const [custom, setCustom] = useState<Record<string, string>>({});
@@ -109,13 +114,24 @@ export default function RsvpPage({
       if (!password) return;
       try {
         setChecking(true);
+        console.log('[DEBUG] Resolving password with backend:', {
+          eventId,
+          password,
+          passwordLength: password.length
+        });
         const res = await resolve({
           eventId: eventId as Id<"events">,
           password,
         });
+        console.log('[DEBUG] Password resolution result:', res);
         if (!cancelled) {
-          if (res?.ok) setListKey(res.listKey);
-          else setMessage("Invalid password for this event.");
+          if (res?.ok) {
+            console.log('[DEBUG] Password resolved to list:', res.listKey);
+            setListKey(res.listKey);
+          } else {
+            console.log('[DEBUG] Password resolution failed');
+            setMessage("Invalid password for this event.");
+          }
         }
       } catch (error: unknown) {
         const errorDetails = error as ApplicationError | Error;
