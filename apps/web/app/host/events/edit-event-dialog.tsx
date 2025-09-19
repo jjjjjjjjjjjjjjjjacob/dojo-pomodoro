@@ -43,7 +43,7 @@ import {
   EditEventFormData,
   ListCredentialEdit,
   CredentialResponse,
-  ApplicationError
+  ApplicationError,
 } from "@/lib/types";
 
 export default function EditEventDialog({ event }: { event: Event }) {
@@ -127,17 +127,31 @@ export default function EditEventDialog({ event }: { event: Event }) {
       if (values.location && values.location !== event.location)
         patch.location = values.location;
       if ((flyerStorageId ?? undefined) !== (event.flyerStorageId ?? undefined))
-        patch.flyerStorageId = flyerStorageId as Id<"_storage"> ?? undefined;
+        patch.flyerStorageId = (flyerStorageId as Id<"_storage">) ?? undefined;
       // Compute local timestamp to avoid timezone skew; prefer RHF values
       const dateStr = form.getValues("eventDate") || eventDateOnly;
       const timeStr = form.getValues("eventTime") || eventTimeOnly;
       if (dateStr) {
-        const [year, month, day] = dateStr.split("-").map((value) => parseInt(value, 10));
+        const [year, month, day] = dateStr
+          .split("-")
+          .map((value) => parseInt(value, 10));
         let dateTime: number | undefined;
-        if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        if (
+          Number.isFinite(year) &&
+          Number.isFinite(month) &&
+          Number.isFinite(day)
+        ) {
           if (timeStr) {
-            const [hours, minutes] = timeStr.split(":").map((value) => parseInt(value, 10));
-            dateTime = new Date(year, (month as number) - 1, day, hours || 0, minutes || 0).getTime();
+            const [hours, minutes] = timeStr
+              .split(":")
+              .map((value) => parseInt(value, 10));
+            dateTime = new Date(
+              year,
+              (month as number) - 1,
+              day,
+              hours || 0,
+              minutes || 0,
+            ).getTime();
           } else {
             dateTime = new Date(year, (month as number) - 1, day).getTime();
           }
