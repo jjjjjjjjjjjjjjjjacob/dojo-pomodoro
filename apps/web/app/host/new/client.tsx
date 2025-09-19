@@ -57,7 +57,8 @@ export default function NewEventClient() {
       const hostArr = values.hosts.split(",").map((s: string) => s.trim()).filter(Boolean);
       const [y, m, d] = (values.eventDate || "").split("-");
       const [hh, mm] = (values.eventTime || "00:00").split(":");
-      const dt = new Date(Number(y), Number(m) - 1, Number(d), Number(hh) || 0, Number(mm) || 0).getTime();
+      // Create date in UTC to avoid timezone issues during storage/display
+      const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh) || 0, Number(mm) || 0)).getTime();
       const listsFiltered = (values.lists as ListRow[]).filter((l) => l.listKey?.trim() && l.password?.trim());
       const customFields: CustomField[] = JSON.parse(values.customFieldsJson || "[]");
       await create({

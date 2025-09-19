@@ -175,11 +175,13 @@ export default function TicketClientPage({
     const timestamp = event?.eventDate;
     if (!timestamp) return "";
     const date = new Date(timestamp);
-    const day = date.toLocaleDateString(undefined, { weekday: "long" });
+    // Use UTC methods to display the exact date that was stored, avoiding timezone shifts
+    const day = date.toLocaleDateString(undefined, { weekday: "long", timeZone: "UTC" });
     const formattedDate = date.toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",
       year: "2-digit",
+      timeZone: "UTC",
     });
     return `${day} ${formattedDate.replace(/\//g, ".")}`;
   }, [event?.eventDate]);

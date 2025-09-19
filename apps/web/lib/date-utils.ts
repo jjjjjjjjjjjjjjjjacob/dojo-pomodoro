@@ -12,6 +12,7 @@ export function formatEventDate(timestamp: number): string {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -24,6 +25,7 @@ export function formatEventTime(timestamp: number): string {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZone: "UTC",
   });
 }
 
@@ -40,6 +42,7 @@ export function formatEventDateTime(timestamp: number): string {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZone: "UTC",
   });
 }
 
@@ -70,9 +73,9 @@ export function createTimestamp(dateString: string, timeString?: string): number
 
   if (timeString) {
     const [hours, minutes] = timeString.split(":").map(value => parseInt(value, 10));
-    return new Date(year, month - 1, day, hours || 0, minutes || 0).getTime();
+    return new Date(Date.UTC(year, month - 1, day, hours || 0, minutes || 0)).getTime();
   } else {
-    return new Date(year, month - 1, day).getTime();
+    return new Date(Date.UTC(year, month - 1, day)).getTime();
   }
 }
 

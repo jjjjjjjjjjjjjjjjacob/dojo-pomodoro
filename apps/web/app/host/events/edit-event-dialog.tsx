@@ -62,9 +62,10 @@ export default function EditEventDialog({ event }: { event: Event }) {
   const [eventDateOnly, setEventDateOnly] = React.useState(() => {
     try {
       const date = new Date(event.eventDate);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
+      // Use UTC methods to extract the exact date that was stored
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(date.getUTCDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
     } catch {
       return "";
@@ -73,8 +74,9 @@ export default function EditEventDialog({ event }: { event: Event }) {
   const [eventTimeOnly, setEventTimeOnly] = React.useState(() => {
     try {
       const date = new Date(event.eventDate);
-      const hours = String(date.getHours()).padStart(2, "0");
-      const minutes = String(date.getMinutes()).padStart(2, "0");
+      // Use UTC methods to extract the exact time that was stored
+      const hours = String(date.getUTCHours()).padStart(2, "0");
+      const minutes = String(date.getUTCMinutes()).padStart(2, "0");
       return `${hours}:${minutes}`;
     } catch {
       return "";
@@ -145,15 +147,15 @@ export default function EditEventDialog({ event }: { event: Event }) {
             const [hours, minutes] = timeStr
               .split(":")
               .map((value) => parseInt(value, 10));
-            dateTime = new Date(
+            dateTime = new Date(Date.UTC(
               year,
               (month as number) - 1,
               day,
               hours || 0,
               minutes || 0,
-            ).getTime();
+            )).getTime();
           } else {
-            dateTime = new Date(year, (month as number) - 1, day).getTime();
+            dateTime = new Date(Date.UTC(year, (month as number) - 1, day)).getTime();
           }
         }
         if (dateTime && !Number.isNaN(dateTime) && dateTime !== event.eventDate)

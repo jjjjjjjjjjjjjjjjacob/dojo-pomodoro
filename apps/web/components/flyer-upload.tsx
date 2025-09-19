@@ -1,6 +1,5 @@
 "use client";
 import React from "react";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
@@ -64,16 +63,25 @@ export function FlyerUpload({ value, onChange }: Props) {
         ) : value ? (
           <div className="flex items-center gap-3">
             {preview?.url ? (
-              <Image
+              <img
                 src={preview.url}
                 alt="Flyer preview"
-                width={80}
-                height={80}
-                className="h-20 w-20 object-cover rounded"
+                className="h-20 w-20 object-cover rounded border"
+                onError={(e) => {
+                  console.error("Failed to load flyer preview image:", preview.url);
+                  e.currentTarget.style.display = "none";
+                  const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                  if (fallback) fallback.style.display = "block";
+                }}
               />
             ) : (
-              <div className="h-20 w-20 bg-foreground/10 rounded" />
+              <div className="h-20 w-20 bg-foreground/10 rounded flex items-center justify-center text-xs text-foreground/50">
+                Loading...
+              </div>
             )}
+            <div className="h-20 w-20 bg-foreground/10 rounded flex items-center justify-center text-xs text-foreground/50" style={{ display: "none" }}>
+              Failed to load
+            </div>
             <div className="text-left">
               <div className="font-medium">Flyer uploaded</div>
               <div className="text-foreground/70 text-xs break-all">{value}</div>
