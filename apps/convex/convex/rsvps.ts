@@ -329,3 +329,115 @@ export const deleteRSVP = mutation({
     return { deleted: true };
   },
 });
+
+// Complete RSVP update with approval and ticket status
+export const updateRsvpComplete = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+    approvalStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"))),
+    ticketStatus: v.optional(v.union(v.literal("issued"), v.literal("not-issued"), v.literal("disabled"))),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const rsvp = await ctx.db.get(args.rsvpId);
+    if (!rsvp) throw new Error("RSVP not found");
+
+    const now = Date.now();
+
+    // Update approval status if provided
+    if (args.approvalStatus && args.approvalStatus !== rsvp.status) {
+      await ctx.db.patch(args.rsvpId, {
+        status: args.approvalStatus,
+        updatedAt: now
+      });
+
+      // Handle redemption based on approval status
+      if (args.approvalStatus === "approved") {
+        // Auto-create redemption when approving
+        await ctx.runMutation(api.redemptions.updateTicketStatus, {
+          rsvpId: args.rsvpId,
+          status: "issued"
+        });
+      } else if (args.approvalStatus === "denied") {
+        // Auto-disable redemption when denying
+        const existingRedemption = await ctx.db
+          .query("redemptions")
+          .withIndex("by_event_user", (q) =>
+            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
+          )
+          .unique();
+        if (existingRedemption && !existingRedemption.disabledAt) {
+          await ctx.db.patch(existingRedemption._id, { disabledAt: now });
+        }
+      }
+
+      // Record approval audit
+      await ctx.db.insert("approvals", {
+        eventId: rsvp.eventId,
+        rsvpId: args.rsvpId,
+        clerkUserId: rsvp.clerkUserId,
+        listKey: rsvp.listKey,
+        decision: args.approvalStatus,
+        decidedBy: identity.subject,
+        decidedAt: now,
+      });
+    }
+
+    // Update ticket status if provided and not overridden by approval logic
+    if (args.ticketStatus && args.approvalStatus !== "denied") {
+      await ctx.runMutation(api.redemptions.updateTicketStatus, {
+        rsvpId: args.rsvpId,
+        status: args.ticketStatus
+      });
+    }
+
+    return { status: "ok" as const };
+  },
+});
+
+// Complete RSVP deletion with all associated records
+export const deleteRsvpComplete = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const rsvp = await ctx.db.get(args.rsvpId);
+    if (!rsvp) throw new Error("RSVP not found");
+
+    // Delete associated redemption
+    const redemption = await ctx.db
+      .query("redemptions")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
+      )
+      .unique();
+    if (redemption) {
+      await ctx.db.delete(redemption._id);
+    }
+
+    // Delete associated approvals
+    const approvals = await ctx.db
+      .query("approvals")
+      .filter((q) => q.eq(q.field("rsvpId"), args.rsvpId))
+      .collect();
+    for (const approval of approvals) {
+      await ctx.db.delete(approval._id);
+    }
+
+    // Delete the RSVP itself
+    await ctx.db.delete(args.rsvpId);
+
+    return { deleted: true };
+  },
+});

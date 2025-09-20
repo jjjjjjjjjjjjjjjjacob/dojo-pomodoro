@@ -118,25 +118,38 @@ export const approve = mutation({
     const now = Date.now();
     await ctx.db.patch(rsvpId, { status: "approved", updatedAt: now });
 
-    // Create a redemption if one doesn't exist
+    // Create a redemption if one doesn't exist, or re-enable if disabled
     const existingRedemption = await ctx.db
       .query("redemptions")
       .withIndex("by_event_user", (q) =>
         q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
       )
       .unique();
+
+    let redemptionCode: string;
     if (!existingRedemption) {
+      // Create new redemption
+      redemptionCode = genFallbackCode().toUpperCase();
       await ctx.db.insert("redemptions", {
         eventId: rsvp.eventId,
         clerkUserId: rsvp.clerkUserId,
         listKey: rsvp.listKey,
-        code: genFallbackCode().toUpperCase(),
+        code: redemptionCode,
         createdAt: now,
         disabledAt: undefined,
         redeemedAt: undefined,
         redeemedByClerkUserId: undefined,
         unredeemHistory: [],
       });
+    } else {
+      // Re-enable existing redemption if it was disabled
+      redemptionCode = existingRedemption.code;
+      if (existingRedemption.disabledAt) {
+        await ctx.db.patch(existingRedemption._id, {
+          disabledAt: undefined,
+          listKey: rsvp.listKey, // Update list key in case it changed
+        });
+      }
     }
 
     await ctx.db.insert("approvals", {
@@ -150,7 +163,7 @@ export const approve = mutation({
       denialReason: reason,
     });
 
-    return { ok: true as const };
+    return { ok: true as const, code: redemptionCode };
   },
 });
 

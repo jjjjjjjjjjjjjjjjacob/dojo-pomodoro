@@ -8,6 +8,15 @@ import { Select, SelectOption } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import QRCode from "react-qr-code";
 import {
   Dialog,
@@ -18,21 +27,24 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import {
-  ContextMenu,
-  ContextMenuTrigger,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuLabel,
-  ContextMenuSeparator,
-} from "@/components/ui/context-menu";
 import { toast } from "sonner";
 import { useDebounce } from "@/lib/hooks/use-debounce";
-import { MoreHorizontal, QrCode, ToggleLeft, ToggleRight, Info, X } from "lucide-react";
+import { MoreHorizontal, QrCode, ToggleLeft, ToggleRight, X } from "lucide-react";
 import {
   ColumnDef,
   flexRender,
@@ -64,9 +76,13 @@ export default function RsvpsPage() {
   }, [eventId]);
 
   const rsvps = useQuery(api.rsvps.listForEvent, eventId ? { eventId: eventId as Id<"events"> } : "skip");
+  const currentEvent = useQuery(api.events.get, eventId ? { eventId: eventId as Id<"events"> } : "skip");
   const approve = useMutation(api.approvals.approve);
   const deny = useMutation(api.approvals.deny);
   const toggleRedemptionStatus = useMutation(api.redemptions.toggleRedemptionStatus);
+  const updateTicketStatus = useMutation(api.redemptions.updateTicketStatus);
+  const updateRsvpComplete = useMutation(api.rsvps.updateRsvpComplete);
+  const deleteRsvpComplete = useMutation(api.rsvps.deleteRsvpComplete);
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
   ]);
@@ -75,6 +91,12 @@ export default function RsvpsPage() {
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [listFilter, setListFilter] = React.useState<string>("all");
   const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
+  const [pendingChanges, setPendingChanges] = React.useState<Record<string, {
+    originalApprovalStatus: string;
+    originalTicketStatus: string;
+    currentApprovalStatus: string;
+    currentTicketStatus: string;
+  }>>({});
   const [showQR, setShowQR] = React.useState(false);
   const [qr, setQr] = React.useState<{
     code: string;
@@ -82,6 +104,25 @@ export default function RsvpsPage() {
     status?: string;
     listKey?: string;
   } | null>(null);
+
+  // Generate dynamic custom field columns
+  const customFieldColumns = React.useMemo(() => {
+    if (!currentEvent?.customFields) return [];
+
+    return currentEvent.customFields.map((field) => ({
+      id: `custom_${field.key}`,
+      header: field.label,
+      accessorFn: (r: any) => r.metadata?.[field.key] || '',
+      cell: ({ getValue }: any) => {
+        const value = getValue() as string;
+        return (
+          <span className="truncate max-w-32" title={value}>
+            {value || '-'}
+          </span>
+        );
+      },
+    }));
+  }, [currentEvent?.customFields]);
 
   const cols = React.useMemo<ColumnDef<any>[]>(
     () => [
@@ -92,35 +133,7 @@ export default function RsvpsPage() {
           r.name || r.contact?.email || r.contact?.phone || "(no contact)",
         cell: (ctx) => {
           const guestName = ctx.getValue() as string;
-          const rsvp = ctx.row.original;
-          const metadata = rsvp.metadata;
-          const hasMetadata = metadata && Object.keys(metadata).length > 0;
-          const metadataEntries = hasMetadata ? Object.entries(metadata).slice(0, 3) : [];
-
-          if (!hasMetadata) {
-            return <span>{guestName}</span>;
-          }
-
-          return (
-            <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <div className="flex items-center gap-1 cursor-context-menu">
-                  <span>{guestName}</span>
-                  <Info className="w-3 h-3 text-muted-foreground" />
-                </div>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuLabel>Additional Info</ContextMenuLabel>
-                <ContextMenuSeparator />
-                {metadataEntries.map(([key, value]) => (
-                  <ContextMenuItem key={key} className="flex flex-col items-start">
-                    <span className="text-xs text-muted-foreground capitalize">{key}</span>
-                    <span className="text-sm">{String(value)}</span>
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuContent>
-            </ContextMenu>
-          );
+          return <span>{guestName}</span>;
         },
       },
       {
@@ -129,55 +142,169 @@ export default function RsvpsPage() {
         accessorKey: "listKey",
         cell: ({ getValue }) => (getValue() as string)?.toUpperCase(),
       },
+      // Insert custom field columns here
+      ...customFieldColumns,
       {
-        id: "status",
-        header: "Status",
+        id: "approvalStatus",
+        header: "Approval",
         accessorKey: "status",
-        cell: ({ getValue }) => {
-          const value = (getValue() as string) || "";
-          const colorClass =
-            value === "approved"
-              ? "bg-green-100 text-green-800"
-              : value === "pending"
-                ? "bg-amber-100 text-amber-800"
-                : "bg-red-100 text-red-800";
+        cell: ({ row }) => {
+          const rsvp = row.original;
+          const originalApprovalStatus = rsvp.status || "pending";
+          const currentApprovalStatus = pendingChanges[rsvp.id]?.currentApprovalStatus || originalApprovalStatus;
+
+          const handleStatusChange = (newStatus: string) => {
+            setPendingChanges(prev => ({
+              ...prev,
+              [rsvp.id]: {
+                ...prev[rsvp.id],
+                originalApprovalStatus: prev[rsvp.id]?.originalApprovalStatus || originalApprovalStatus,
+                originalTicketStatus: prev[rsvp.id]?.originalTicketStatus || (rsvp.redemptionStatus === "none" ? "not-issued" : rsvp.redemptionStatus),
+                currentApprovalStatus: newStatus,
+                currentTicketStatus: prev[rsvp.id]?.currentTicketStatus || (rsvp.redemptionStatus === "none" ? "not-issued" : rsvp.redemptionStatus),
+              }
+            }));
+          };
+
+          const getStatusColor = (currentStatus: string) => {
+            switch (currentStatus) {
+              case "approved":
+                return "text-green-700 border-green-200 bg-green-50";
+              case "denied":
+                return "text-red-700 border-red-200 bg-red-50";
+              case "pending":
+              default:
+                return "text-amber-700 border-amber-200 bg-amber-50";
+            }
+          };
+
           return (
-            <span
-              className={`inline-block rounded px-2 py-0.5 text-xs ${colorClass}`}
-            >
-              {value}
-            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`${getStatusColor(currentApprovalStatus)} min-w-[80px] justify-center`}
+                >
+                  {currentApprovalStatus.charAt(0).toUpperCase() + currentApprovalStatus.slice(1)}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuRadioGroup value={currentApprovalStatus} onValueChange={handleStatusChange}>
+                  <DropdownMenuRadioItem value="pending">
+                    <span className="text-amber-700">Pending</span>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="approved">
+                    <span className="text-green-700">Approved</span>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="denied">
+                    <span className="text-red-700">Denied</span>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           );
         },
       },
       {
-        id: "redemption",
-        header: "Redemption",
+        id: "ticketStatus",
+        header: "Ticket",
         accessorFn: (r: any) => r.redemptionStatus,
-        cell: ({ getValue }) => {
-          const value = getValue() as string;
-          const label =
-            value === "disabled"
-              ? "Disabled"
-              : value === "redeemed"
-                ? "Redeemed"
-                : value === "issued"
-                  ? "Issued"
-                  : "Not issued";
-          const colorClass =
-            value === "disabled"
-              ? "bg-gray-200 text-gray-800"
-              : value === "redeemed"
-                ? "bg-blue-100 text-blue-800"
-                : value === "issued"
-                  ? "bg-purple-100 text-purple-800"
-                  : "bg-foreground/10 text-foreground/80";
+        cell: ({ row }) => {
+          const rsvp = row.original;
+          const originalTicketStatus = rsvp.redemptionStatus === "none" ? "not-issued" : rsvp.redemptionStatus;
+          const currentTicketStatus = pendingChanges[rsvp.id]?.currentTicketStatus || originalTicketStatus;
+          const isRedeemed = originalTicketStatus === "redeemed";
+
+          const handleTicketStatusChange = (newStatus: string) => {
+            if (isRedeemed) return; // Cannot change redeemed status
+
+            setPendingChanges(prev => ({
+              ...prev,
+              [rsvp.id]: {
+                ...prev[rsvp.id],
+                originalApprovalStatus: prev[rsvp.id]?.originalApprovalStatus || rsvp.status,
+                originalTicketStatus: prev[rsvp.id]?.originalTicketStatus || originalTicketStatus,
+                currentApprovalStatus: prev[rsvp.id]?.currentApprovalStatus || rsvp.status,
+                currentTicketStatus: newStatus,
+              }
+            }));
+          };
+
+          const getTicketStatusColor = (status: string) => {
+            switch (status) {
+              case "issued":
+                return "text-purple-700 border-purple-200 bg-purple-50";
+              case "redeemed":
+                return "text-blue-700 border-blue-200 bg-blue-50";
+              case "disabled":
+                return "text-red-700 border-red-200 bg-red-50";
+              case "not-issued":
+              default:
+                return "text-gray-700 border-gray-200 bg-gray-50";
+            }
+          };
+
+          const getTicketStatusLabel = (status: string) => {
+            switch (status) {
+              case "issued":
+                return "Issued";
+              case "redeemed":
+                return "Redeemed";
+              case "disabled":
+                return "Disabled";
+              case "not-issued":
+              default:
+                return "Not Issued";
+            }
+          };
+
           return (
-            <span
-              className={`inline-block rounded px-2 py-0.5 text-xs ${colorClass}`}
-            >
-              {label}
-            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`${getTicketStatusColor(currentTicketStatus)} min-w-[80px] justify-center`}
+                  disabled={isRedeemed}
+                >
+                  {getTicketStatusLabel(currentTicketStatus)}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuRadioGroup value={currentTicketStatus} onValueChange={handleTicketStatusChange}>
+                  <DropdownMenuRadioItem value="not-issued">
+                    <span className="text-gray-700">Not Issued</span>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="issued">
+                    <span className="text-purple-700">Issued</span>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="disabled">
+                    <span className="text-red-700">Disabled</span>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                {(currentTicketStatus === "issued" || currentTicketStatus === "redeemed") && rsvp.redemptionCode && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        const url = `${window.location.origin}/redeem/${rsvp.redemptionCode}`;
+                        setQr({
+                          code: rsvp.redemptionCode,
+                          url,
+                          status: currentTicketStatus,
+                          listKey: rsvp.listKey,
+                        });
+                        setShowQR(true);
+                      }}
+                    >
+                      <QrCode className="w-4 h-4 mr-2" />
+                      View QR Code
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           );
         },
       },
@@ -186,128 +313,102 @@ export default function RsvpsPage() {
         header: "Action",
         cell: ({ row }) => {
           const rsvp = row.original;
-          const hasRedemption =
-            rsvp.redemptionStatus && rsvp.redemptionStatus !== "none";
-          const isRedeemed = rsvp.redemptionStatus === "redeemed";
-          const isDisabled = rsvp.redemptionStatus === "disabled";
+          const changes = pendingChanges[rsvp.id];
+          const hasChanges = changes && (
+            changes.currentApprovalStatus !== changes.originalApprovalStatus ||
+            changes.currentTicketStatus !== changes.originalTicketStatus
+          );
+
+          const handleSave = async () => {
+            if (!changes || !hasChanges) return;
+
+            try {
+              await updateRsvpComplete({
+                rsvpId: rsvp.id,
+                approvalStatus: changes.currentApprovalStatus !== changes.originalApprovalStatus
+                  ? changes.currentApprovalStatus as any
+                  : undefined,
+                ticketStatus: changes.currentTicketStatus !== changes.originalTicketStatus
+                  ? changes.currentTicketStatus as any
+                  : undefined,
+              });
+
+              // Clear pending changes for this row
+              setPendingChanges(prev => {
+                const updated = { ...prev };
+                delete updated[rsvp.id];
+                return updated;
+              });
+
+              toast.success("Changes saved successfully");
+            } catch (error) {
+              toast.error("Failed to save changes: " + (error as Error).message);
+            }
+          };
+
+          const handleDelete = async () => {
+            try {
+              await deleteRsvpComplete({ rsvpId: rsvp.id });
+
+              // Clear pending changes for this row
+              setPendingChanges(prev => {
+                const updated = { ...prev };
+                delete updated[rsvp.id];
+                return updated;
+              });
+
+              toast.success("RSVP deleted successfully");
+            } catch (error) {
+              toast.error("Failed to delete RSVP: " + (error as Error).message);
+            }
+          };
 
           return (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button size="sm" variant="outline">
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-48 p-1" align="end">
-                <div className="space-y-1">
-                  <button
-                    className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-accent hover:text-accent-foreground flex items-center"
-                    onClick={async () => {
-                      try {
-                        const result = await approve({
-                          rsvpId: rsvp.id,
-                        });
-                        if ((result as any)?.code) {
-                          const url =
-                            (result as any).redeemUrl ||
-                            `${window.location.origin}/redeem/${(result as any).code}`;
-                          setQr({
-                            code: (result as any).code,
-                            url,
-                            status: "issued",
-                            listKey: (result as any).listKey || rsvp.listKey,
-                          });
-                          setShowQR(true);
-                          toast.success("Approved");
-                        }
-                      } catch (error) {
-                        toast.error("Failed to approve RSVP");
-                      }
-                    }}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSave}
+                disabled={!hasChanges}
+                className="text-xs"
+              >
+                Save
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
                   >
-                    Approve
-                  </button>
-                  <button
-                    className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-accent hover:text-accent-foreground flex items-center"
-                    onClick={async () => {
-                      try {
-                        await deny({ rsvpId: rsvp.id });
-                        toast.success("Denied");
-                      } catch (error) {
-                        toast.error("Failed to deny RSVP");
-                      }
-                    }}
-                  >
-                    Deny
-                  </button>
-                  {hasRedemption && (
-                    <>
-                      <div className="h-px bg-border my-1" />
-                      <button
-                        className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-accent hover:text-accent-foreground flex items-center"
-                        onClick={async () => {
-                          try {
-                            if (rsvp.redemptionStatus === "none" || !rsvp.redemptionCode) {
-                              toast.error("No QR code found for this guest");
-                              return;
-                            }
-
-                            const url = `${window.location.origin}/redeem/${rsvp.redemptionCode}`;
-                            setQr({
-                              code: rsvp.redemptionCode,
-                              url,
-                              status: rsvp.redemptionStatus,
-                              listKey: rsvp.listKey,
-                            });
-                            setShowQR(true);
-                          } catch (error) {
-                            toast.error("Failed to load QR code");
-                          }
-                        }}
-                      >
-                        <QrCode className="w-4 h-4 mr-2" />
-                        View QR Code
-                      </button>
-                      {!isRedeemed && (
-                        <button
-                          className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-accent hover:text-accent-foreground flex items-center"
-                          onClick={async () => {
-                            try {
-                              const result =
-                                await toggleRedemptionStatus({
-                                  rsvpId: rsvp.id,
-                                });
-                              toast.success(
-                                `Redemption ${result.status === "enabled" ? "enabled" : "disabled"}`,
-                              );
-                            } catch (error) {
-                              toast.error("Failed to toggle redemption status");
-                            }
-                          }}
-                        >
-                          {isDisabled ? (
-                            <>
-                              <ToggleRight className="w-4 h-4 mr-2" />
-                              Enable Redemption
-                            </>
-                          ) : (
-                            <>
-                              <ToggleLeft className="w-4 h-4 mr-2" />
-                              Disable Redemption
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete RSVP</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to delete this RSVP? This will permanently remove the RSVP,
+                      any associated ticket/redemption codes, and approval history. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDelete}
+                      className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                    >
+                      Delete RSVP
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           );
         },
       },
     ],
-    [approve, deny, toggleRedemptionStatus],
+    [pendingChanges, updateRsvpComplete, deleteRsvpComplete, customFieldColumns],
   );
 
   const filtered = React.useMemo(() => {
@@ -411,7 +512,7 @@ export default function RsvpsPage() {
         />
         <span className="mx-2 h-6 w-px bg-foreground/20" />
         <Select value={statusFilter} onValueChange={setStatusFilter} className="w-32">
-          <SelectOption value="all">All Status</SelectOption>
+          <SelectOption value="all">All Approval</SelectOption>
           {uniqueStatuses.map((status) => (
             <SelectOption key={status} value={status}>
               {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -427,7 +528,7 @@ export default function RsvpsPage() {
           ))}
         </Select>
         <Select value={redemptionFilter} onValueChange={setRedemptionFilter} className="w-36">
-          <SelectOption value="all">All Redemptions</SelectOption>
+          <SelectOption value="all">All Tickets</SelectOption>
           <SelectOption value="issued">Issued</SelectOption>
           <SelectOption value="redeemed">Redeemed</SelectOption>
           <SelectOption value="disabled">Disabled</SelectOption>
@@ -462,7 +563,7 @@ export default function RsvpsPage() {
           )}
           {statusFilter !== "all" && (
             <Badge variant="secondary" className="gap-1">
-              Status: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+              Approval: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
               <button
                 onClick={() => setStatusFilter("all")}
                 className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
@@ -484,7 +585,7 @@ export default function RsvpsPage() {
           )}
           {redemptionFilter !== "all" && (
             <Badge variant="secondary" className="gap-1">
-              Redemption: {redemptionFilter === "not-issued" ? "Not Issued" : redemptionFilter.charAt(0).toUpperCase() + redemptionFilter.slice(1)}
+              Ticket: {redemptionFilter === "not-issued" ? "Not Issued" : redemptionFilter.charAt(0).toUpperCase() + redemptionFilter.slice(1)}
               <button
                 onClick={() => setRedemptionFilter("all")}
                 className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
@@ -520,15 +621,29 @@ export default function RsvpsPage() {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-t border-foreground/10">
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-2 py-1">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {table.getRowModel().rows.map((row) => {
+              const rsvp = row.original;
+              const changes = pendingChanges[rsvp.id];
+              const hasChanges = changes && (
+                changes.currentApprovalStatus !== changes.originalApprovalStatus ||
+                changes.currentTicketStatus !== changes.originalTicketStatus
+              );
+
+              return (
+                <tr
+                  key={row.id}
+                  className={`border-t border-foreground/10 ${
+                    hasChanges ? 'bg-yellow-50 border-yellow-200' : ''
+                  }`}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="px-2 py-1">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

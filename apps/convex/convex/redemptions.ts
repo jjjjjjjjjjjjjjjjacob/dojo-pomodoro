@@ -193,6 +193,11 @@ export const toggleRedemptionStatus = mutation({
     const rsvpRecord = await ctx.db.get(rsvpId);
     if (!rsvpRecord) throw new Error("RSVP not found");
 
+    // Prevent enabling tickets for denied RSVPs
+    if (rsvpRecord.status === "denied") {
+      throw new Error("Cannot enable ticket for denied RSVP");
+    }
+
     const redemptionRecord = await ctx.db
       .query("redemptions")
       .withIndex("by_event_user", (q) =>
@@ -209,6 +214,12 @@ export const toggleRedemptionStatus = mutation({
     }
 
     const currentlyDisabled = !!redemptionRecord.disabledAt;
+
+    // Additional check: don't allow enabling if RSVP is denied
+    if (currentlyDisabled && rsvpRecord.status === "denied") {
+      throw new Error("Cannot enable ticket for denied RSVP");
+    }
+
     await ctx.db.patch(redemptionRecord._id, {
       disabledAt: currentlyDisabled ? undefined : Date.now(),
     });
@@ -216,6 +227,83 @@ export const toggleRedemptionStatus = mutation({
     return {
       status: currentlyDisabled ? ("enabled" as const) : ("disabled" as const),
     };
+  },
+});
+
+export const updateTicketStatus = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+    status: v.union(v.literal("issued"), v.literal("not-issued"), v.literal("disabled"))
+  },
+  handler: async (ctx, { rsvpId, status }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!hasJwtDoorOrHost(identity))
+      throw new Error("Forbidden: door/host role required");
+
+    const rsvpRecord = await ctx.db.get(rsvpId);
+    if (!rsvpRecord) throw new Error("RSVP not found");
+
+    // Can't modify ticket for denied RSVPs
+    if (rsvpRecord.status === "denied") {
+      throw new Error("Cannot modify ticket for denied RSVP");
+    }
+
+    const existingRedemption = await ctx.db
+      .query("redemptions")
+      .withIndex("by_event_user", (q) =>
+        q
+          .eq("eventId", rsvpRecord.eventId)
+          .eq("clerkUserId", rsvpRecord.clerkUserId),
+      )
+      .unique();
+
+    const now = Date.now();
+
+    if (status === "issued") {
+      if (!existingRedemption) {
+        // Create new redemption
+        let code: string;
+        let attempts = 0;
+        do {
+          code = generateRedemptionCode();
+          const existing = await ctx.db
+            .query("redemptions")
+            .withIndex("by_code", (q) => q.eq("code", code))
+            .unique();
+          if (!existing) break;
+          attempts++;
+        } while (attempts < 10);
+
+        if (attempts >= 10) {
+          throw new Error("Could not generate unique redemption code");
+        }
+
+        await ctx.db.insert("redemptions", {
+          eventId: rsvpRecord.eventId,
+          clerkUserId: rsvpRecord.clerkUserId,
+          listKey: rsvpRecord.listKey,
+          code,
+          createdAt: now,
+          unredeemHistory: [],
+        });
+      } else if (existingRedemption.disabledAt) {
+        // Re-enable existing redemption
+        await ctx.db.patch(existingRedemption._id, {
+          disabledAt: undefined,
+        });
+      }
+    } else if (status === "disabled" && existingRedemption && !existingRedemption.disabledAt) {
+      // Disable existing redemption
+      await ctx.db.patch(existingRedemption._id, {
+        disabledAt: now,
+      });
+    } else if (status === "not-issued" && existingRedemption) {
+      // Delete redemption entirely
+      await ctx.db.delete(existingRedemption._id);
+    }
+
+    return { status: "ok" as const };
   },
 });
 
