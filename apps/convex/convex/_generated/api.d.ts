@@ -28,6 +28,7 @@ import type * as profiles from "../profiles.js";
 import type * as profilesNode from "../profilesNode.js";
 import type * as redemptions from "../redemptions.js";
 import type * as rsvps from "../rsvps.js";
+import type * as seed from "../seed.js";
 import type * as users from "../users.js";
 
 /**
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   profilesNode: typeof profilesNode;
   redemptions: typeof redemptions;
   rsvps: typeof rsvps;
+  seed: typeof seed;
   users: typeof users;
 }>;
 export declare const api: FilterApi<

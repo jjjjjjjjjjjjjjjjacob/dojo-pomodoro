@@ -1,12 +1,13 @@
 "use client";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useAction } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import QRCode from "react-qr-code";
 import {
   Dialog,
@@ -31,7 +32,7 @@ import {
 } from "@/components/ui/context-menu";
 import { toast } from "sonner";
 import { useDebounce } from "@/lib/hooks/use-debounce";
-import { MoreHorizontal, QrCode, ToggleLeft, ToggleRight, Info } from "lucide-react";
+import { MoreHorizontal, QrCode, ToggleLeft, ToggleRight, Info, X } from "lucide-react";
 import {
   ColumnDef,
   flexRender,
@@ -71,6 +72,9 @@ export default function RsvpsPage() {
   ]);
   const [guestSearch, setGuestSearch] = React.useState("");
   const debouncedGuest = useDebounce(guestSearch, 250);
+  const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [listFilter, setListFilter] = React.useState<string>("all");
+  const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
   const [showQR, setShowQR] = React.useState(false);
   const [qr, setQr] = React.useState<{
     code: string;
@@ -78,8 +82,6 @@ export default function RsvpsPage() {
     status?: string;
     listKey?: string;
   } | null>(null);
-  const [pageIndex, setPageIndex] = React.useState(0);
-  const [pageSize, setPageSize] = React.useState(20);
 
   const cols = React.useMemo<ColumnDef<any>[]>(
     () => [
@@ -309,41 +311,85 @@ export default function RsvpsPage() {
   );
 
   const filtered = React.useMemo(() => {
+    let result = (rsvps ?? []) as any[];
+
+    // Apply guest search filter
     const query = debouncedGuest.trim().toLowerCase();
-    if (!query) return (rsvps ?? []) as any[];
-    return (rsvps ?? []).filter((rsvp: any) => {
-      const name = (rsvp.name ?? "").toLowerCase();
-      const email = (rsvp.contact?.email ?? "").toLowerCase();
-      const phone = (rsvp.contact?.phone ?? "").toLowerCase();
-      return (
-        name.includes(query) || email.includes(query) || phone.includes(query)
-      );
-    });
-  }, [rsvps, debouncedGuest]);
+    if (query) {
+      result = result.filter((rsvp: any) => {
+        const name = (rsvp.name ?? "").toLowerCase();
+        const email = (rsvp.contact?.email ?? "").toLowerCase();
+        const phone = (rsvp.contact?.phone ?? "").toLowerCase();
+        return (
+          name.includes(query) || email.includes(query) || phone.includes(query)
+        );
+      });
+    }
+
+    // Apply status filter
+    if (statusFilter !== "all") {
+      result = result.filter((rsvp: any) => rsvp.status === statusFilter);
+    }
+
+    // Apply list filter
+    if (listFilter !== "all") {
+      result = result.filter((rsvp: any) => rsvp.listKey === listFilter);
+    }
+
+    // Apply redemption filter
+    if (redemptionFilter !== "all") {
+      if (redemptionFilter === "not-issued") {
+        result = result.filter((rsvp: any) => rsvp.redemptionStatus === "none");
+      } else {
+        result = result.filter((rsvp: any) => rsvp.redemptionStatus === redemptionFilter);
+      }
+    }
+
+    return result;
+  }, [rsvps, debouncedGuest, statusFilter, listFilter, redemptionFilter]);
+
+  // Get unique values for filter dropdowns
+  const uniqueListKeys = React.useMemo(() => {
+    const lists = new Set((rsvps ?? []).map((rsvp: any) => rsvp.listKey));
+    return Array.from(lists).sort();
+  }, [rsvps]);
+
+  const uniqueStatuses = React.useMemo(() => {
+    const statuses = new Set((rsvps ?? []).map((rsvp: any) => rsvp.status));
+    return Array.from(statuses).sort();
+  }, [rsvps]);
+
+  // Clear all filters function
+  const clearAllFilters = () => {
+    setGuestSearch("");
+    setStatusFilter("all");
+    setListFilter("all");
+    setRedemptionFilter("all");
+  };
+
+  // Check if any filters are active
+  const hasActiveFilters = guestSearch.trim() !== "" || statusFilter !== "all" || listFilter !== "all" || redemptionFilter !== "all";
 
   const table = useReactTable({
     data: filtered,
     columns: cols,
-    state: { sorting, pagination: { pageIndex, pageSize } },
+    state: { sorting },
     onSortingChange: setSorting,
-    onPaginationChange: (updater) => {
-      if (typeof updater === 'function') {
-        const newPagination = updater({ pageIndex, pageSize });
-        setPageIndex(newPagination.pageIndex);
-        setPageSize(newPagination.pageSize);
-      } else {
-        setPageIndex(updater.pageIndex);
-        setPageSize(updater.pageSize);
-      }
-    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: {
+        pageIndex: 0,
+        pageSize: 20,
+      },
+    },
   });
 
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-medium">RSVPs</h2>
+      {/* Event Selector */}
       <div className="flex gap-2 items-center flex-wrap">
         <span className="text-sm text-foreground/70">Event:</span>
         <Select value={eventId} onValueChange={setEventId} className="max-w-sm">
@@ -353,14 +399,106 @@ export default function RsvpsPage() {
             </SelectOption>
           ))}
         </Select>
-        <span className="mx-2 h-6 w-px bg-foreground/20" />
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-2 items-center flex-wrap">
         <Input
           className="h-8 max-w-xs text-sm"
           placeholder="Search guest"
           value={guestSearch}
           onChange={(e) => setGuestSearch(e.target.value)}
         />
+        <span className="mx-2 h-6 w-px bg-foreground/20" />
+        <Select value={statusFilter} onValueChange={setStatusFilter} className="w-32">
+          <SelectOption value="all">All Status</SelectOption>
+          {uniqueStatuses.map((status) => (
+            <SelectOption key={status} value={status}>
+              {status.charAt(0).toUpperCase() + status.slice(1)}
+            </SelectOption>
+          ))}
+        </Select>
+        <Select value={listFilter} onValueChange={setListFilter} className="w-32">
+          <SelectOption value="all">All Lists</SelectOption>
+          {uniqueListKeys.map((listKey) => (
+            <SelectOption key={listKey} value={listKey}>
+              {listKey.toUpperCase()}
+            </SelectOption>
+          ))}
+        </Select>
+        <Select value={redemptionFilter} onValueChange={setRedemptionFilter} className="w-36">
+          <SelectOption value="all">All Redemptions</SelectOption>
+          <SelectOption value="issued">Issued</SelectOption>
+          <SelectOption value="redeemed">Redeemed</SelectOption>
+          <SelectOption value="disabled">Disabled</SelectOption>
+          <SelectOption value="not-issued">Not Issued</SelectOption>
+        </Select>
+        {hasActiveFilters && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={clearAllFilters}
+            className="text-xs"
+          >
+            Clear All
+          </Button>
+        )}
       </div>
+
+      {/* Active Filters Display */}
+      {hasActiveFilters && (
+        <div className="flex gap-2 items-center flex-wrap">
+          <span className="text-sm text-foreground/70">Active filters:</span>
+          {guestSearch.trim() !== "" && (
+            <Badge variant="secondary" className="gap-1">
+              Search: &ldquo;{guestSearch}&rdquo;
+              <button
+                onClick={() => setGuestSearch("")}
+                className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          )}
+          {statusFilter !== "all" && (
+            <Badge variant="secondary" className="gap-1">
+              Status: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+              <button
+                onClick={() => setStatusFilter("all")}
+                className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          )}
+          {listFilter !== "all" && (
+            <Badge variant="secondary" className="gap-1">
+              List: {listFilter.toUpperCase()}
+              <button
+                onClick={() => setListFilter("all")}
+                className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          )}
+          {redemptionFilter !== "all" && (
+            <Badge variant="secondary" className="gap-1">
+              Redemption: {redemptionFilter === "not-issued" ? "Not Issued" : redemptionFilter.charAt(0).toUpperCase() + redemptionFilter.slice(1)}
+              <button
+                onClick={() => setRedemptionFilter("all")}
+                className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          )}
+          <span className="text-xs text-foreground/60">
+            (Showing {filtered.length} of {(rsvps ?? []).length} total RSVPs)
+          </span>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
@@ -401,10 +539,9 @@ export default function RsvpsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Select
-            value={String(pageSize)}
+            value={String(table.getState().pagination.pageSize)}
             onValueChange={(value) => {
-              setPageSize(Number(value));
-              setPageIndex(0);
+              table.setPageSize(Number(value));
             }}
           >
             {[10, 20, 50, 100].map((number) => (
@@ -416,7 +553,7 @@ export default function RsvpsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPageIndex(pageIndex - 1)}
+            onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
             Previous
@@ -424,7 +561,7 @@ export default function RsvpsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPageIndex(pageIndex + 1)}
+            onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
             Next

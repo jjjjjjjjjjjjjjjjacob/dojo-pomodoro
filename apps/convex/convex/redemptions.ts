@@ -218,3 +218,88 @@ export const toggleRedemptionStatus = mutation({
     };
   },
 });
+
+// Generate a random redemption code
+function generateRedemptionCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+// Seed helper mutation - creates a redemption code for an RSVP
+export const createForRSVP = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+    eventId: v.id("events"),
+    clerkUserId: v.string(),
+    listKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Check if redemption already exists
+    const existing = await ctx.db
+      .query("redemptions")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", args.eventId).eq("clerkUserId", args.clerkUserId)
+      )
+      .unique();
+
+    if (existing) {
+      return existing._id;
+    }
+
+    // Generate unique code
+    let code: string;
+    let attempts = 0;
+    do {
+      code = generateRedemptionCode();
+      const existing = await ctx.db
+        .query("redemptions")
+        .withIndex("by_code", (q) => q.eq("code", code))
+        .unique();
+      if (!existing) break;
+      attempts++;
+    } while (attempts < 10);
+
+    if (attempts >= 10) {
+      throw new Error("Could not generate unique redemption code");
+    }
+
+    const redemptionId = await ctx.db.insert("redemptions", {
+      eventId: args.eventId,
+      clerkUserId: args.clerkUserId,
+      listKey: args.listKey,
+      code,
+      createdAt: Date.now(),
+      unredeemHistory: [],
+    });
+
+    return redemptionId;
+  },
+});
+
+// Delete a redemption (for cleaning up test data)
+export const deleteForRSVP = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+  },
+  handler: async (ctx, args) => {
+    const rsvp = await ctx.db.get(args.rsvpId);
+    if (!rsvp) return { deleted: false };
+
+    const redemption = await ctx.db
+      .query("redemptions")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId)
+      )
+      .unique();
+
+    if (redemption) {
+      await ctx.db.delete(redemption._id);
+      return { deleted: true };
+    }
+    return { deleted: false };
+  },
+});

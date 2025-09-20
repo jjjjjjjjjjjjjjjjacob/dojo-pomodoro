@@ -205,6 +205,17 @@ jest.mock('@/app/posthog-provider', () => ({
   usePostHog: () => ({ posthog: null }),
 }))
 
+// Mock tracking hooks
+jest.mock('@/app/hooks/use-tracking', () => ({
+  useTracking: () => ({
+    trackPageView: jest.fn(),
+    trackEvent: jest.fn(),
+    trackError: jest.fn(),
+    trackFormSubmission: jest.fn(),
+    trackButtonClick: jest.fn(),
+  }),
+}))
+
 // Mock other dependencies
 jest.mock('sonner', () => ({
   toast: {

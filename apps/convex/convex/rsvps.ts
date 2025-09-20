@@ -291,3 +291,41 @@ export const listUserTickets = query({
     });
   },
 });
+
+// Seed helper mutation - creates an RSVP with any status (for testing)
+export const createDirect = mutation({
+  args: {
+    eventId: v.id("events"),
+    clerkUserId: v.string(),
+    listKey: v.string(),
+    shareContact: v.boolean(),
+    note: v.optional(v.string()),
+    status: v.string(),
+    createdAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.createdAt || Date.now();
+    const rsvpId = await ctx.db.insert("rsvps", {
+      eventId: args.eventId,
+      clerkUserId: args.clerkUserId,
+      listKey: args.listKey,
+      note: args.note,
+      shareContact: args.shareContact,
+      status: args.status,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return rsvpId;
+  },
+});
+
+// Delete an RSVP (for cleaning up test data)
+export const deleteRSVP = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.rsvpId);
+    return { deleted: true };
+  },
+});

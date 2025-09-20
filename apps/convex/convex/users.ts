@@ -177,3 +177,46 @@ export const updateProfileMeta = mutation({
     return { created: false as const };
   },
 });
+
+// Seed helper mutation - creates a user with any clerkUserId (for testing)
+export const create = mutation({
+  args: {
+    clerkUserId: v.string(),
+    name: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    metadata: v.optional(v.record(v.string(), v.string())),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const userId = await ctx.db.insert("users", {
+      clerkUserId: args.clerkUserId,
+      phone: args.phone,
+      name: args.name,
+      imageUrl: args.imageUrl,
+      metadata: args.metadata,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return userId;
+  },
+});
+
+// Delete a user (for cleaning up test data)
+export const deleteUser = mutation({
+  args: {
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
+      .unique();
+
+    if (user) {
+      await ctx.db.delete(user._id);
+      return { deleted: true };
+    }
+    return { deleted: false };
+  },
+});
