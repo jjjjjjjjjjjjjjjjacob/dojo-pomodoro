@@ -12,6 +12,7 @@ export const insertWithCreds = mutation({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(),
+    maxAttendees: v.optional(v.number()),
     customFields: v.optional(
       v.array(
         v.object({
@@ -43,6 +44,7 @@ export const insertWithCreds = mutation({
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
       eventDate: args.eventDate,
+      maxAttendees: args.maxAttendees,
       status: "active",
       customFields: args.customFields,
       createdAt: now,
@@ -64,6 +66,7 @@ export const update = mutation({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.optional(v.number()),
+    maxAttendees: v.optional(v.number()),
     status: v.optional(v.string()),
     customFields: v.optional(
       v.array(
@@ -81,7 +84,7 @@ export const update = mutation({
     if (!event) throw new NotFoundError("Event");
 
     const patch: EventPatch & { updatedAt: number } = { updatedAt: Date.now() };
-    const updateableFields = ["name", "hosts", "location", "flyerUrl", "flyerStorageId", "eventDate", "status", "customFields"] as const;
+    const updateableFields = ["name", "hosts", "location", "flyerUrl", "flyerStorageId", "eventDate", "maxAttendees", "status", "customFields"] as const;
 
     for (const fieldKey of updateableFields) {
       if (args[fieldKey] !== undefined) {

@@ -21,6 +21,7 @@ export const create = action({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(),
+    maxAttendees: v.optional(v.number()),
     lists: v.array(v.object({
       listKey: v.string(),
       password: v.string(),
@@ -41,6 +42,13 @@ export const create = action({
     const now = Date.now();
     if (args.eventDate < now)
       throw new Error("Event date must be in the future");
+
+    // Validate maxAttendees
+    if (args.maxAttendees !== undefined) {
+      if (args.maxAttendees < 1 || args.maxAttendees > 6) {
+        throw new Error("Maximum attendees must be between 1 and 6");
+      }
+    }
 
     const localFingerprints = new Set<string>();
     const fingerprintSecret = process.env.FINGERPRINT_SECRET as
@@ -98,6 +106,7 @@ export const create = action({
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
       eventDate: args.eventDate,
+      maxAttendees: args.maxAttendees ?? 1,
       customFields: args.customFields,
       creds: derivedCredentials,
     });
@@ -115,6 +124,7 @@ export const update = action({
         location: v.optional(v.string()),
         flyerStorageId: v.optional(v.id("_storage")),
         eventDate: v.optional(v.number()),
+        maxAttendees: v.optional(v.number()),
         status: v.optional(v.string()),
         customFields: v.optional(
           v.array(

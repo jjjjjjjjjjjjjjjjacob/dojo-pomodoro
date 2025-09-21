@@ -32,6 +32,7 @@ export default defineSchema({
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(), // ms since epoch
     status: v.string(), // 'active' | 'past'
+    maxAttendees: v.optional(v.number()), // maximum attendees allowed per RSVP (default 1)
     customFields: v.optional(
       v.array(
         v.object({
@@ -77,6 +78,7 @@ export default defineSchema({
     listKey: v.string(),
     shareContact: v.boolean(),
     note: v.optional(v.string()),
+    attendees: v.optional(v.number()), // total number of attendees including RSVP person (default 1)
     status: v.string(), // 'pending' | 'approved' | 'denied' | 'attending
     createdAt: v.number(),
     updatedAt: v.number(),

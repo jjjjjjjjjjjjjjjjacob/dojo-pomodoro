@@ -9,7 +9,8 @@
     "test:run": "bun test"
   },
   "dependencies": {
-    "convex": "^1.27.0"
+    "convex": "^1.27.0",
+    "convex-helpers": "^0.1.104"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

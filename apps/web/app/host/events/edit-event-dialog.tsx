@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select, SelectOption } from "@/components/ui/select";
 import { FlyerUpload } from "@/components/flyer-upload";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
@@ -54,6 +55,7 @@ export default function EditEventDialog({ event }: { event: Event }) {
       hosts: (event.hosts || []).join(", "),
       location: event.location || "",
       flyerStorageId: event.flyerStorageId ?? null,
+      maxAttendees: event.maxAttendees ?? 1,
     },
   });
   const [flyerStorageId, setFlyerStorageId] = React.useState<string | null>(
@@ -130,6 +132,8 @@ export default function EditEventDialog({ event }: { event: Event }) {
         patch.location = values.location;
       if ((flyerStorageId ?? undefined) !== (event.flyerStorageId ?? undefined))
         patch.flyerStorageId = (flyerStorageId as Id<"_storage">) ?? undefined;
+      if (values.maxAttendees !== undefined && values.maxAttendees !== (event.maxAttendees ?? 1))
+        patch.maxAttendees = values.maxAttendees;
       // Compute local timestamp to avoid timezone skew; prefer RHF values
       const dateStr = form.getValues("eventDate") || eventDateOnly;
       const timeStr = form.getValues("eventTime") || eventTimeOnly;
@@ -238,6 +242,29 @@ export default function EditEventDialog({ event }: { event: Event }) {
                   <FormLabel>Location</FormLabel>
                   <FormControl>
                     <Input placeholder="Venue" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="maxAttendees"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Maximum Attendees</FormLabel>
+                  <FormControl>
+                    <Select
+                      value={field.value?.toString() || "1"}
+                      onValueChange={(value) => field.onChange(parseInt(value, 10))}
+                    >
+                      <SelectOption value="1">1 (No plus-ones)</SelectOption>
+                      <SelectOption value="2">2</SelectOption>
+                      <SelectOption value="3">3</SelectOption>
+                      <SelectOption value="4">4</SelectOption>
+                      <SelectOption value="5">5</SelectOption>
+                      <SelectOption value="6">6</SelectOption>
+                    </Select>
                   </FormControl>
                   <FormMessage />
                 </FormItem>

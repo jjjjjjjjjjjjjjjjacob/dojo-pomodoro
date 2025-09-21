@@ -142,6 +142,19 @@ export default function RsvpsPage() {
         accessorKey: "listKey",
         cell: ({ getValue }) => (getValue() as string)?.toUpperCase(),
       },
+      {
+        id: "attendees",
+        header: "Attendees",
+        accessorFn: (r: any) => r.attendees ?? 1,
+        cell: ({ getValue }) => {
+          const attendees = getValue() as number;
+          return (
+            <span className="text-sm">
+              {attendees}
+            </span>
+          );
+        },
+      },
       // Insert custom field columns here
       ...customFieldColumns,
       {

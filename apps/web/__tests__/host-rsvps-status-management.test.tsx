@@ -496,3 +496,354 @@ describe('RSVP Status Validation Logic', () => {
     expect(canEnableTicket('approved', 'redeemed')).toBe(false)
   })
 })
+
+describe('Advanced RSVP Management Features', () => {
+  // Mock the new mutations we added
+  const mockUpdateRsvpComplete = mock((args: any) => Promise.resolve({ status: 'ok' }))
+  const mockDeleteRsvpComplete = mock((args: any) => Promise.resolve({ deleted: true }))
+
+  // Mock data for testing
+  const mockRsvpData = [
+    {
+      id: 'rsvp1',
+      name: 'John Doe',
+      listKey: 'general',
+      status: 'pending',
+      redemptionStatus: 'none',
+      redemptionCode: null,
+      metadata: { company: 'Acme Corp', title: 'Developer' },
+    },
+    {
+      id: 'rsvp2',
+      name: 'Jane Smith',
+      listKey: 'vip',
+      status: 'approved',
+      redemptionStatus: 'issued',
+      redemptionCode: 'XYZ789',
+      metadata: { company: 'Tech Inc', title: 'Manager' },
+    },
+  ]
+
+  // Mock component that simulates the new RSVP management features
+  const MockAdvancedRSVPManagement = () => {
+    const [pendingChanges, setPendingChanges] = React.useState<Record<string, {
+      originalApprovalStatus: string;
+      originalTicketStatus: string;
+      currentApprovalStatus: string;
+      currentTicketStatus: string;
+    }>>({})
+
+    const handleApprovalChange = (rsvpId: string, newStatus: string) => {
+      const existing = pendingChanges[rsvpId]
+      const rsvp = mockRsvpData.find(r => r.id === rsvpId)
+      if (!rsvp) return
+
+      setPendingChanges(prev => ({
+        ...prev,
+        [rsvpId]: {
+          originalApprovalStatus: existing?.originalApprovalStatus ?? rsvp.status,
+          originalTicketStatus: existing?.originalTicketStatus ?? rsvp.redemptionStatus,
+          currentApprovalStatus: newStatus,
+          currentTicketStatus: existing?.currentTicketStatus ?? rsvp.redemptionStatus,
+        }
+      }))
+    }
+
+    const handleTicketChange = (rsvpId: string, newStatus: string) => {
+      const existing = pendingChanges[rsvpId]
+      const rsvp = mockRsvpData.find(r => r.id === rsvpId)
+      if (!rsvp) return
+
+      setPendingChanges(prev => ({
+        ...prev,
+        [rsvpId]: {
+          originalApprovalStatus: existing?.originalApprovalStatus ?? rsvp.status,
+          originalTicketStatus: existing?.originalTicketStatus ?? rsvp.redemptionStatus,
+          currentApprovalStatus: existing?.currentApprovalStatus ?? rsvp.status,
+          currentTicketStatus: newStatus,
+        }
+      }))
+    }
+
+    const hasChanges = (rsvpId: string) => {
+      const changes = pendingChanges[rsvpId]
+      if (!changes) return false
+      return changes.originalApprovalStatus !== changes.currentApprovalStatus ||
+             changes.originalTicketStatus !== changes.currentTicketStatus
+    }
+
+    const handleSave = async (rsvpId: string) => {
+      const changes = pendingChanges[rsvpId]
+      if (!changes) return
+
+      await mockUpdateRsvpComplete({
+        rsvpId,
+        approvalStatus: changes.currentApprovalStatus !== changes.originalApprovalStatus ? changes.currentApprovalStatus : undefined,
+        ticketStatus: changes.currentTicketStatus !== changes.originalTicketStatus ? changes.currentTicketStatus : undefined,
+      })
+
+      // Clear pending changes after save
+      setPendingChanges(prev => {
+        const { [rsvpId]: _, ...rest } = prev
+        return rest
+      })
+    }
+
+    const handleDelete = async (rsvpId: string) => {
+      await mockDeleteRsvpComplete({ rsvpId })
+    }
+
+    return (
+      <TestWrapper>
+        <div data-testid="advanced-rsvp-management">
+          <table>
+            <thead>
+              <tr>
+                <th>Guest</th>
+                <th>Approval</th>
+                <th>Ticket</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mockRsvpData.map((rsvp) => {
+                const changes = pendingChanges[rsvp.id]
+                const currentApprovalStatus = changes?.currentApprovalStatus ?? rsvp.status
+                const currentTicketStatus = changes?.currentTicketStatus ?? rsvp.redemptionStatus
+                const rowHasChanges = hasChanges(rsvp.id)
+
+                return (
+                  <tr
+                    key={rsvp.id}
+                    data-testid={`advanced-rsvp-row-${rsvp.id}`}
+                    className={rowHasChanges ? 'bg-yellow-50' : ''}
+                    style={{ backgroundColor: rowHasChanges ? '#fefce8' : undefined }}
+                  >
+                    <td>{rsvp.name}</td>
+                    <td>
+                      <div data-testid={`advanced-approval-dropdown-${rsvp.id}`}>
+                        <button
+                          data-testid={`advanced-approval-trigger-${rsvp.id}`}
+                          className={`
+                            ${currentApprovalStatus === 'pending' ? 'text-amber-700 bg-amber-50' : ''}
+                            ${currentApprovalStatus === 'approved' ? 'text-green-700 bg-green-50' : ''}
+                            ${currentApprovalStatus === 'denied' ? 'text-red-700 bg-red-50' : ''}
+                          `}
+                        >
+                          {currentApprovalStatus.charAt(0).toUpperCase() + currentApprovalStatus.slice(1)}
+                        </button>
+                        <div data-testid={`advanced-approval-menu-${rsvp.id}`} style={{ display: 'none' }}>
+                          <button
+                            data-testid={`advanced-approval-option-approved-${rsvp.id}`}
+                            onClick={() => handleApprovalChange(rsvp.id, 'approved')}
+                          >
+                            Approved
+                          </button>
+                          <button
+                            data-testid={`advanced-approval-option-denied-${rsvp.id}`}
+                            onClick={() => handleApprovalChange(rsvp.id, 'denied')}
+                          >
+                            Denied
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div data-testid={`advanced-ticket-dropdown-${rsvp.id}`}>
+                        <button
+                          data-testid={`advanced-ticket-trigger-${rsvp.id}`}
+                          className={`
+                            ${currentTicketStatus === 'none' ? 'bg-gray-100 text-gray-600' : ''}
+                            ${currentTicketStatus === 'issued' ? 'bg-purple-100 text-purple-800' : ''}
+                            ${currentTicketStatus === 'disabled' ? 'bg-gray-200 text-gray-800' : ''}
+                          `}
+                        >
+                          {currentTicketStatus === 'none' ? 'Not issued' :
+                           currentTicketStatus.charAt(0).toUpperCase() + currentTicketStatus.slice(1)}
+                        </button>
+                        <div data-testid={`advanced-ticket-menu-${rsvp.id}`} style={{ display: 'none' }}>
+                          <button
+                            data-testid={`advanced-ticket-option-issued-${rsvp.id}`}
+                            onClick={() => handleTicketChange(rsvp.id, 'issued')}
+                          >
+                            Issued
+                          </button>
+                          <button
+                            data-testid={`advanced-ticket-option-disabled-${rsvp.id}`}
+                            onClick={() => handleTicketChange(rsvp.id, 'disabled')}
+                          >
+                            Disabled
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div data-testid={`advanced-actions-${rsvp.id}`}>
+                        <button
+                          data-testid={`advanced-save-button-${rsvp.id}`}
+                          disabled={!rowHasChanges}
+                          onClick={() => handleSave(rsvp.id)}
+                          className={rowHasChanges ? 'enabled' : 'disabled'}
+                        >
+                          Save
+                        </button>
+                        <button
+                          data-testid={`advanced-delete-button-${rsvp.id}`}
+                          onClick={() => {
+                            const confirmDelete = window.confirm('Are you sure you want to delete this RSVP?')
+                            if (confirmDelete) {
+                              handleDelete(rsvp.id)
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </TestWrapper>
+    )
+  }
+
+  beforeEach(() => {
+    // Reset all mocks before each test
+    mockUpdateRsvpComplete.mockClear()
+    mockDeleteRsvpComplete.mockClear()
+  })
+
+  describe('Save Button Logic', () => {
+    it('should be disabled when no changes are pending', () => {
+      render(<MockAdvancedRSVPManagement />)
+
+      // Initially, save buttons should be disabled
+      const saveButtons1 = screen.getAllByTestId('advanced-save-button-rsvp1')
+      const saveButtons2 = screen.getAllByTestId('advanced-save-button-rsvp2')
+      expect(saveButtons1[0]).toBeDisabled()
+      expect(saveButtons2[0]).toBeDisabled()
+    })
+
+    it('should be enabled when approval status changes', async () => {
+      render(<MockAdvancedRSVPManagement />)
+
+      // Change approval status
+      const approvalOptions = screen.getAllByTestId('advanced-approval-option-approved-rsvp1')
+      fireEvent.click(approvalOptions[0])
+
+      // Save button should now be enabled
+      await waitFor(() => {
+        const saveButtons = screen.getAllByTestId('advanced-save-button-rsvp1')
+        expect(saveButtons[0]).not.toBeDisabled()
+      })
+    })
+
+    it('should call updateRsvpComplete when save is clicked', async () => {
+      render(<MockAdvancedRSVPManagement />)
+
+      // Make a change
+      const approvalOptions = screen.getAllByTestId('advanced-approval-option-approved-rsvp1')
+      fireEvent.click(approvalOptions[0])
+
+      // Click save
+      await waitFor(() => {
+        const saveButtons = screen.getAllByTestId('advanced-save-button-rsvp1')
+        expect(saveButtons[0]).not.toBeDisabled()
+        fireEvent.click(saveButtons[0])
+      })
+
+      // Verify mutation was called
+      await waitFor(() => {
+        expect(mockUpdateRsvpComplete).toHaveBeenCalledWith({
+          rsvpId: 'rsvp1',
+          approvalStatus: 'approved',
+          ticketStatus: undefined,
+        })
+      })
+    })
+  })
+
+  describe('Delete Button with Confirmation', () => {
+    it('should show confirmation dialog when delete is clicked', () => {
+      render(<MockAdvancedRSVPManagement />)
+
+      // Mock window.confirm
+      const originalConfirm = window.confirm
+      const mockConfirm = mock(() => true)
+      window.confirm = mockConfirm
+
+      const deleteButtons = screen.getAllByTestId('advanced-delete-button-rsvp1')
+      fireEvent.click(deleteButtons[0])
+
+      expect(mockConfirm).toHaveBeenCalledWith('Are you sure you want to delete this RSVP?')
+
+      // Restore original confirm
+      window.confirm = originalConfirm
+    })
+
+    it('should call deleteRsvpComplete when confirmed', async () => {
+      render(<MockAdvancedRSVPManagement />)
+
+      // Mock window.confirm to return true
+      const originalConfirm = window.confirm
+      window.confirm = mock(() => true)
+
+      const deleteButtons = screen.getAllByTestId('advanced-delete-button-rsvp1')
+      fireEvent.click(deleteButtons[0])
+
+      await waitFor(() => {
+        expect(mockDeleteRsvpComplete).toHaveBeenCalledWith({ rsvpId: 'rsvp1' })
+      })
+
+      // Restore original confirm
+      window.confirm = originalConfirm
+    })
+  })
+
+  describe('Visual Indicators for Pending Changes', () => {
+    it('should highlight rows with pending changes', async () => {
+      render(<MockAdvancedRSVPManagement />)
+
+      // Initially, no rows should be highlighted
+      const rows1 = screen.getAllByTestId('advanced-rsvp-row-rsvp1')
+      expect(rows1[0]).not.toHaveClass('bg-yellow-50')
+
+      // Make a change
+      const approvalOptions = screen.getAllByTestId('advanced-approval-option-approved-rsvp1')
+      fireEvent.click(approvalOptions[0])
+
+      // Row should now be highlighted
+      await waitFor(() => {
+        expect(rows1[0]).toHaveClass('bg-yellow-50')
+        expect(rows1[0]).toHaveStyle({ backgroundColor: '#fefce8' })
+      })
+    })
+
+    it('should remove highlighting after save', async () => {
+      render(<MockAdvancedRSVPManagement />)
+
+      const rows1 = screen.getAllByTestId('advanced-rsvp-row-rsvp1')
+
+      // Make a change
+      const approvalOptions = screen.getAllByTestId('advanced-approval-option-approved-rsvp1')
+      fireEvent.click(approvalOptions[0])
+
+      // Row should be highlighted
+      await waitFor(() => {
+        expect(rows1[0]).toHaveClass('bg-yellow-50')
+      })
+
+      // Save changes
+      const saveButtons = screen.getAllByTestId('advanced-save-button-rsvp1')
+      fireEvent.click(saveButtons[0])
+
+      // Row should no longer be highlighted
+      await waitFor(() => {
+        expect(rows1[0]).not.toHaveClass('bg-yellow-50')
+      })
+    })
+  })
+})

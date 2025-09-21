@@ -36,6 +36,7 @@ export interface Event {
   flyerUrl?: string;
   flyerStorageId?: Id<"_storage">;
   eventDate: number;
+  maxAttendees?: number;
   status: "active" | "past";
   customFields?: CustomField[];
   createdAt: number;
@@ -74,6 +75,7 @@ export interface RSVP {
   listKey: string;
   shareContact: boolean;
   note?: string;
+  attendees?: number;
   status: "pending" | "approved" | "denied" | "attending";
   createdAt: number;
   updatedAt: number;
@@ -178,6 +180,7 @@ export interface EventFormData {
   flyerStorageId?: string | null;
   eventDate?: string;
   eventTime?: string;
+  maxAttendees?: number;
   lists?: ListCredentialInput[];
   customFieldsJson?: string;
 }
@@ -190,11 +193,13 @@ export interface EditEventFormData {
   flyerStorageId?: string | null;
   eventDate?: string;
   eventTime?: string;
+  maxAttendees?: number;
 }
 
 export interface RSVPFormData {
   name: string;
   custom: Record<string, string>;
+  attendees?: number;
 }
 
 export interface ListCredentialInput {

@@ -3,6 +3,7 @@ import React from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select, SelectOption } from "@/components/ui/select";
 import {
   FormField,
   FormItem,
@@ -132,6 +133,46 @@ export function GuestInfoFields({
           )}
         </div>
       </div>
+
+      {/* Attendees selection */}
+      <FormField
+        control={form.control}
+        name="attendees"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel className="text-xs text-primary font-medium">
+              ATTENDEES{" "}
+              {event.maxAttendees && event.maxAttendees > 1
+                ? `(${event.maxAttendees} max)`
+                : null}
+            </FormLabel>
+            <FormControl>
+              {(event?.maxAttendees ?? 1) === 1 ? (
+                <Select
+                  value="1"
+                  disabled
+                  className="border border-primary/20 text-primary disabled:opacity-100"
+                >
+                  <SelectOption value="1">1 (No Plus Ones)</SelectOption>
+                </Select>
+              ) : (
+                <Select
+                  value={field.value?.toString() || "1"}
+                  onValueChange={(value) => field.onChange(parseInt(value, 10))}
+                  className="border border-primary/20 text-primary"
+                >
+                  {Array.from({ length: event?.maxAttendees ?? 1 }, (_, i) => (
+                    <SelectOption key={i + 1} value={(i + 1).toString()}>
+                      {i + 1}
+                    </SelectOption>
+                  ))}
+                </Select>
+              )}
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
     </div>
   );
 }

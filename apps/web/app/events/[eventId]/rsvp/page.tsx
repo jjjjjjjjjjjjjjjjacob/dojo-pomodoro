@@ -13,7 +13,14 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { validateRequired } from "@/lib/mini-zod";
 import { useForm } from "react-hook-form";
-import { Form } from "@/components/ui/form";
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from "@/components/ui/form";
 import { GuestInfoFields } from "@/components/guest-info-form";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -67,10 +74,10 @@ export default function RsvpPage({
   );
 
   const password = (searchParams?.get("password") || "").trim();
-  console.log('[DEBUG] RSVP page password from URL:', {
+  console.log("[DEBUG] RSVP page password from URL:", {
     raw: searchParams?.get("password"),
     trimmed: password,
-    length: password.length
+    length: password.length,
   });
   const [listKey, setListKey] = useState<string | null>(null);
   const [name, setName] = useState<string>("");
@@ -86,7 +93,7 @@ export default function RsvpPage({
   const submitRsvp = useMutation(api.rsvps.submitRequest);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const form = useForm<RSVPFormData>({
-    defaultValues: { name: "", custom: {} },
+    defaultValues: { name: "", custom: {}, attendees: 1 },
   });
 
   // Guard: password requirement
@@ -114,22 +121,22 @@ export default function RsvpPage({
       if (!password) return;
       try {
         setChecking(true);
-        console.log('[DEBUG] Resolving password with backend:', {
+        console.log("[DEBUG] Resolving password with backend:", {
           eventId,
           password,
-          passwordLength: password.length
+          passwordLength: password.length,
         });
         const res = await resolve({
           eventId: eventId as Id<"events">,
           password,
         });
-        console.log('[DEBUG] Password resolution result:', res);
+        console.log("[DEBUG] Password resolution result:", res);
         if (!cancelled) {
           if (res?.ok) {
-            console.log('[DEBUG] Password resolved to list:', res.listKey);
+            console.log("[DEBUG] Password resolved to list:", res.listKey);
             setListKey(res.listKey);
           } else {
-            console.log('[DEBUG] Password resolution failed');
+            console.log("[DEBUG] Password resolution failed");
             setMessage("Invalid password for this event.");
           }
         }
@@ -267,6 +274,7 @@ export default function RsvpPage({
         listKey,
         note: note || undefined,
         shareContact: true,
+        attendees: form.getValues("attendees") || 1,
       });
 
       trackRSVPSubmission({

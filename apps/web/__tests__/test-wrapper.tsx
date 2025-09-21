@@ -1,4 +1,5 @@
 import React from 'react'
+import { mock } from 'bun:test'
 
 // Mock providers that provide the necessary context
 const MockPostHogProvider = ({ children }: { children: React.ReactNode }) => children
@@ -16,8 +17,8 @@ export const useHapticContext = () => {
     // Fallback to a default mock if context is not provided
     return {
       settings: { enabled: true, intensity: 'medium' },
-      updateSettings: jest.fn(),
-      trigger: jest.fn(() => true),
+      updateSettings: mock(),
+      trigger: mock(() => true),
       isSupported: true,
     }
   }
@@ -28,8 +29,8 @@ export const useHapticContext = () => {
 const MockHapticProvider = ({ children }: { children: React.ReactNode }) => {
   const mockValue = {
     settings: { enabled: true, intensity: 'medium' },
-    updateSettings: jest.fn(),
-    trigger: jest.fn(() => true),
+    updateSettings: mock(),
+    trigger: mock(() => true),
     isSupported: true,
   }
 

@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectOption } from "@/components/ui/select";
 import { FlyerUpload } from "@/components/flyer-upload";
 import { CustomFieldsBuilderForm } from "@/components/custom-fields-builder";
 import { toast } from "sonner";
@@ -47,6 +48,7 @@ export default function NewEventClient() {
       location: "",
       eventDate: "",
       eventTime: "19:00",
+      maxAttendees: 1,
       flyerStorageId: null,
       lists: [
         { listKey: "vip", password: "", generateQR: true },
@@ -112,6 +114,7 @@ export default function NewEventClient() {
         eventDate: eventTimestamp,
         lists: listsFiltered,
         customFields,
+        maxAttendees: values.maxAttendees,
       });
       toast.success("Event created");
       router.replace("/host/events?created=1");
@@ -223,6 +226,29 @@ export default function NewEventClient() {
               )}
             />
           </div>
+          <FormField
+            control={form.control}
+            name="maxAttendees"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Maximum Attendees</FormLabel>
+                <FormControl>
+                  <Select
+                    value={field.value?.toString() || "1"}
+                    onValueChange={(value) => field.onChange(parseInt(value, 10))}
+                  >
+                    <SelectOption value="1">1 (No plus-ones)</SelectOption>
+                    <SelectOption value="2">2</SelectOption>
+                    <SelectOption value="3">3</SelectOption>
+                    <SelectOption value="4">4</SelectOption>
+                    <SelectOption value="5">5</SelectOption>
+                    <SelectOption value="6">6</SelectOption>
+                  </Select>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
           <div className="rounded border p-3 space-y-2">
             <div className="font-medium text-sm">Lists & Passwords</div>
             {(lists || []).map((lp, idx) => (

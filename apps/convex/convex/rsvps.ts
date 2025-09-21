@@ -8,6 +8,7 @@ export const submitRequest = mutation({
     listKey: v.string(),
     note: v.optional(v.string()),
     shareContact: v.boolean(),
+    attendees: v.optional(v.number()),
     // Contact is optional because user may have an existing encrypted profile.
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
@@ -19,8 +20,18 @@ export const submitRequest = mutation({
     const clerkUserId = identity.subject;
 
     // Ensure event exists and is active
-    const ev = await ctx.db.get(args.eventId);
-    if (!ev || ev.status !== "active") throw new Error("Event not available");
+    const event = await ctx.db.get(args.eventId);
+    if (!event || event.status !== "active") throw new Error("Event not available");
+
+    // Validate attendees against event's maxAttendees setting
+    const maxAttendeesAllowed = event.maxAttendees ?? 1;
+    const requestedAttendees = args.attendees ?? 1;
+    if (requestedAttendees > maxAttendeesAllowed) {
+      throw new Error(`Maximum ${maxAttendeesAllowed} attendees allowed for this event`);
+    }
+    if (requestedAttendees < 1) {
+      throw new Error("At least 1 attendee required");
+    }
 
     // Contact encryption is handled via a Node action from the client before submit
 
@@ -39,6 +50,7 @@ export const submitRequest = mutation({
         listKey: args.listKey,
         note: args.note,
         shareContact: args.shareContact,
+        attendees: requestedAttendees,
         status: "pending",
         createdAt: now,
         updatedAt: now,
@@ -52,6 +64,7 @@ export const submitRequest = mutation({
         listKey: args.listKey,
         note: args.note,
         shareContact: args.shareContact,
+        attendees: requestedAttendees,
         // Reset to pending when re-requesting (unless already approved)
         status: existing.status === "approved" ? existing.status : "pending",
         updatedAt: now,
@@ -113,6 +126,7 @@ export const listForEvent = query({
           listKey: r.listKey,
           note: r.note,
           status: r.status,
+          attendees: r.attendees,
           contact,
           metadata: user?.metadata,
           redemptionStatus,
@@ -300,6 +314,7 @@ export const createDirect = mutation({
     listKey: v.string(),
     shareContact: v.boolean(),
     note: v.optional(v.string()),
+    attendees: v.optional(v.number()),
     status: v.string(),
     createdAt: v.optional(v.number()),
   },
@@ -311,6 +326,7 @@ export const createDirect = mutation({
       listKey: args.listKey,
       note: args.note,
       shareContact: args.shareContact,
+      attendees: args.attendees,
       status: args.status,
       createdAt: now,
       updatedAt: now,
