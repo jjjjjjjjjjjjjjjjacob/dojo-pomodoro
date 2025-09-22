@@ -40,6 +40,7 @@ export default defineSchema({
           label: v.string(),
           placeholder: v.optional(v.string()),
           required: v.optional(v.boolean()),
+          copyEnabled: v.optional(v.boolean()),
         }),
       ),
     ),

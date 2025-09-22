@@ -42,9 +42,21 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { useDebounce } from "@/lib/hooks/use-debounce";
-import { MoreHorizontal, QrCode, ToggleLeft, ToggleRight, X } from "lucide-react";
+import {
+  Copy,
+  MoreHorizontal,
+  QrCode,
+  ToggleLeft,
+  ToggleRight,
+  X,
+} from "lucide-react";
 import {
   ColumnDef,
   flexRender,
@@ -54,6 +66,7 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
+import { cn } from "@/lib/utils";
 
 export default function RsvpsPage() {
   const router = useRouter();
@@ -75,11 +88,19 @@ export default function RsvpsPage() {
     router.replace(`/host/rsvps?${params.toString()}`);
   }, [eventId]);
 
-  const rsvps = useQuery(api.rsvps.listForEvent, eventId ? { eventId: eventId as Id<"events"> } : "skip");
-  const currentEvent = useQuery(api.events.get, eventId ? { eventId: eventId as Id<"events"> } : "skip");
+  const rsvps = useQuery(
+    api.rsvps.listForEvent,
+    eventId ? { eventId: eventId as Id<"events"> } : "skip",
+  );
+  const currentEvent = useQuery(
+    api.events.get,
+    eventId ? { eventId: eventId as Id<"events"> } : "skip",
+  );
   const approve = useMutation(api.approvals.approve);
   const deny = useMutation(api.approvals.deny);
-  const toggleRedemptionStatus = useMutation(api.redemptions.toggleRedemptionStatus);
+  const toggleRedemptionStatus = useMutation(
+    api.redemptions.toggleRedemptionStatus,
+  );
   const updateTicketStatus = useMutation(api.redemptions.updateTicketStatus);
   const updateRsvpComplete = useMutation(api.rsvps.updateRsvpComplete);
   const deleteRsvpComplete = useMutation(api.rsvps.deleteRsvpComplete);
@@ -91,12 +112,17 @@ export default function RsvpsPage() {
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [listFilter, setListFilter] = React.useState<string>("all");
   const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
-  const [pendingChanges, setPendingChanges] = React.useState<Record<string, {
-    originalApprovalStatus: string;
-    originalTicketStatus: string;
-    currentApprovalStatus: string;
-    currentTicketStatus: string;
-  }>>({});
+  const [pendingChanges, setPendingChanges] = React.useState<
+    Record<
+      string,
+      {
+        originalApprovalStatus: string;
+        originalTicketStatus: string;
+        currentApprovalStatus: string;
+        currentTicketStatus: string;
+      }
+    >
+  >({});
   const [showQR, setShowQR] = React.useState(false);
   const [qr, setQr] = React.useState<{
     code: string;
@@ -112,13 +138,47 @@ export default function RsvpsPage() {
     return currentEvent.customFields.map((field) => ({
       id: `custom_${field.key}`,
       header: field.label,
-      accessorFn: (r: any) => r.metadata?.[field.key] || '',
+      accessorFn: (r: any) => r.metadata?.[field.key] || "",
       cell: ({ getValue }: any) => {
         const value = getValue() as string;
+        const isCopyEnabled = field.copyEnabled;
+
+        const handleCopyClick = async () => {
+          if (!isCopyEnabled || !value || value === "-") return;
+
+          try {
+            await navigator.clipboard.writeText(value);
+            toast.success(`Copied: ${value}`);
+          } catch (err) {
+            toast.error("Failed to copy to clipboard");
+          }
+        };
+
+        if (!isCopyEnabled || !value || value === "-") {
+          return <span className="truncate max-w-32">{value || "-"}</span>;
+        }
+
         return (
-          <span className="truncate max-w-32" title={value}>
-            {value || '-'}
-          </span>
+          <div
+            className={cn(
+              "flex items-center justify-between w-full group cursor-pointer transition-colors duration-150 rounded px-2 py-1 -mx-2 -my-1",
+            )}
+            onClick={handleCopyClick}
+          >
+            <span className="truncate max-w-32">{value}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 bg-muted transition-opacity duration-150 ml-2 flex-shrink-0" />
+              </TooltipTrigger>
+              <TooltipContent
+                align="center"
+                variant="secondary"
+                className="py-1 px-2 z-10"
+              >
+                copy
+              </TooltipContent>
+            </Tooltip>
+          </div>
         );
       },
     }));
@@ -148,11 +208,7 @@ export default function RsvpsPage() {
         accessorFn: (r: any) => r.attendees ?? 1,
         cell: ({ getValue }) => {
           const attendees = getValue() as number;
-          return (
-            <span className="text-sm">
-              {attendees}
-            </span>
-          );
+          return <span className="text-sm">{attendees}</span>;
         },
       },
       // Insert custom field columns here
@@ -164,18 +220,30 @@ export default function RsvpsPage() {
         cell: ({ row }) => {
           const rsvp = row.original;
           const originalApprovalStatus = rsvp.status || "pending";
-          const currentApprovalStatus = pendingChanges[rsvp.id]?.currentApprovalStatus || originalApprovalStatus;
+          const currentApprovalStatus =
+            pendingChanges[rsvp.id]?.currentApprovalStatus ||
+            originalApprovalStatus;
 
           const handleStatusChange = (newStatus: string) => {
-            setPendingChanges(prev => ({
+            setPendingChanges((prev) => ({
               ...prev,
               [rsvp.id]: {
                 ...prev[rsvp.id],
-                originalApprovalStatus: prev[rsvp.id]?.originalApprovalStatus || originalApprovalStatus,
-                originalTicketStatus: prev[rsvp.id]?.originalTicketStatus || (rsvp.redemptionStatus === "none" ? "not-issued" : rsvp.redemptionStatus),
+                originalApprovalStatus:
+                  prev[rsvp.id]?.originalApprovalStatus ||
+                  originalApprovalStatus,
+                originalTicketStatus:
+                  prev[rsvp.id]?.originalTicketStatus ||
+                  (rsvp.redemptionStatus === "none"
+                    ? "not-issued"
+                    : rsvp.redemptionStatus),
                 currentApprovalStatus: newStatus,
-                currentTicketStatus: prev[rsvp.id]?.currentTicketStatus || (rsvp.redemptionStatus === "none" ? "not-issued" : rsvp.redemptionStatus),
-              }
+                currentTicketStatus:
+                  prev[rsvp.id]?.currentTicketStatus ||
+                  (rsvp.redemptionStatus === "none"
+                    ? "not-issued"
+                    : rsvp.redemptionStatus),
+              },
             }));
           };
 
@@ -193,17 +261,21 @@ export default function RsvpsPage() {
 
           return (
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+              <DropdownMenuTrigger className="flex w-18" asChild>
                 <Button
                   variant="outline"
-                  size="sm"
-                  className={`${getStatusColor(currentApprovalStatus)} min-w-[80px] justify-center`}
+                  size="xs"
+                  className={cn(getStatusColor(currentApprovalStatus))}
                 >
-                  {currentApprovalStatus.charAt(0).toUpperCase() + currentApprovalStatus.slice(1)}
+                  {currentApprovalStatus.charAt(0).toUpperCase() +
+                    currentApprovalStatus.slice(1)}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuRadioGroup value={currentApprovalStatus} onValueChange={handleStatusChange}>
+                <DropdownMenuRadioGroup
+                  value={currentApprovalStatus}
+                  onValueChange={handleStatusChange}
+                >
                   <DropdownMenuRadioItem value="pending">
                     <span className="text-amber-700">Pending</span>
                   </DropdownMenuRadioItem>
@@ -225,22 +297,30 @@ export default function RsvpsPage() {
         accessorFn: (r: any) => r.redemptionStatus,
         cell: ({ row }) => {
           const rsvp = row.original;
-          const originalTicketStatus = rsvp.redemptionStatus === "none" ? "not-issued" : rsvp.redemptionStatus;
-          const currentTicketStatus = pendingChanges[rsvp.id]?.currentTicketStatus || originalTicketStatus;
+          const originalTicketStatus =
+            rsvp.redemptionStatus === "none"
+              ? "not-issued"
+              : rsvp.redemptionStatus;
+          const currentTicketStatus =
+            pendingChanges[rsvp.id]?.currentTicketStatus ||
+            originalTicketStatus;
           const isRedeemed = originalTicketStatus === "redeemed";
 
           const handleTicketStatusChange = (newStatus: string) => {
             if (isRedeemed) return; // Cannot change redeemed status
 
-            setPendingChanges(prev => ({
+            setPendingChanges((prev) => ({
               ...prev,
               [rsvp.id]: {
                 ...prev[rsvp.id],
-                originalApprovalStatus: prev[rsvp.id]?.originalApprovalStatus || rsvp.status,
-                originalTicketStatus: prev[rsvp.id]?.originalTicketStatus || originalTicketStatus,
-                currentApprovalStatus: prev[rsvp.id]?.currentApprovalStatus || rsvp.status,
+                originalApprovalStatus:
+                  prev[rsvp.id]?.originalApprovalStatus || rsvp.status,
+                originalTicketStatus:
+                  prev[rsvp.id]?.originalTicketStatus || originalTicketStatus,
+                currentApprovalStatus:
+                  prev[rsvp.id]?.currentApprovalStatus || rsvp.status,
                 currentTicketStatus: newStatus,
-              }
+              },
             }));
           };
 
@@ -274,18 +354,21 @@ export default function RsvpsPage() {
 
           return (
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+              <DropdownMenuTrigger className="flex w-16" asChild>
                 <Button
                   variant="outline"
-                  size="sm"
-                  className={`${getTicketStatusColor(currentTicketStatus)} min-w-[80px] justify-center`}
+                  size="xs"
+                  className={cn(getTicketStatusColor(currentTicketStatus))}
                   disabled={isRedeemed}
                 >
                   {getTicketStatusLabel(currentTicketStatus)}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuRadioGroup value={currentTicketStatus} onValueChange={handleTicketStatusChange}>
+                <DropdownMenuRadioGroup
+                  value={currentTicketStatus}
+                  onValueChange={handleTicketStatusChange}
+                >
                   <DropdownMenuRadioItem value="not-issued">
                     <span className="text-gray-700">Not Issued</span>
                   </DropdownMenuRadioItem>
@@ -296,26 +379,28 @@ export default function RsvpsPage() {
                     <span className="text-red-700">Disabled</span>
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
-                {(currentTicketStatus === "issued" || currentTicketStatus === "redeemed") && rsvp.redemptionCode && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => {
-                        const url = `${window.location.origin}/redeem/${rsvp.redemptionCode}`;
-                        setQr({
-                          code: rsvp.redemptionCode,
-                          url,
-                          status: currentTicketStatus,
-                          listKey: rsvp.listKey,
-                        });
-                        setShowQR(true);
-                      }}
-                    >
-                      <QrCode className="w-4 h-4 mr-2" />
-                      View QR Code
-                    </DropdownMenuItem>
-                  </>
-                )}
+                {(currentTicketStatus === "issued" ||
+                  currentTicketStatus === "redeemed") &&
+                  rsvp.redemptionCode && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const url = `${window.location.origin}/redeem/${rsvp.redemptionCode}`;
+                          setQr({
+                            code: rsvp.redemptionCode,
+                            url,
+                            status: currentTicketStatus,
+                            listKey: rsvp.listKey,
+                          });
+                          setShowQR(true);
+                        }}
+                      >
+                        <QrCode className="w-4 h-4 mr-2" />
+                        View QR Code
+                      </DropdownMenuItem>
+                    </>
+                  )}
               </DropdownMenuContent>
             </DropdownMenu>
           );
@@ -327,10 +412,10 @@ export default function RsvpsPage() {
         cell: ({ row }) => {
           const rsvp = row.original;
           const changes = pendingChanges[rsvp.id];
-          const hasChanges = changes && (
-            changes.currentApprovalStatus !== changes.originalApprovalStatus ||
-            changes.currentTicketStatus !== changes.originalTicketStatus
-          );
+          const hasChanges =
+            changes &&
+            (changes.currentApprovalStatus !== changes.originalApprovalStatus ||
+              changes.currentTicketStatus !== changes.originalTicketStatus);
 
           const handleSave = async () => {
             if (!changes || !hasChanges) return;
@@ -338,16 +423,19 @@ export default function RsvpsPage() {
             try {
               await updateRsvpComplete({
                 rsvpId: rsvp.id,
-                approvalStatus: changes.currentApprovalStatus !== changes.originalApprovalStatus
-                  ? changes.currentApprovalStatus as any
-                  : undefined,
-                ticketStatus: changes.currentTicketStatus !== changes.originalTicketStatus
-                  ? changes.currentTicketStatus as any
-                  : undefined,
+                approvalStatus:
+                  changes.currentApprovalStatus !==
+                  changes.originalApprovalStatus
+                    ? (changes.currentApprovalStatus as any)
+                    : undefined,
+                ticketStatus:
+                  changes.currentTicketStatus !== changes.originalTicketStatus
+                    ? (changes.currentTicketStatus as any)
+                    : undefined,
               });
 
               // Clear pending changes for this row
-              setPendingChanges(prev => {
+              setPendingChanges((prev) => {
                 const updated = { ...prev };
                 delete updated[rsvp.id];
                 return updated;
@@ -355,7 +443,9 @@ export default function RsvpsPage() {
 
               toast.success("Changes saved successfully");
             } catch (error) {
-              toast.error("Failed to save changes: " + (error as Error).message);
+              toast.error(
+                "Failed to save changes: " + (error as Error).message,
+              );
             }
           };
 
@@ -364,7 +454,7 @@ export default function RsvpsPage() {
               await deleteRsvpComplete({ rsvpId: rsvp.id });
 
               // Clear pending changes for this row
-              setPendingChanges(prev => {
+              setPendingChanges((prev) => {
                 const updated = { ...prev };
                 delete updated[rsvp.id];
                 return updated;
@@ -401,8 +491,10 @@ export default function RsvpsPage() {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete RSVP</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Are you sure you want to delete this RSVP? This will permanently remove the RSVP,
-                      any associated ticket/redemption codes, and approval history. This action cannot be undone.
+                      Are you sure you want to delete this RSVP? This will
+                      permanently remove the RSVP, any associated
+                      ticket/redemption codes, and approval history. This action
+                      cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -421,7 +513,12 @@ export default function RsvpsPage() {
         },
       },
     ],
-    [pendingChanges, updateRsvpComplete, deleteRsvpComplete, customFieldColumns],
+    [
+      pendingChanges,
+      updateRsvpComplete,
+      deleteRsvpComplete,
+      customFieldColumns,
+    ],
   );
 
   const filtered = React.useMemo(() => {
@@ -455,7 +552,9 @@ export default function RsvpsPage() {
       if (redemptionFilter === "not-issued") {
         result = result.filter((rsvp: any) => rsvp.redemptionStatus === "none");
       } else {
-        result = result.filter((rsvp: any) => rsvp.redemptionStatus === redemptionFilter);
+        result = result.filter(
+          (rsvp: any) => rsvp.redemptionStatus === redemptionFilter,
+        );
       }
     }
 
@@ -482,7 +581,11 @@ export default function RsvpsPage() {
   };
 
   // Check if any filters are active
-  const hasActiveFilters = guestSearch.trim() !== "" || statusFilter !== "all" || listFilter !== "all" || redemptionFilter !== "all";
+  const hasActiveFilters =
+    guestSearch.trim() !== "" ||
+    statusFilter !== "all" ||
+    listFilter !== "all" ||
+    redemptionFilter !== "all";
 
   const table = useReactTable({
     data: filtered,
@@ -524,7 +627,11 @@ export default function RsvpsPage() {
           onChange={(e) => setGuestSearch(e.target.value)}
         />
         <span className="mx-2 h-6 w-px bg-foreground/20" />
-        <Select value={statusFilter} onValueChange={setStatusFilter} className="w-32">
+        <Select
+          value={statusFilter}
+          onValueChange={setStatusFilter}
+          className="w-32"
+        >
           <SelectOption value="all">All Approval</SelectOption>
           {uniqueStatuses.map((status) => (
             <SelectOption key={status} value={status}>
@@ -532,7 +639,11 @@ export default function RsvpsPage() {
             </SelectOption>
           ))}
         </Select>
-        <Select value={listFilter} onValueChange={setListFilter} className="w-32">
+        <Select
+          value={listFilter}
+          onValueChange={setListFilter}
+          className="w-32"
+        >
           <SelectOption value="all">All Lists</SelectOption>
           {uniqueListKeys.map((listKey) => (
             <SelectOption key={listKey} value={listKey}>
@@ -540,7 +651,11 @@ export default function RsvpsPage() {
             </SelectOption>
           ))}
         </Select>
-        <Select value={redemptionFilter} onValueChange={setRedemptionFilter} className="w-36">
+        <Select
+          value={redemptionFilter}
+          onValueChange={setRedemptionFilter}
+          className="w-36"
+        >
           <SelectOption value="all">All Tickets</SelectOption>
           <SelectOption value="issued">Issued</SelectOption>
           <SelectOption value="redeemed">Redeemed</SelectOption>
@@ -576,7 +691,8 @@ export default function RsvpsPage() {
           )}
           {statusFilter !== "all" && (
             <Badge variant="secondary" className="gap-1">
-              Approval: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+              Approval:{" "}
+              {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
               <button
                 onClick={() => setStatusFilter("all")}
                 className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
@@ -598,7 +714,11 @@ export default function RsvpsPage() {
           )}
           {redemptionFilter !== "all" && (
             <Badge variant="secondary" className="gap-1">
-              Ticket: {redemptionFilter === "not-issued" ? "Not Issued" : redemptionFilter.charAt(0).toUpperCase() + redemptionFilter.slice(1)}
+              Ticket:{" "}
+              {redemptionFilter === "not-issued"
+                ? "Not Issued"
+                : redemptionFilter.charAt(0).toUpperCase() +
+                  redemptionFilter.slice(1)}
               <button
                 onClick={() => setRedemptionFilter("all")}
                 className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
@@ -637,21 +757,25 @@ export default function RsvpsPage() {
             {table.getRowModel().rows.map((row) => {
               const rsvp = row.original;
               const changes = pendingChanges[rsvp.id];
-              const hasChanges = changes && (
-                changes.currentApprovalStatus !== changes.originalApprovalStatus ||
-                changes.currentTicketStatus !== changes.originalTicketStatus
-              );
+              const hasChanges =
+                changes &&
+                (changes.currentApprovalStatus !==
+                  changes.originalApprovalStatus ||
+                  changes.currentTicketStatus !== changes.originalTicketStatus);
 
               return (
                 <tr
                   key={row.id}
                   className={`border-t border-foreground/10 ${
-                    hasChanges ? 'bg-yellow-50 border-yellow-200' : ''
+                    hasChanges ? "bg-yellow-50 border-yellow-200" : ""
                   }`}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className="px-2 py-1">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
                     </td>
                   ))}
                 </tr>

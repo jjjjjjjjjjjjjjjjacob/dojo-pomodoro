@@ -30,7 +30,9 @@ export function DateTimePicker({
 }: DateTimePickerProps) {
   const selectedDate = React.useMemo(() => {
     if (!date) return undefined;
-    const [year, month, day] = date.split("-").map((value) => parseInt(value, 10));
+    const [year, month, day] = date
+      .split("-")
+      .map((value) => parseInt(value, 10));
     if (!year || !month || !day) return undefined;
     return new Date(year, month - 1, day);
   }, [date]);
@@ -52,12 +54,12 @@ export function DateTimePicker({
             type="button"
             variant="outline"
             className={cn(
-              "w-[280px] justify-start text-left font-normal",
+              "justify-start text-left font-normal w-36",
               !date && "text-muted-foreground",
               buttonClassName,
             )}
           >
-            <CalendarIcon className="mr-2 h-4 w-4" />
+            <CalendarIcon className="h-4 w-4" />
             {formattedDate}
           </Button>
         </PopoverTrigger>
@@ -83,7 +85,7 @@ export function DateTimePicker({
           value={time || ""}
           onChange={(e) => onTimeChange(e.target.value)}
           step={60}
-          className="pl-8 w-[140px]"
+          className="pl-8 w-36"
         />
       </div>
     </div>

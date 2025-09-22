@@ -132,7 +132,10 @@ export default function EditEventDialog({ event }: { event: Event }) {
         patch.location = values.location;
       if ((flyerStorageId ?? undefined) !== (event.flyerStorageId ?? undefined))
         patch.flyerStorageId = (flyerStorageId as Id<"_storage">) ?? undefined;
-      if (values.maxAttendees !== undefined && values.maxAttendees !== (event.maxAttendees ?? 1))
+      if (
+        values.maxAttendees !== undefined &&
+        values.maxAttendees !== (event.maxAttendees ?? 1)
+      )
         patch.maxAttendees = values.maxAttendees;
       // Compute local timestamp to avoid timezone skew; prefer RHF values
       const dateStr = form.getValues("eventDate") || eventDateOnly;
@@ -151,15 +154,19 @@ export default function EditEventDialog({ event }: { event: Event }) {
             const [hours, minutes] = timeStr
               .split(":")
               .map((value) => parseInt(value, 10));
-            dateTime = new Date(Date.UTC(
-              year,
-              (month as number) - 1,
-              day,
-              hours || 0,
-              minutes || 0,
-            )).getTime();
+            dateTime = new Date(
+              Date.UTC(
+                year,
+                (month as number) - 1,
+                day,
+                hours || 0,
+                minutes || 0,
+              ),
+            ).getTime();
           } else {
-            dateTime = new Date(Date.UTC(year, (month as number) - 1, day)).getTime();
+            dateTime = new Date(
+              Date.UTC(year, (month as number) - 1, day),
+            ).getTime();
           }
         }
         if (dateTime && !Number.isNaN(dateTime) && dateTime !== event.eventDate)
@@ -196,148 +203,199 @@ export default function EditEventDialog({ event }: { event: Event }) {
         </DialogHeader>
         <Form {...form}>
           <form
-            className="space-y-3"
+            className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               onSave();
             }}
           >
-            <FormField
-              control={form.control}
-              name="name"
-              rules={{ required: "Name is required" }}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Event name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="hosts"
-              rules={{ required: "Hosts are required" }}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Hosts (comma-separated emails)</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="host1@example.com, host2@example.com"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="location"
-              rules={{ required: "Location is required" }}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Location</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Venue" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="maxAttendees"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Maximum Attendees</FormLabel>
-                  <FormControl>
-                    <Select
-                      value={field.value?.toString() || "1"}
-                      onValueChange={(value) => field.onChange(parseInt(value, 10))}
-                    >
-                      <SelectOption value="1">1 (No plus-ones)</SelectOption>
-                      <SelectOption value="2">2</SelectOption>
-                      <SelectOption value="3">3</SelectOption>
-                      <SelectOption value="4">4</SelectOption>
-                      <SelectOption value="5">5</SelectOption>
-                      <SelectOption value="6">6</SelectOption>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormItem>
-              <FormLabel>Flyer</FormLabel>
-              <FormControl>
-                <FlyerUpload
-                  value={flyerStorageId}
-                  onChange={setFlyerStorageId}
+            {/* Event Basic Info */}
+            <div className="space-y-3">
+              <h4 className="font-medium text-sm text-muted-foreground">
+                EVENT DETAILS
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  rules={{ required: "Name is required" }}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Event Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Event name" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </FormControl>
-            </FormItem>
-            <FormField
-              control={form.control}
-              name="eventDate"
-              rules={{ required: "Date is required" }}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Date & Time</FormLabel>
-                  <FormControl>
-                    <DateTimePicker
-                      date={(field.value as string) || eventDateOnly}
-                      time={form.getValues("eventTime") || eventTimeOnly}
-                      onDateChange={(val) => {
-                        setEventDateOnly(val);
-                        field.onChange(val);
-                      }}
-                      onTimeChange={(val) => {
-                        setEventTimeOnly(val);
-                        form.setValue("eventTime", val, { shouldDirty: true });
-                      }}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="rounded border p-3 space-y-2">
-              <div className="font-medium text-sm">Lists & Passwords</div>
-              {lists.map((listPassword, index) => (
-                <div
-                  key={listPassword.id ?? index}
-                  className="grid grid-cols-3 gap-2 items-center"
-                >
-                  <Input
-                    placeholder="List key (e.g. vip)"
-                    value={listPassword.listKey}
-                    onChange={(e) => setList(index, "listKey", e.target.value.trim())}
+                <FormField
+                  control={form.control}
+                  name="location"
+                  rules={{ required: "Location is required" }}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Location</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Venue" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={form.control}
+                name="hosts"
+                rules={{ required: "Hosts are required" }}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Host Emails (comma-separated)</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="host1@example.com, host2@example.com"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* Date, Time & Capacity */}
+            <div className="space-y-3">
+              <h4 className="font-medium text-sm text-muted-foreground">
+                DATE & CAPACITY
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="eventDate"
+                  rules={{ required: "Date is required" }}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Date & Time</FormLabel>
+                      <FormControl>
+                        <DateTimePicker
+                          date={(field.value as string) || eventDateOnly}
+                          time={form.getValues("eventTime") || eventTimeOnly}
+                          onDateChange={(val) => {
+                            setEventDateOnly(val);
+                            field.onChange(val);
+                          }}
+                          onTimeChange={(val) => {
+                            setEventTimeOnly(val);
+                            form.setValue("eventTime", val, {
+                              shouldDirty: true,
+                            });
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="maxAttendees"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max Attendees</FormLabel>
+                      <FormControl>
+                        <Select
+                          value={field.value?.toString() || "1"}
+                          onValueChange={(value) =>
+                            field.onChange(parseInt(value, 10))
+                          }
+                        >
+                          <SelectOption value="1">
+                            1 (No plus-ones)
+                          </SelectOption>
+                          <SelectOption value="2">2</SelectOption>
+                          <SelectOption value="3">3</SelectOption>
+                          <SelectOption value="4">4</SelectOption>
+                          <SelectOption value="5">5</SelectOption>
+                          <SelectOption value="6">6</SelectOption>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Flyer */}
+            <div className="space-y-3">
+              <h4 className="font-medium text-sm text-muted-foreground">
+                EVENT FLYER
+              </h4>
+              <FormItem>
+                <FormLabel>Upload Flyer (Optional)</FormLabel>
+                <FormControl>
+                  <FlyerUpload
+                    value={flyerStorageId}
+                    onChange={setFlyerStorageId}
                   />
-                  <Input
-                    placeholder="New password (leave blank to keep)"
-                    value={listPassword.password}
-                    onChange={(e) => setList(index, "password", e.target.value.trim())}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => removeList(index)}
+                </FormControl>
+              </FormItem>
+            </div>
+            {/* Access Lists & Passwords */}
+            <div className="space-y-3">
+              <h4 className="font-medium text-sm text-muted-foreground">
+                ACCESS LISTS & PASSWORDS
+              </h4>
+              <div className="space-y-3">
+                {lists.map((listPassword, index) => (
+                  <div
+                    key={listPassword.id ?? index}
+                    className="flex gap-3 items-end p-3 rounded border bg-muted/20"
                   >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addList}
-              >
-                Add another
-              </Button>
+                    <div className="flex flex-col w-full">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        List Name
+                      </label>
+                      <Input
+                        placeholder="e.g. vip, general, backstage"
+                        value={listPassword.listKey}
+                        onChange={(e) =>
+                          setList(index, "listKey", e.target.value.trim())
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-col w-full">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        New Password
+                      </label>
+                      <Input
+                        placeholder="Leave blank to keep current"
+                        value={listPassword.password}
+                        onChange={(e) =>
+                          setList(index, "password", e.target.value.trim())
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => removeList(index)}
+                      className="w-16 h-10"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addList}
+                  className="w-full"
+                >
+                  + Add Another List
+                </Button>
+              </div>
             </div>
             <CustomFieldsEditor
               initial={event.customFields ?? []}

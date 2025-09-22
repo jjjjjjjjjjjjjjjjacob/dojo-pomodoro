@@ -26,6 +26,7 @@ export interface CustomField {
   label: string;
   placeholder?: string;
   required?: boolean;
+  copyEnabled?: boolean;
 }
 
 export interface Event {
