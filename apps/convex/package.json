@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "npx convex dev",
-    "deploy": "npx convex deploy",
+    "dev": "bunx convex dev",
+    "deploy": "bunx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL",
     "test": "bun test",
     "test:run": "bun test"
   },

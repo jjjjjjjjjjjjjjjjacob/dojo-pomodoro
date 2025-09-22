@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "WATCHPACK_POLLING=true CHOKIDAR_USEPOLLING=1 next dev --port 2345",
     "build": "next build",
+    "deploy": "next build",
     "start": "next start",
     "lint": "next lint"
   },

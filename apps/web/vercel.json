@@ -1,5 +1,5 @@
 {
-  "buildCommand": "bun run build",
+  "buildCommand": "cd ../convex && bunx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'cd ../web && bun run build'",
   "installCommand": "bun install",
   "framework": "nextjs",
   "outputDirectory": ".next",
@@ -12,4 +12,3 @@
     }
   }
 }
-
