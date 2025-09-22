@@ -19,23 +19,24 @@ export const submitRequest = mutation({
     if (!identity) throw new Error("Unauthorized");
     const clerkUserId = identity.subject;
 
-    // Ensure event exists and is active
+    // Ensure event exists and is upcoming
     const event = await ctx.db.get(args.eventId);
-    if (!event || event.status !== "active") throw new Error("Event not available");
+    const now = Date.now();
+    if (!event || event.eventDate <= now)
+      throw new Error("Event not available");
 
     // Validate attendees against event's maxAttendees setting
     const maxAttendeesAllowed = event.maxAttendees ?? 1;
     const requestedAttendees = args.attendees ?? 1;
     if (requestedAttendees > maxAttendeesAllowed) {
-      throw new Error(`Maximum ${maxAttendeesAllowed} attendees allowed for this event`);
+      throw new Error(
+        `Maximum ${maxAttendeesAllowed} attendees allowed for this event`,
+      );
     }
     if (requestedAttendees < 1) {
       throw new Error("At least 1 attendee required");
     }
 
-    // Contact encryption is handled via a Node action from the client before submit
-
-    const now = Date.now();
     // Upsert RSVP per (eventId, clerkUserId)
     const existing = await ctx.db
       .query("rsvps")
@@ -93,6 +94,8 @@ export const listForEvent = query({
           )
           .unique();
         const name = user?.name;
+        const firstName = user?.firstName;
+        const lastName = user?.lastName;
         // Redemption info for this user+event
         const redemption = await ctx.db
           .query("redemptions")
@@ -123,6 +126,8 @@ export const listForEvent = query({
           id: r._id,
           clerkUserId: r.clerkUserId,
           name,
+          firstName,
+          lastName,
           listKey: r.listKey,
           note: r.note,
           status: r.status,
@@ -277,7 +282,7 @@ export const listUserTickets = query({
           const redemption = await ctx.db
             .query("redemptions")
             .withIndex("by_event_user", (q) =>
-              q.eq("eventId", rsvp.eventId).eq("clerkUserId", clerkUserId)
+              q.eq("eventId", rsvp.eventId).eq("clerkUserId", clerkUserId),
             )
             .unique();
 
@@ -295,7 +300,7 @@ export const listUserTickets = query({
           event,
           redemption: redemptionInfo,
         };
-      })
+      }),
     );
 
     // Sort by event date (newest first)
@@ -350,8 +355,16 @@ export const deleteRSVP = mutation({
 export const updateRsvpComplete = mutation({
   args: {
     rsvpId: v.id("rsvps"),
-    approvalStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"))),
-    ticketStatus: v.optional(v.union(v.literal("issued"), v.literal("not-issued"), v.literal("disabled"))),
+    approvalStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+    ),
+    ticketStatus: v.optional(
+      v.union(
+        v.literal("issued"),
+        v.literal("not-issued"),
+        v.literal("disabled"),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -369,7 +382,7 @@ export const updateRsvpComplete = mutation({
     if (args.approvalStatus && args.approvalStatus !== rsvp.status) {
       await ctx.db.patch(args.rsvpId, {
         status: args.approvalStatus,
-        updatedAt: now
+        updatedAt: now,
       });
 
       // Handle redemption based on approval status
@@ -377,7 +390,7 @@ export const updateRsvpComplete = mutation({
         // Auto-create redemption when approving
         await ctx.runMutation(api.redemptions.updateTicketStatus, {
           rsvpId: args.rsvpId,
-          status: "issued"
+          status: "issued",
         });
       } else if (args.approvalStatus === "denied") {
         // Auto-disable redemption when denying
@@ -408,7 +421,7 @@ export const updateRsvpComplete = mutation({
     if (args.ticketStatus && args.approvalStatus !== "denied") {
       await ctx.runMutation(api.redemptions.updateTicketStatus, {
         rsvpId: args.rsvpId,
-        status: args.ticketStatus
+        status: args.ticketStatus,
       });
     }
 
@@ -455,5 +468,54 @@ export const deleteRsvpComplete = mutation({
     await ctx.db.delete(args.rsvpId);
 
     return { deleted: true };
+  },
+});
+
+// Update RSVP list key only
+export const updateRsvpListKey = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+    listKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const rsvp = await ctx.db.get(args.rsvpId);
+    if (!rsvp) throw new Error("RSVP not found");
+
+    await ctx.db.patch(args.rsvpId, {
+      listKey: args.listKey,
+    });
+
+    // Update related records with the new list key
+    // Update redemption record if it exists
+    const redemption = await ctx.db
+      .query("redemptions")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
+      )
+      .unique();
+    if (redemption) {
+      await ctx.db.patch(redemption._id, {
+        listKey: args.listKey,
+      });
+    }
+
+    // Update approval records if they exist
+    const approvals = await ctx.db
+      .query("approvals")
+      .filter((q) => q.eq(q.field("rsvpId"), args.rsvpId))
+      .collect();
+    for (const approval of approvals) {
+      await ctx.db.patch(approval._id, {
+        listKey: args.listKey,
+      });
+    }
+
+    return { status: "ok" as const };
   },
 });

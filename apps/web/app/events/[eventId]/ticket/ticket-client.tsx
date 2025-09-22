@@ -169,6 +169,7 @@ export default function TicketClientPage({
         },
       );
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event?.name, status?.status, eventId, acceptRsvp.isPending, celebrate]);
 
   const dateText = useMemo(() => {
@@ -176,7 +177,10 @@ export default function TicketClientPage({
     if (!timestamp) return "";
     const date = new Date(timestamp);
     // Use UTC methods to display the exact date that was stored, avoiding timezone shifts
-    const day = date.toLocaleDateString(undefined, { weekday: "long", timeZone: "UTC" });
+    const day = date.toLocaleDateString(undefined, {
+      weekday: "long",
+      timeZone: "UTC",
+    });
     const formattedDate = date.toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",

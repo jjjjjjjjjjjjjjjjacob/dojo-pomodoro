@@ -53,10 +53,7 @@ export const getAll = query({
       if (!search) return true;
       const name = (u.name ?? "").toLowerCase();
       const phone = (u.phone ?? "").toLowerCase();
-      return (
-        name.includes(search) ||
-        phone.includes(search)
-      );
+      return name.includes(search) || phone.includes(search);
     });
 
     // Sorting
@@ -218,5 +215,216 @@ export const deleteUser = mutation({
       return { deleted: true };
     }
     return { deleted: false };
+  },
+});
+
+export const listOrganizationUsers = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    // Get all users and their org memberships
+    const users = await ctx.db.query("users").collect();
+    const orgMemberships = await ctx.db.query("orgMemberships").collect();
+
+    // Include ALL users, with role as "guest" if no membership
+    const usersWithRoles = users.map((user) => {
+      const membership = orgMemberships.find(
+        (m) => m.clerkUserId === user.clerkUserId,
+      );
+
+      return {
+        _id: user._id,
+        clerkUserId: user.clerkUserId,
+        name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        imageUrl: user.imageUrl,
+        createdAt: user.createdAt,
+        role: membership?.role || "guest",
+        organizationId: membership?.organizationId || null,
+        hasOrganizationMembership: !!membership,
+      };
+    });
+
+    return usersWithRoles.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+export const promoteUserToOrganization = mutation({
+  args: {
+    userId: v.id("users"),
+    role: v.string(),
+    organizationId: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, role, organizationId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    // Check if current user is admin using Clerk role
+    const userRole = (identity as any).role;
+    const hasAdminRole = userRole === "org:admin";
+    if (!hasAdminRole) {
+      throw new Error("Only admins can promote users");
+    }
+
+    // Get the admin's organization ID from their membership (fallback to Clerk org if available)
+    const currentUserMembership = await ctx.db
+      .query("orgMemberships")
+      .filter((q) => q.eq(q.field("clerkUserId"), identity.subject))
+      .first();
+
+    // Get the target user
+    const targetUser = await ctx.db.get(userId);
+    if (!targetUser) {
+      throw new Error("User not found");
+    }
+
+    // Check if user already has membership
+    const existingMembership = await ctx.db
+      .query("orgMemberships")
+      .filter((q) => q.eq(q.field("clerkUserId"), targetUser.clerkUserId))
+      .first();
+
+    if (existingMembership) {
+      throw new Error("User already has organization membership");
+    }
+
+    // Validate role
+    const validRoles = ["admin", "member"];
+    if (!validRoles.includes(role)) {
+      throw new Error("Invalid role");
+    }
+
+    // Use the admin's organization or provided organizationId or Clerk org
+    const orgId =
+      organizationId ||
+      currentUserMembership?.organizationId ||
+      (identity as any).orgId ||
+      "default-org";
+
+    // Validate clerkUserId exists
+    if (!targetUser.clerkUserId) {
+      throw new Error("User does not have a valid Clerk ID");
+    }
+
+    // Create new organization membership
+    await ctx.db.insert("orgMemberships", {
+      clerkUserId: targetUser.clerkUserId,
+      organizationId: orgId,
+      role,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+export const updateUserRole = mutation({
+  args: {
+    userId: v.id("users"),
+    newRole: v.string(),
+  },
+  handler: async (ctx, { userId, newRole }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    // Check if current user is admin using Clerk role
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) {
+      throw new Error("Only admins can change user roles");
+    }
+
+    // Get the admin's organization ID from their membership (fallback to Clerk org if available)
+    const currentUserMembership = await ctx.db
+      .query("orgMemberships")
+      .filter((q) => q.eq(q.field("clerkUserId"), identity.subject))
+      .first();
+
+    // Get the target user
+    const targetUser = await ctx.db.get(userId);
+    if (!targetUser) {
+      throw new Error("User not found");
+    }
+
+    // Validate role
+    const validRoles = ["admin", "member"];
+    if (!validRoles.includes(newRole)) {
+      throw new Error("Invalid role");
+    }
+
+    // Find the user's organization membership
+    const targetMembership = await ctx.db
+      .query("orgMemberships")
+      .filter((q) => q.eq(q.field("clerkUserId"), targetUser.clerkUserId))
+      .first();
+
+    if (!targetMembership) {
+      // Validate clerkUserId exists
+      if (!targetUser.clerkUserId) {
+        throw new Error("User does not have a valid Clerk ID");
+      }
+
+      // User doesn't have membership yet, create one (promote from guest)
+      const orgId =
+        currentUserMembership?.organizationId ||
+        (identity as any).orgId ||
+        "default-org";
+      await ctx.db.insert("orgMemberships", {
+        clerkUserId: targetUser.clerkUserId,
+        organizationId: orgId,
+        role: newRole,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    } else {
+      // User has membership, update their role
+      await ctx.db.patch(targetMembership._id, {
+        role: newRole,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return { success: true };
+  },
+});
+
+export const getUserStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const users = await ctx.db.query("users").collect();
+    const orgMemberships = await ctx.db.query("orgMemberships").collect();
+
+    // Count users by their membership status
+    const usersWithMembership = new Set(
+      orgMemberships.map((m) => m.clerkUserId),
+    );
+    const guestCount = users.filter(
+      (u) => u.clerkUserId && !usersWithMembership.has(u.clerkUserId),
+    ).length;
+
+    const roleStats = {
+      admin: orgMemberships.filter((m) => m.role === "admin").length,
+      member: orgMemberships.filter((m) => m.role === "member").length,
+      guest: guestCount,
+      total: users.length, // Total of all users in database
+      organizationMembers: orgMemberships.length, // Total organization members only
+    };
+
+    return roleStats;
   },
 });

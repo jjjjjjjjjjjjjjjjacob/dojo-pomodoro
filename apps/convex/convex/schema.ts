@@ -6,7 +6,9 @@ export default defineSchema({
     // Temporarily optional to run migration; switch back to v.string() after.
     clerkUserId: v.optional(v.string()),
     phone: v.optional(v.string()),
-    name: v.optional(v.string()),
+    name: v.optional(v.string()), // Keep during migration phase
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
     createdAt: v.number(),
@@ -31,7 +33,8 @@ export default defineSchema({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(), // ms since epoch
-    status: v.string(), // 'active' | 'past'
+    isFeatured: v.optional(v.boolean()), // one event can be featured for home page redirect
+    status: v.optional(v.string()),
     maxAttendees: v.optional(v.number()), // maximum attendees allowed per RSVP (default 1)
     customFields: v.optional(
       v.array(
@@ -47,7 +50,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_status", ["status"]) // for active/past checks
+    .index("by_featured", ["isFeatured"]) // for quick featured event lookup
     .index("by_date", ["eventDate"]),
 
   listCredentials: defineTable({

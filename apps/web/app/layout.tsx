@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Noto_Emoji } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
 import HeaderClient from "./header-client";
@@ -14,13 +14,21 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const notoEmoji = Noto_Emoji({
+  variable: "--font-noto-emoji",
+  subsets: ["emoji"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Dojo Pomodoro",
-  description: "Event management platform for exclusive gatherings and experiences",
+  description:
+    "Event management platform for exclusive gatherings and experiences",
   metadataBase: new URL("https://dojopomodoro.club"),
   openGraph: {
     title: "Dojo Pomodoro",
-    description: "Event management platform for exclusive gatherings and experiences",
+    description:
+      "Event management platform for exclusive gatherings and experiences",
     url: "https://dojopomodoro.club",
     siteName: "Dojo Pomodoro",
     images: [
@@ -37,7 +45,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Dojo Pomodoro",
-    description: "Event management platform for exclusive gatherings and experiences",
+    description:
+      "Event management platform for exclusive gatherings and experiences",
     images: ["/og-image.png"],
   },
   icons: {
@@ -59,7 +68,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${notoEmoji.variable} antialiased`}
       >
         <Providers>
           <HeaderClient />

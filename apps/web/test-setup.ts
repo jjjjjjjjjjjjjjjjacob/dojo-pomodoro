@@ -144,13 +144,13 @@ mock.module("convex/react", () => ({
 // Mock TanStack Query
 mock.module("@tanstack/react-query", () => ({
   useQuery: () => ({
-    data: {
+    data: mock(() => ({
       _id: "event_123",
       name: "Test Event",
       location: "Test Location",
       eventDate: Date.now(),
       status: "active",
-    },
+    })),
     isLoading: false,
     isError: false,
     error: null,

@@ -45,7 +45,6 @@ export const insertWithCreds = mutation({
       flyerStorageId: args.flyerStorageId,
       eventDate: args.eventDate,
       maxAttendees: args.maxAttendees,
-      status: "active",
       customFields: args.customFields,
       createdAt: now,
       updatedAt: now,
@@ -67,7 +66,7 @@ export const update = mutation({
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.optional(v.number()),
     maxAttendees: v.optional(v.number()),
-    status: v.optional(v.string()),
+    isFeatured: v.optional(v.boolean()),
     customFields: v.optional(
       v.array(
         v.object({
@@ -84,7 +83,7 @@ export const update = mutation({
     if (!event) throw new NotFoundError("Event");
 
     const patch: EventPatch & { updatedAt: number } = { updatedAt: Date.now() };
-    const updateableFields = ["name", "hosts", "location", "flyerUrl", "flyerStorageId", "eventDate", "maxAttendees", "status", "customFields"] as const;
+    const updateableFields = ["name", "hosts", "location", "flyerUrl", "flyerStorageId", "eventDate", "maxAttendees", "isFeatured", "customFields"] as const;
 
     for (const fieldKey of updateableFields) {
       if (args[fieldKey] !== undefined) {
@@ -162,5 +161,51 @@ export const listAll = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("events").collect();
+  },
+});
+
+export const getFeaturedEvent = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("events")
+      .withIndex("by_featured", (q) => q.eq("isFeatured", true))
+      .unique();
+  },
+});
+
+export const setFeaturedEvent = mutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, { eventId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    // Check if current user is admin using Clerk role
+    const userRole = (identity as any).role;
+    const hasAdminRole = userRole === "org:admin";
+    if (!hasAdminRole) {
+      throw new Error("Only admins can set featured events");
+    }
+
+    // Set all other events to not featured
+    const allEvents = await ctx.db.query("events").collect();
+    for (const event of allEvents) {
+      if (event._id !== eventId && event.isFeatured) {
+        await ctx.db.patch(event._id, {
+          isFeatured: false,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    // Set the selected event as featured
+    await ctx.db.patch(eventId, {
+      isFeatured: true,
+      updatedAt: Date.now(),
+    });
+
+    return { ok: true };
   },
 });

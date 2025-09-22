@@ -47,8 +47,22 @@ import {
   ApplicationError,
 } from "@/lib/types";
 
-export default function EditEventDialog({ event }: { event: Event }) {
-  const [open, setOpen] = React.useState(false);
+export default function EditEventDialog({
+  steve,
+  showTrigger = true,
+  event,
+  open: externalOpen,
+  onOpenChange: externalOnOpenChange,
+}: {
+  steve?: string;
+  showTrigger?: boolean;
+  event: Event;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = externalOnOpenChange || setInternalOpen;
   const form = useForm<EditEventFormData>({
     defaultValues: {
       name: event.name || "",
@@ -191,9 +205,11 @@ export default function EditEventDialog({ event }: { event: Event }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button className="text-sm px-2 py-1 border rounded">Edit</button>
-      </DialogTrigger>
+      {!externalOpen && showTrigger && (
+        <DialogTrigger asChild>
+          <button className="text-sm px-2 py-1 border rounded">Edit</button>
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit Event</DialogTitle>

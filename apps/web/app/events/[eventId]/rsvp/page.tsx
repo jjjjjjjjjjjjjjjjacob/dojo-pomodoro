@@ -11,7 +11,10 @@ import { useUser, useClerk, UserProfile } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { validateRequired } from "@/lib/mini-zod";
+import {
+  validateRequired,
+  validateRequiredWithFirstName,
+} from "@/lib/mini-zod";
 import { useForm } from "react-hook-form";
 import {
   Form,
@@ -80,7 +83,9 @@ export default function RsvpPage({
     length: password.length,
   });
   const [listKey, setListKey] = useState<string | null>(null);
-  const [name, setName] = useState<string>("");
+  const [name, setName] = useState<string>(""); // Keep during migration phase
+  const [firstName, setFirstName] = useState<string>("");
+  const [lastName, setLastName] = useState<string>("");
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
@@ -93,7 +98,13 @@ export default function RsvpPage({
   const submitRsvp = useMutation(api.rsvps.submitRequest);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const form = useForm<RSVPFormData>({
-    defaultValues: { name: "", custom: {}, attendees: 1 },
+    defaultValues: {
+      name: "",
+      firstName: "",
+      lastName: "",
+      custom: {},
+      attendees: 1,
+    },
   });
 
   // Guard: password requirement
@@ -157,15 +168,40 @@ export default function RsvpPage({
   // Prefill from user document metadata and Clerk profile
   useEffect(() => {
     if (!event) return;
-    // Name prefill
-    if (!name) {
-      const n =
-        userDoc?.name ||
-        user?.fullName ||
-        (user?.firstName
-          ? `${user.firstName} ${user?.lastName ?? ""}`.trim()
-          : "");
-      if (n) setName(n);
+    // Name prefill - support both old and new field structure
+    if (!firstName && !lastName) {
+      let first = "";
+      let last = "";
+      let fullName = "";
+
+      // Try to get from user document first
+      if (userDoc?.firstName || userDoc?.lastName) {
+        first = userDoc.firstName || "";
+        last = userDoc.lastName || "";
+        fullName = `${first} ${last}`.trim();
+      } else if (userDoc?.name) {
+        // Parse existing name
+        const parts = userDoc.name.trim().split(" ");
+        if (parts.length === 1) {
+          first = parts[0];
+          last = "";
+        } else if (parts.length >= 2) {
+          last = parts[parts.length - 1];
+          first = parts.slice(0, -1).join(" ");
+        }
+        fullName = userDoc.name;
+      } else if (user?.firstName || user?.lastName) {
+        // Fallback to Clerk user data
+        first = user.firstName || "";
+        last = user.lastName || "";
+        fullName = user.fullName || `${first} ${last}`.trim();
+      }
+
+      if (first || last) {
+        setFirstName(first);
+        setLastName(last);
+        setName(fullName); // Keep backward compatibility
+      }
     }
     // Custom fields prefill
     if (event?.customFields?.length) {
@@ -180,15 +216,20 @@ export default function RsvpPage({
         return next;
       });
     }
-  }, [
-    event?.customFields?.map((c) => c.key).join(","),
-    userDoc?._id,
-    user?.id,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.customFields, userDoc?._id, user?.id, firstName, lastName]);
 
   // Sync RHF form values from local state for name/custom
   useEffect(() => {
     form.setValue("name", name, { shouldValidate: false, shouldDirty: false });
+    form.setValue("firstName", firstName, {
+      shouldValidate: false,
+      shouldDirty: false,
+    });
+    form.setValue("lastName", lastName, {
+      shouldValidate: false,
+      shouldDirty: false,
+    });
     const current = form.getValues("custom") || {};
     const next: Record<string, string> = { ...current, ...custom };
     form.setValue("custom", next, {
@@ -196,7 +237,7 @@ export default function RsvpPage({
       shouldDirty: false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, JSON.stringify(custom)]);
+  }, [name, firstName, lastName, JSON.stringify(custom)]);
 
   // Prefill from Clerk profile
   const phone = useMemo(() => {
@@ -222,8 +263,8 @@ export default function RsvpPage({
         setMessage("Missing list access. Please re-enter your password.");
         return;
       }
-      const errs = validateRequired(
-        name,
+      const errs = validateRequiredWithFirstName(
+        firstName,
         custom,
         (event?.customFields || []).map((customField) => ({
           key: customField.key,
@@ -234,9 +275,9 @@ export default function RsvpPage({
       if (errs.length) {
         const perField: Record<string, string> = {};
         for (const e of errs) {
-          if (e.toLowerCase().includes("name")) {
-            perField.name = e;
-            form.setError("name", { type: "required", message: e });
+          if (e.toLowerCase().includes("first name")) {
+            perField.firstName = e;
+            form.setError("firstName", { type: "required", message: e });
           }
         }
         for (const customField of event?.customFields || []) {
@@ -337,6 +378,10 @@ export default function RsvpPage({
                     event={event as Event}
                     name={name}
                     setName={setName}
+                    firstName={firstName}
+                    setFirstName={setFirstName}
+                    lastName={lastName}
+                    setLastName={setLastName}
                     custom={custom}
                     setCustom={setCustom}
                     phone={phone}

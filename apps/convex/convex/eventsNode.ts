@@ -22,11 +22,13 @@ export const create = action({
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(),
     maxAttendees: v.optional(v.number()),
-    lists: v.array(v.object({
-      listKey: v.string(),
-      password: v.string(),
-      generateQR: v.optional(v.boolean())
-    })),
+    lists: v.array(
+      v.object({
+        listKey: v.string(),
+        password: v.string(),
+        generateQR: v.optional(v.boolean()),
+      }),
+    ),
     customFields: v.optional(
       v.array(
         v.object({
@@ -65,7 +67,7 @@ export const create = action({
       localFingerprints.add(fingerprint);
     }
 
-    // Enforce uniqueness across active events
+    // Enforce uniqueness across upcoming events
     for (const { password } of args.lists) {
       const fingerprint = hmacFingerprint(fingerprintSecret, password);
       const credentials = await ctx.runQuery(api.credentials.getByFingerprint, {
@@ -76,9 +78,9 @@ export const create = action({
           const event = await ctx.runQuery(api.events.get, {
             eventId: credential.eventId,
           });
-          if (event && event.status === "active")
+          if (event && event.eventDate > now)
             throw new DuplicateError(
-              "Password already in use by an active event",
+              "Password already in use by an upcoming event",
             );
         }
       }
@@ -164,7 +166,10 @@ export const update = action({
       { eventId },
     );
     const existingById = new Map<string, Doc<"listCredentials">>(
-      existingCredentials.map((credential: Doc<"listCredentials">) => [credential._id, credential]),
+      existingCredentials.map((credential: Doc<"listCredentials">) => [
+        credential._id,
+        credential,
+      ]),
     );
 
     // For deletions: any existing not present in incoming by id

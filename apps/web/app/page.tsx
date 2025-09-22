@@ -39,10 +39,10 @@ export default function Home() {
 
   const onSubmit = useCallback(async () => {
     const normalizedPassword = password.trim();
-    console.log('[DEBUG] Home page password entry:', {
+    console.log("[DEBUG] Home page password entry:", {
       original: password,
       normalized: normalizedPassword,
-      length: normalizedPassword.length
+      length: normalizedPassword.length,
     });
     if (!normalizedPassword) {
       setMessage("Enter your list code.");
@@ -51,7 +51,7 @@ export default function Home() {
     try {
       setLoading(true);
       setMessage("");
-      console.log('[DEBUG] Sending password to backend:', normalizedPassword);
+      console.log("[DEBUG] Sending password to backend:", normalizedPassword);
       const res = await resolve({ password: normalizedPassword });
       if (res?.ok && res.eventId) {
         trackEvent("Event Access", {
@@ -75,6 +75,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, resolve, router]);
 
   return (

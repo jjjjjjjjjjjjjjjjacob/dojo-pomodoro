@@ -134,8 +134,17 @@ export default function NewEventClient() {
   };
 
   return (
-    <section className="space-y-6 max-w-2xl">
-      <h2 className="text-lg font-medium">Create Event</h2>
+    <div className="flex-1 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Create Event</h2>
+          <p className="text-muted-foreground">
+            Set up a new event with custom fields and guest lists
+          </p>
+        </div>
+      </div>
+
+      <div className="max-w-2xl space-y-6">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           {/* Event Basic Info */}
@@ -342,6 +351,7 @@ export default function NewEventClient() {
           </div>
         </form>
       </Form>
-    </section>
+      </div>
+    </div>
   );
 }

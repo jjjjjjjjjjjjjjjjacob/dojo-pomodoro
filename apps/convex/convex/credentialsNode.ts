@@ -54,11 +54,28 @@ export const resolveEventByPassword = action({
       );
     };
 
+    const now = Date.now();
+
+    // First, try to find featured event with valid password
     for (const credential of credentials) {
       const event = await ctx.runQuery(api.events.get, {
         eventId: credential.eventId,
       });
-      if (event && event.status === "active" && verifyCredential(credential)) {
+      if (event && event.isFeatured && verifyCredential(credential)) {
+        return {
+          ok: true as const,
+          eventId: credential.eventId,
+          listKey: credential.listKey,
+        };
+      }
+    }
+
+    // If no featured event, try upcoming events
+    for (const credential of credentials) {
+      const event = await ctx.runQuery(api.events.get, {
+        eventId: credential.eventId,
+      });
+      if (event && event.eventDate > now && verifyCredential(credential)) {
         return {
           ok: true as const,
           eventId: credential.eventId,

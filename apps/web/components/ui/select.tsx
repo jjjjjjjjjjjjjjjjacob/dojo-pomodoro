@@ -8,7 +8,14 @@ type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
   hapticFeedback?: boolean;
 };
 
-export function Select({ className, onChange, onValueChange, hapticFeedback = true, children, ...props }: SelectProps) {
+export function Select({
+  className,
+  onChange,
+  onValueChange,
+  hapticFeedback = true,
+  children,
+  ...props
+}: SelectProps) {
   const { trigger } = useHapticContext();
 
   const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -21,7 +28,10 @@ export function Select({ className, onChange, onValueChange, hapticFeedback = tr
 
   return (
     <select
-      className={cn("border rounded px-2 py-1 text-sm bg-background", className)}
+      className={cn(
+        "border rounded px-2 py-1 text-sm bg-background",
+        className,
+      )}
       onChange={handleChange}
       {...props}
     >
@@ -30,7 +40,9 @@ export function Select({ className, onChange, onValueChange, hapticFeedback = tr
   );
 }
 
-export function SelectOption({ className, ...props }: React.OptionHTMLAttributes<HTMLOptionElement>) {
+export function SelectOption({
+  className,
+  ...props
+}: React.OptionHTMLAttributes<HTMLOptionElement>) {
   return <option className={cn(className)} {...props} />;
 }
-

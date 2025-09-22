@@ -19,3 +19,18 @@ export function validateRequired(
   return errors;
 }
 
+export function validateRequiredWithFirstName(
+  firstName: string,
+  custom: Record<string, string>,
+  rules: FieldRule[] = [],
+) {
+  const errors: string[] = [];
+  if (!firstName?.trim()) errors.push("First name is required");
+  for (const r of rules) {
+    if (r.required && !((custom?.[r.key] || "").trim())) {
+      errors.push(`${r.label} is required`);
+    }
+  }
+  return errors;
+}
+

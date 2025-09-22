@@ -18,6 +18,10 @@ export function GuestInfoFields({
   event,
   name,
   setName,
+  firstName,
+  setFirstName,
+  lastName,
+  setLastName,
   custom,
   setCustom,
   phone,
@@ -26,8 +30,12 @@ export function GuestInfoFields({
 }: {
   form: UseFormReturn<RSVPFormData>;
   event: Event;
-  name: string;
+  name: string; // Keep during migration phase
   setName: (v: string) => void;
+  firstName: string;
+  setFirstName: (v: string) => void;
+  lastName: string;
+  setLastName: (v: string) => void;
   custom: Record<string, string>;
   setCustom: (
     updater: (m: Record<string, string>) => Record<string, string>,
@@ -39,30 +47,61 @@ export function GuestInfoFields({
   return (
     <div className="rounded border border-primary/30 p-3 space-y-2">
       <div className="font-semibold text-sm text-primary">YOUR INFO</div>
-      <FormField
-        control={form.control}
-        name="name"
-        rules={{ required: "Name is required" }}
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel className="text-primary text-xs font-medium">
-              NAME <span className="text-xs text-primary/70">(required)</span>
-            </FormLabel>
-            <FormControl>
-              <Input
-                placeholder="Your name"
-                className="border border-primary/20 placeholder:text-primary/50 text-primary"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value.trim());
-                  field.onChange(e.target.value.trim());
-                }}
-              />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <FormField
+          control={form.control}
+          name="firstName"
+          rules={{ required: "First name is required" }}
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-primary text-xs font-medium">
+                FIRST NAME <span className="text-xs text-primary/70">(required)</span>
+              </FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="First name"
+                  className="border border-primary/20 placeholder:text-primary/50 text-primary"
+                  value={firstName}
+                  onChange={(e) => {
+                    const value = e.target.value.trim();
+                    setFirstName(value);
+                    field.onChange(value);
+                    // Update combined name for backward compatibility
+                    setName(`${value} ${lastName}`.trim());
+                  }}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="lastName"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-primary text-xs font-medium">
+                LAST NAME
+              </FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="Last name"
+                  className="border border-primary/20 placeholder:text-primary/50 text-primary"
+                  value={lastName}
+                  onChange={(e) => {
+                    const value = e.target.value.trim();
+                    setLastName(value);
+                    field.onChange(value);
+                    // Update combined name for backward compatibility
+                    setName(`${firstName} ${value}`.trim());
+                  }}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
       {(event?.customFields || []).map((customField: CustomField) => (
         <FormField
           key={customField.key}

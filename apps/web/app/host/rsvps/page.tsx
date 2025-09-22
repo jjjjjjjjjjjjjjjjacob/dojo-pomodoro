@@ -79,6 +79,7 @@ export default function RsvpsPage() {
   const [eventId, setEventId] = React.useState<string | undefined>(initialId);
   React.useEffect(() => {
     if (!eventId && eventsSorted[0]?._id) setEventId(eventsSorted[0]._id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsSorted.map((event: any) => event._id).join(","), eventId]);
 
   React.useEffect(() => {
@@ -86,6 +87,7 @@ export default function RsvpsPage() {
     const params = new URLSearchParams(searchParams as any);
     params.set("eventId", eventId);
     router.replace(`/host/rsvps?${params.toString()}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   const rsvps = useQuery(
@@ -96,6 +98,10 @@ export default function RsvpsPage() {
     api.events.get,
     eventId ? { eventId: eventId as Id<"events"> } : "skip",
   );
+  const listCredentials = useQuery(
+    api.credentials.getCredsForEvent,
+    eventId ? { eventId: eventId as Id<"events"> } : "skip",
+  );
   const approve = useMutation(api.approvals.approve);
   const deny = useMutation(api.approvals.deny);
   const toggleRedemptionStatus = useMutation(
@@ -103,6 +109,7 @@ export default function RsvpsPage() {
   );
   const updateTicketStatus = useMutation(api.redemptions.updateTicketStatus);
   const updateRsvpComplete = useMutation(api.rsvps.updateRsvpComplete);
+  const updateRsvpListKey = useMutation(api.rsvps.updateRsvpListKey);
   const deleteRsvpComplete = useMutation(api.rsvps.deleteRsvpComplete);
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
@@ -189,8 +196,16 @@ export default function RsvpsPage() {
       {
         id: "guest",
         header: "Guest",
-        accessorFn: (r: any) =>
-          r.name || r.contact?.email || r.contact?.phone || "(no contact)",
+        accessorFn: (r: any) => {
+          const displayName = `${r.firstName || ""} ${r.lastName || ""}`.trim();
+          return (
+            displayName ||
+            r.name ||
+            r.contact?.email ||
+            r.contact?.phone ||
+            "(no contact)"
+          );
+        },
         cell: (ctx) => {
           const guestName = ctx.getValue() as string;
           return <span>{guestName}</span>;
@@ -200,7 +215,73 @@ export default function RsvpsPage() {
         id: "listKey",
         header: "List",
         accessorKey: "listKey",
-        cell: ({ getValue }) => (getValue() as string)?.toUpperCase(),
+        cell: ({ row }) => {
+          const rsvp = row.original;
+          const currentListKey = rsvp.listKey;
+          const availableListKeys =
+            listCredentials?.map((cred) => cred.listKey) || [];
+
+          const handleListKeyChange = async (newListKey: string) => {
+            if (newListKey === currentListKey) return;
+
+            // Get guest name for toast
+            const displayName =
+              `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
+            const guestName =
+              displayName ||
+              rsvp.name ||
+              rsvp.contact?.email ||
+              rsvp.contact?.phone ||
+              "Guest";
+
+            try {
+              await updateRsvpListKey({
+                rsvpId: rsvp.id,
+                listKey: newListKey,
+              });
+
+              toast.success(
+                `Changed ${guestName}'s list to '${newListKey.toUpperCase()}'`,
+              );
+            } catch (error) {
+              toast.error(
+                `Failed to update ${guestName}'s list: ` +
+                  (error as Error).message,
+              );
+            }
+          };
+
+          if (availableListKeys.length <= 1) {
+            // If only one list or no lists, show as text
+            return <span>{currentListKey?.toUpperCase()}</span>;
+          }
+
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  className="h-6 px-2 text-xs"
+                >
+                  {currentListKey?.toUpperCase()}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuRadioGroup
+                  value={currentListKey}
+                  onValueChange={handleListKeyChange}
+                >
+                  {availableListKeys.map((listKey) => (
+                    <DropdownMenuRadioItem key={listKey} value={listKey}>
+                      {listKey.toUpperCase()}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
       },
       {
         id: "attendees",
@@ -209,6 +290,26 @@ export default function RsvpsPage() {
         cell: ({ getValue }) => {
           const attendees = getValue() as number;
           return <span className="text-sm">{attendees}</span>;
+        },
+      },
+      {
+        id: "createdAt",
+        header: "Created",
+        accessorKey: "createdAt",
+        cell: ({ getValue }) => {
+          const timestamp = getValue() as number;
+          const date = new Date(timestamp);
+          return (
+            <div className="text-xs">
+              <div>{date.toLocaleDateString()}</div>
+              <div className="text-muted-foreground">
+                {date.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </div>
+            </div>
+          );
         },
       },
       // Insert custom field columns here
@@ -220,31 +321,36 @@ export default function RsvpsPage() {
         cell: ({ row }) => {
           const rsvp = row.original;
           const originalApprovalStatus = rsvp.status || "pending";
-          const currentApprovalStatus =
-            pendingChanges[rsvp.id]?.currentApprovalStatus ||
-            originalApprovalStatus;
+          const currentApprovalStatus = originalApprovalStatus;
 
-          const handleStatusChange = (newStatus: string) => {
-            setPendingChanges((prev) => ({
-              ...prev,
-              [rsvp.id]: {
-                ...prev[rsvp.id],
-                originalApprovalStatus:
-                  prev[rsvp.id]?.originalApprovalStatus ||
-                  originalApprovalStatus,
-                originalTicketStatus:
-                  prev[rsvp.id]?.originalTicketStatus ||
-                  (rsvp.redemptionStatus === "none"
-                    ? "not-issued"
-                    : rsvp.redemptionStatus),
-                currentApprovalStatus: newStatus,
-                currentTicketStatus:
-                  prev[rsvp.id]?.currentTicketStatus ||
-                  (rsvp.redemptionStatus === "none"
-                    ? "not-issued"
-                    : rsvp.redemptionStatus),
-              },
-            }));
+          const handleStatusChange = async (newStatus: string) => {
+            if (newStatus === originalApprovalStatus) return;
+
+            // Get guest name for toast
+            const displayName =
+              `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
+            const guestName =
+              displayName ||
+              rsvp.name ||
+              rsvp.contact?.email ||
+              rsvp.contact?.phone ||
+              "Guest";
+
+            try {
+              await updateRsvpComplete({
+                rsvpId: rsvp.id,
+                approvalStatus: newStatus as any,
+              });
+
+              const statusText =
+                newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+              toast.success(`Changed ${guestName}'s RSVP to '${statusText}'`);
+            } catch (error) {
+              toast.error(
+                `Failed to update ${guestName}'s approval status: ` +
+                  (error as Error).message,
+              );
+            }
           };
 
           const getStatusColor = (currentStatus: string) => {
@@ -301,27 +407,37 @@ export default function RsvpsPage() {
             rsvp.redemptionStatus === "none"
               ? "not-issued"
               : rsvp.redemptionStatus;
-          const currentTicketStatus =
-            pendingChanges[rsvp.id]?.currentTicketStatus ||
-            originalTicketStatus;
+          const currentTicketStatus = originalTicketStatus;
           const isRedeemed = originalTicketStatus === "redeemed";
 
-          const handleTicketStatusChange = (newStatus: string) => {
+          const handleTicketStatusChange = async (newStatus: string) => {
             if (isRedeemed) return; // Cannot change redeemed status
+            if (newStatus === originalTicketStatus) return;
 
-            setPendingChanges((prev) => ({
-              ...prev,
-              [rsvp.id]: {
-                ...prev[rsvp.id],
-                originalApprovalStatus:
-                  prev[rsvp.id]?.originalApprovalStatus || rsvp.status,
-                originalTicketStatus:
-                  prev[rsvp.id]?.originalTicketStatus || originalTicketStatus,
-                currentApprovalStatus:
-                  prev[rsvp.id]?.currentApprovalStatus || rsvp.status,
-                currentTicketStatus: newStatus,
-              },
-            }));
+            // Get guest name for toast
+            const displayName =
+              `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
+            const guestName =
+              displayName ||
+              rsvp.name ||
+              rsvp.contact?.email ||
+              rsvp.contact?.phone ||
+              "Guest";
+
+            try {
+              await updateRsvpComplete({
+                rsvpId: rsvp.id,
+                ticketStatus: newStatus as any,
+              });
+
+              const statusText = getTicketStatusLabel(newStatus);
+              toast.success(`Changed ${guestName}'s ticket to '${statusText}'`);
+            } catch (error) {
+              toast.error(
+                `Failed to update ${guestName}'s ticket status: ` +
+                  (error as Error).message,
+              );
+            }
           };
 
           const getTicketStatusColor = (status: string) => {
@@ -348,7 +464,7 @@ export default function RsvpsPage() {
                 return "Disabled";
               case "not-issued":
               default:
-                return "Not Issued";
+                return "None";
             }
           };
 
@@ -370,7 +486,7 @@ export default function RsvpsPage() {
                   onValueChange={handleTicketStatusChange}
                 >
                   <DropdownMenuRadioItem value="not-issued">
-                    <span className="text-gray-700">Not Issued</span>
+                    <span className="text-gray-700">None</span>
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="issued">
                     <span className="text-purple-700">Issued</span>
@@ -468,15 +584,6 @@ export default function RsvpsPage() {
 
           return (
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSave}
-                disabled={!hasChanges}
-                className="text-xs"
-              >
-                Save
-              </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
@@ -513,6 +620,7 @@ export default function RsvpsPage() {
         },
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       pendingChanges,
       updateRsvpComplete,
@@ -604,8 +712,15 @@ export default function RsvpsPage() {
   });
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-lg font-medium">RSVPs</h2>
+    <div className="flex-1 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">RSVPs</h2>
+          <p className="text-muted-foreground">
+            Manage guest responses and ticket status
+          </p>
+        </div>
+      </div>
       {/* Event Selector */}
       <div className="flex gap-2 items-center flex-wrap">
         <span className="text-sm text-foreground/70">Event:</span>
@@ -660,7 +775,7 @@ export default function RsvpsPage() {
           <SelectOption value="issued">Issued</SelectOption>
           <SelectOption value="redeemed">Redeemed</SelectOption>
           <SelectOption value="disabled">Disabled</SelectOption>
-          <SelectOption value="not-issued">Not Issued</SelectOption>
+          <SelectOption value="not-issued">None</SelectOption>
         </Select>
         {hasActiveFilters && (
           <Button
@@ -716,7 +831,7 @@ export default function RsvpsPage() {
             <Badge variant="secondary" className="gap-1">
               Ticket:{" "}
               {redemptionFilter === "not-issued"
-                ? "Not Issued"
+                ? "None"
                 : redemptionFilter.charAt(0).toUpperCase() +
                   redemptionFilter.slice(1)}
               <button
@@ -901,6 +1016,6 @@ export default function RsvpsPage() {
           )}
         </DialogContent>
       </Dialog>
-    </section>
+    </div>
   );
 }

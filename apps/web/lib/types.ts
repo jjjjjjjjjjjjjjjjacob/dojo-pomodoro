@@ -5,7 +5,9 @@ export interface User {
   _id: Id<"users">;
   clerkUserId?: string;
   phone?: string;
-  name?: string;
+  name?: string; // Keep during migration phase
+  firstName?: string;
+  lastName?: string;
   imageUrl?: string;
   metadata?: Record<string, string>;
   createdAt: number;
@@ -36,9 +38,10 @@ export interface Event {
   location: string;
   flyerUrl?: string;
   flyerStorageId?: Id<"_storage">;
+  isFeatured?: boolean;
   eventDate: number;
   maxAttendees?: number;
-  status: "active" | "past";
+  status?: "active" | "past";
   customFields?: CustomField[];
   createdAt: number;
   updatedAt: number;
@@ -114,7 +117,9 @@ export interface Redemption {
 // React Hook Form types
 export interface UseFormReturn<T = any> {
   control: any;
-  handleSubmit: (onSubmit: (data: T) => void | Promise<void>) => (e?: React.BaseSyntheticEvent) => Promise<void>;
+  handleSubmit: (
+    onSubmit: (data: T) => void | Promise<void>,
+  ) => (e?: React.BaseSyntheticEvent) => Promise<void>;
   getValues: (name?: keyof T | (keyof T)[]) => any;
   setValue: (name: keyof T, value: any, options?: any) => void;
   setError: (name: keyof T, error: { type: string; message: string }) => void;
@@ -136,7 +141,9 @@ export interface GuestInfoFieldsProps {
   name: string;
   setName: (value: string) => void;
   custom: Record<string, string>;
-  setCustom: (updater: (current: Record<string, string>) => Record<string, string>) => void;
+  setCustom: (
+    updater: (current: Record<string, string>) => Record<string, string>,
+  ) => void;
   phone: string;
   openUserProfile?: () => void;
 }
@@ -198,7 +205,9 @@ export interface EditEventFormData {
 }
 
 export interface RSVPFormData {
-  name: string;
+  name: string; // Keep during migration phase
+  firstName: string;
+  lastName: string;
   custom: Record<string, string>;
   attendees?: number;
 }
@@ -287,3 +296,4 @@ export interface ClerkOrganization {
 export type EventStatus = Event["status"];
 export type RSVPStatus = RSVP["status"];
 export type ApprovalDecision = Approval["decision"];
+

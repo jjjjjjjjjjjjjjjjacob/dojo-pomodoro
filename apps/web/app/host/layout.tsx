@@ -1,8 +1,21 @@
 import { SignedIn, SignedOut, SignInButton } from "@clerk/nextjs";
-import Link from "next/link";
 import { checkRole } from "@/lib/rbac";
 import { HostRequestClient } from "./request-client";
-import { HostNav } from "./nav-client";
+import { AppSidebar } from "@/components/app-sidebar";
+import {
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger
+} from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 
 export default async function HostLayout({
   children,
@@ -10,33 +23,51 @@ export default async function HostLayout({
   children: React.ReactNode;
 }) {
   const isHost = await checkRole(["admin", "host"]);
+
   return (
-    <main className="max-w-5xl mx-auto p-6 space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">Host Dashboard</h1>
-        <p className="text-sm text-foreground/70">
-          Manage events, review RSVPs, and track redemptions.
-        </p>
-      </header>
+    <>
       <SignedOut>
-        <div className="text-sm">
-          Please sign in to access the host dashboard.
-        </div>
-        <SignInButton>
-          <button className="mt-2">Sign in</button>
-        </SignInButton>
+        <main className="max-w-5xl mx-auto p-6 space-y-6">
+          <div className="text-sm">
+            Please sign in to access the host dashboard.
+          </div>
+          <SignInButton>
+            <button className="mt-2">Sign in</button>
+          </SignInButton>
+        </main>
       </SignedOut>
       <SignedIn>
         {isHost ? (
-          <div className="space-y-6">
-            <HostNav />
-            {children}
-          </div>
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset>
+              <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+                <div className="flex items-center gap-2 px-4">
+                  <SidebarTrigger className="-ml-1" />
+                  <Separator orientation="vertical" className="mr-2 h-4" />
+                  <Breadcrumb>
+                    <BreadcrumbList>
+                      <BreadcrumbItem className="hidden md:block">
+                        <BreadcrumbLink href="/host">
+                          Host Dashboard
+                        </BreadcrumbLink>
+                      </BreadcrumbItem>
+                    </BreadcrumbList>
+                  </Breadcrumb>
+                </div>
+              </header>
+              <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+                {children}
+              </div>
+            </SidebarInset>
+          </SidebarProvider>
         ) : (
-          <HostRequestClient />
+          <main className="max-w-5xl mx-auto p-6 space-y-6">
+            <HostRequestClient />
+          </main>
         )}
       </SignedIn>
-    </main>
+    </>
   );
 }
 

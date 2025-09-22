@@ -6,8 +6,9 @@
       "@convex/*": ["../convex/convex/*"]
     },
     "baseUrl": ".",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "plugins": [{ "name": "next" }]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "happydom.ts", "test-setup.ts"]
+  "exclude": ["node_modules", "happydom.ts", "test-setup.ts", "../convex/__test__/"]
 }

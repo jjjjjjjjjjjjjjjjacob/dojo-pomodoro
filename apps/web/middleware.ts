@@ -31,6 +31,20 @@ export default clerkMiddleware(async (auth, req) => {
   const pathname = req.nextUrl.pathname;
   const searchParams = req.nextUrl.searchParams;
 
+  // Handle root path - check for featured event and redirect
+  if (pathname === "/") {
+    try {
+      const featuredEvent = await fetchQuery(api.events.getFeaturedEvent, {});
+      if (featuredEvent?._id) {
+        const redirectUrl = new URL(`/events/${featuredEvent._id}`, req.url);
+        return NextResponse.redirect(redirectUrl);
+      }
+    } catch (error) {
+      console.error("Error checking featured event in middleware:", error);
+      // If there's an error, continue to home page
+    }
+  }
+
   if (isPublicRoute(req)) {
     return NextResponse.next();
   }

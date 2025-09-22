@@ -48,11 +48,11 @@ export default function EventPageClient({
 
   const onSubmitLocal = useCallback(() => {
     const passwordValue = password.trim();
-    console.log('[DEBUG] Event page password entry:', {
+    console.log("[DEBUG] Event page password entry:", {
       original: password,
       trimmed: passwordValue,
       length: passwordValue.length,
-      fromQueryParams: queryParamPassword
+      fromQueryParams: queryParamPassword,
     });
     if (!passwordValue) {
       setMessage("Enter your list password.");
@@ -74,6 +74,7 @@ export default function EventPageClient({
       router.push(`/sign-in?redirect_url=${encodeURIComponent(requestUrl)}`);
     }
     setIsLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, isSignedIn, eventId, router]);
 
   const dateText = useMemo(() => {
@@ -81,7 +82,10 @@ export default function EventPageClient({
     if (!timestamp) return "";
     const date = new Date(timestamp);
     // Use UTC methods to display the exact date that was stored, avoiding timezone shifts
-    const day = date.toLocaleDateString(undefined, { weekday: "long", timeZone: "UTC" });
+    const day = date.toLocaleDateString(undefined, {
+      weekday: "long",
+      timeZone: "UTC",
+    });
     const formattedDate = date.toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",
