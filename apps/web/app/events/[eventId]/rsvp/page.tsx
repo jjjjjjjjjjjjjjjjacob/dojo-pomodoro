@@ -77,11 +77,13 @@ export default function RsvpPage({
   );
 
   const password = (searchParams?.get("password") || "").trim();
+  /*
   console.log("[DEBUG] RSVP page password from URL:", {
     raw: searchParams?.get("password"),
     trimmed: password,
     length: password.length,
   });
+  */
   const [listKey, setListKey] = useState<string | null>(null);
   const [name, setName] = useState<string>(""); // Keep during migration phase
   const [firstName, setFirstName] = useState<string>("");
@@ -132,22 +134,24 @@ export default function RsvpPage({
       if (!password) return;
       try {
         setChecking(true);
+        /*
         console.log("[DEBUG] Resolving password with backend:", {
           eventId,
           password,
           passwordLength: password.length,
         });
+        */
         const res = await resolve({
           eventId: eventId as Id<"events">,
           password,
         });
-        console.log("[DEBUG] Password resolution result:", res);
+        // console.log("[DEBUG] Password resolution result:", res);
         if (!cancelled) {
           if (res?.ok) {
-            console.log("[DEBUG] Password resolved to list:", res.listKey);
+            // console.log("[DEBUG] Password resolved to list:", res.listKey);
             setListKey(res.listKey);
           } else {
-            console.log("[DEBUG] Password resolution failed");
+            // console.log("[DEBUG] Password resolution failed");
             setMessage("Invalid password for this event.");
           }
         }
@@ -217,7 +221,7 @@ export default function RsvpPage({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event?.customFields, userDoc?._id, user?.id, firstName, lastName]);
+  }, [event?.customFields, userDoc?._id, user?.id]);
 
   // Sync RHF form values from local state for name/custom
   useEffect(() => {
@@ -396,7 +400,7 @@ export default function RsvpPage({
                       placeholder="Anything hosts should know"
                       className="border border-primary/20 placeholder:text-primary/30 text-primary"
                       value={note}
-                      onChange={(e) => setNote(e.target.value.trim())}
+                      onChange={(e) => setNote(e.target.value)}
                     />
                   </div>
                   <div className="flex items-center justify-center">
