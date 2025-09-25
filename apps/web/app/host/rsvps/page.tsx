@@ -1,13 +1,16 @@
 "use client";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "@tanstack/react-query";
+import { useConvexMutation } from "@convex-dev/react-query";
+import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +20,16 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+} from "@/components/ui/context-menu";
 import QRCode from "react-qr-code";
 import {
   Dialog,
@@ -49,6 +62,8 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { useDebounce } from "@/lib/hooks/use-debounce";
+import { Spinner } from "@/components/ui/spinner";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import {
   Copy,
   MoreHorizontal,
@@ -71,6 +86,8 @@ import { cn } from "@/lib/utils";
 export default function RsvpsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Use Convex queries
   const events = useQuery(api.events.listAll, {});
   const eventsSorted = (events ?? [])
     .slice()
@@ -82,35 +99,55 @@ export default function RsvpsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsSorted.map((event: any) => event._id).join(","), eventId]);
 
+  /*
   React.useEffect(() => {
     if (!eventId) return;
-    const params = new URLSearchParams(searchParams as any);
-    params.set("eventId", eventId);
-    router.replace(`/host/rsvps?${params.toString()}`);
+    const currentEventId = searchParams.get("eventId");
+    if (currentEventId !== eventId) {
+      const params = new URLSearchParams(searchParams as any);
+      params.set("eventId", eventId);
+      router.replace(`/host/rsvps?${params.toString()}`, { scroll: false });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
+  */
 
   const rsvps = useQuery(
     api.rsvps.listForEvent,
     eventId ? { eventId: eventId as Id<"events"> } : "skip",
   );
+
   const currentEvent = useQuery(
     api.events.get,
     eventId ? { eventId: eventId as Id<"events"> } : "skip",
   );
+
   const listCredentials = useQuery(
     api.credentials.getCredsForEvent,
     eventId ? { eventId: eventId as Id<"events"> } : "skip",
   );
-  const approve = useMutation(api.approvals.approve);
-  const deny = useMutation(api.approvals.deny);
-  const toggleRedemptionStatus = useMutation(
-    api.redemptions.toggleRedemptionStatus,
-  );
-  const updateTicketStatus = useMutation(api.redemptions.updateTicketStatus);
-  const updateRsvpComplete = useMutation(api.rsvps.updateRsvpComplete);
-  const updateRsvpListKey = useMutation(api.rsvps.updateRsvpListKey);
-  const deleteRsvpComplete = useMutation(api.rsvps.deleteRsvpComplete);
+  // Convert mutations to TanStack Query
+  const approveMutation = useMutation({
+    mutationFn: useConvexMutation(api.approvals.approve),
+  });
+  const denyMutation = useMutation({
+    mutationFn: useConvexMutation(api.approvals.deny),
+  });
+  const toggleRedemptionStatusMutation = useMutation({
+    mutationFn: useConvexMutation(api.redemptions.toggleRedemptionStatus),
+  });
+  const updateTicketStatusMutation = useMutation({
+    mutationFn: useConvexMutation(api.redemptions.updateTicketStatus),
+  });
+  const updateRsvpCompleteMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.updateRsvpComplete),
+  });
+  const updateRsvpListKeyMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.updateRsvpListKey),
+  });
+  const deleteRsvpCompleteMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.deleteRsvpComplete),
+  });
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
   ]);
@@ -137,6 +174,41 @@ export default function RsvpsPage() {
     status?: string;
     listKey?: string;
   } | null>(null);
+
+  // Selection state management (basic state only)
+  const [selectedRows, setSelectedRows] = React.useState<Set<string>>(
+    new Set(),
+  );
+  const [previousSelection, setPreviousSelection] =
+    React.useState<Set<string> | null>(null);
+
+  // Loading state tracking for individual row updates
+  const [loadingListUpdates, setLoadingListUpdates] = React.useState<
+    Set<string>
+  >(new Set());
+  const [loadingApprovalUpdates, setLoadingApprovalUpdates] = React.useState<
+    Set<string>
+  >(new Set());
+  const [loadingTicketUpdates, setLoadingTicketUpdates] = React.useState<
+    Set<string>
+  >(new Set());
+
+  // Monitor loading states for overall feedback
+  React.useEffect(() => {
+    const totalLoading =
+      loadingListUpdates.size +
+      loadingApprovalUpdates.size +
+      loadingTicketUpdates.size;
+
+    if (totalLoading > 0) {
+      // Could add a persistent loading indicator here if needed
+      // For now, the individual toasts and spinners provide sufficient feedback
+    }
+  }, [loadingListUpdates, loadingApprovalUpdates, loadingTicketUpdates]);
+
+  // Read pagination directly from URL params
+  const pageIndex = parseInt(searchParams.get("page") || "0");
+  const pageSize = parseInt(searchParams.get("pageSize") || "20");
 
   // Generate dynamic custom field columns
   const customFieldColumns = React.useMemo(() => {
@@ -191,7 +263,8 @@ export default function RsvpsPage() {
     }));
   }, [currentEvent?.customFields]);
 
-  const cols = React.useMemo<ColumnDef<any>[]>(
+  // Create base columns without selection functionality first
+  const baseCols = React.useMemo<ColumnDef<any>[]>(
     () => [
       {
         id: "guest",
@@ -221,6 +294,9 @@ export default function RsvpsPage() {
           const availableListKeys =
             listCredentials?.map((cred) => cred.listKey) || [];
 
+          // Use shared loading state for this row
+          const isUpdatingList = loadingListUpdates.has(rsvp.id);
+
           const handleListKeyChange = async (newListKey: string) => {
             if (newListKey === currentListKey) return;
 
@@ -234,21 +310,40 @@ export default function RsvpsPage() {
               rsvp.contact?.phone ||
               "Guest";
 
-            try {
-              await updateRsvpListKey({
+            // Add to loading state
+            setLoadingListUpdates((prev) => new Set(prev).add(rsvp.id));
+
+            updateRsvpListKeyMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 listKey: newListKey,
-              });
-
-              toast.success(
-                `Changed ${guestName}'s list to '${newListKey.toUpperCase()}'`,
-              );
-            } catch (error) {
-              toast.error(
-                `Failed to update ${guestName}'s list: ` +
-                  (error as Error).message,
-              );
-            }
+              },
+              {
+                onSuccess: () => {
+                  toast.success(
+                    `Changed ${guestName}'s list to '${newListKey.toUpperCase()}'`,
+                  );
+                  // Remove from loading state
+                  setLoadingListUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
+                },
+                onError: (error) => {
+                  toast.error(
+                    `Failed to update ${guestName}'s list: ` +
+                      (error as Error).message,
+                  );
+                  // Remove from loading state
+                  setLoadingListUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
+                },
+              },
+            );
           };
 
           if (availableListKeys.length <= 1) {
@@ -263,8 +358,10 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className="h-6 px-2 text-xs"
+                  disabled={isUpdatingList}
                 >
-                  {currentListKey?.toUpperCase()}
+                  {isUpdatingList && <Spinner className="mr-1 h-3 w-3" />}
+                  {!isUpdatingList && currentListKey?.toUpperCase()}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
@@ -323,6 +420,9 @@ export default function RsvpsPage() {
           const originalApprovalStatus = rsvp.status || "pending";
           const currentApprovalStatus = originalApprovalStatus;
 
+          // Use shared loading state for this row
+          const isUpdatingApproval = loadingApprovalUpdates.has(rsvp.id);
+
           const handleStatusChange = async (newStatus: string) => {
             if (newStatus === originalApprovalStatus) return;
 
@@ -336,21 +436,42 @@ export default function RsvpsPage() {
               rsvp.contact?.phone ||
               "Guest";
 
-            try {
-              await updateRsvpComplete({
+            // Add to loading state
+            setLoadingApprovalUpdates((prev) => new Set(prev).add(rsvp.id));
+
+            updateRsvpCompleteMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 approvalStatus: newStatus as any,
-              });
-
-              const statusText =
-                newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
-              toast.success(`Changed ${guestName}'s RSVP to '${statusText}'`);
-            } catch (error) {
-              toast.error(
-                `Failed to update ${guestName}'s approval status: ` +
-                  (error as Error).message,
-              );
-            }
+              },
+              {
+                onSuccess: () => {
+                  const statusText =
+                    newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+                  toast.success(
+                    `Changed ${guestName}'s RSVP to '${statusText}'`,
+                  );
+                  // Remove from loading state
+                  setLoadingApprovalUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
+                },
+                onError: (error) => {
+                  toast.error(
+                    `Failed to update ${guestName}'s approval status: ` +
+                      (error as Error).message,
+                  );
+                  // Remove from loading state
+                  setLoadingApprovalUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
+                },
+              },
+            );
           };
 
           const getStatusColor = (currentStatus: string) => {
@@ -372,9 +493,12 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className={cn(getStatusColor(currentApprovalStatus))}
+                  disabled={isUpdatingApproval}
                 >
-                  {currentApprovalStatus.charAt(0).toUpperCase() +
-                    currentApprovalStatus.slice(1)}
+                  {isUpdatingApproval && <Spinner className="mr-1 h-3 w-3" />}
+                  {!isUpdatingApproval &&
+                    currentApprovalStatus.charAt(0).toUpperCase() +
+                      currentApprovalStatus.slice(1)}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
@@ -410,6 +534,9 @@ export default function RsvpsPage() {
           const currentTicketStatus = originalTicketStatus;
           const isRedeemed = originalTicketStatus === "redeemed";
 
+          // Use shared loading state for this row
+          const isUpdatingTicket = loadingTicketUpdates.has(rsvp.id);
+
           const handleTicketStatusChange = async (newStatus: string) => {
             if (isRedeemed) return; // Cannot change redeemed status
             if (newStatus === originalTicketStatus) return;
@@ -424,20 +551,41 @@ export default function RsvpsPage() {
               rsvp.contact?.phone ||
               "Guest";
 
-            try {
-              await updateRsvpComplete({
+            // Add to loading state
+            setLoadingTicketUpdates((prev) => new Set(prev).add(rsvp.id));
+
+            updateRsvpCompleteMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 ticketStatus: newStatus as any,
-              });
-
-              const statusText = getTicketStatusLabel(newStatus);
-              toast.success(`Changed ${guestName}'s ticket to '${statusText}'`);
-            } catch (error) {
-              toast.error(
-                `Failed to update ${guestName}'s ticket status: ` +
-                  (error as Error).message,
-              );
-            }
+              },
+              {
+                onSuccess: () => {
+                  const statusText = getTicketStatusLabel(newStatus);
+                  toast.success(
+                    `Changed ${guestName}'s ticket to '${statusText}'`,
+                  );
+                  // Remove from loading state
+                  setLoadingTicketUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
+                },
+                onError: (error) => {
+                  toast.error(
+                    `Failed to update ${guestName}'s ticket status: ` +
+                      (error as Error).message,
+                  );
+                  // Remove from loading state
+                  setLoadingTicketUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
+                },
+              },
+            );
           };
 
           const getTicketStatusColor = (status: string) => {
@@ -475,9 +623,11 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className={cn(getTicketStatusColor(currentTicketStatus))}
-                  disabled={isRedeemed}
+                  disabled={isRedeemed || isUpdatingTicket}
                 >
-                  {getTicketStatusLabel(currentTicketStatus)}
+                  {isUpdatingTicket && <Spinner className="mr-1 h-3 w-3" />}
+                  {!isUpdatingTicket &&
+                    getTicketStatusLabel(currentTicketStatus)}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
@@ -536,8 +686,8 @@ export default function RsvpsPage() {
           const handleSave = async () => {
             if (!changes || !hasChanges) return;
 
-            try {
-              await updateRsvpComplete({
+            updateRsvpCompleteMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 approvalStatus:
                   changes.currentApprovalStatus !==
@@ -548,38 +698,48 @@ export default function RsvpsPage() {
                   changes.currentTicketStatus !== changes.originalTicketStatus
                     ? (changes.currentTicketStatus as any)
                     : undefined,
-              });
+              },
+              {
+                onSuccess: () => {
+                  // Clear pending changes for this row
+                  setPendingChanges((prev) => {
+                    const updated = { ...prev };
+                    delete updated[rsvp.id];
+                    return updated;
+                  });
 
-              // Clear pending changes for this row
-              setPendingChanges((prev) => {
-                const updated = { ...prev };
-                delete updated[rsvp.id];
-                return updated;
-              });
-
-              toast.success("Changes saved successfully");
-            } catch (error) {
-              toast.error(
-                "Failed to save changes: " + (error as Error).message,
-              );
-            }
+                  toast.success("Changes saved successfully");
+                },
+                onError: (error) => {
+                  toast.error(
+                    "Failed to save changes: " + (error as Error).message,
+                  );
+                },
+              },
+            );
           };
 
           const handleDelete = async () => {
-            try {
-              await deleteRsvpComplete({ rsvpId: rsvp.id });
+            deleteRsvpCompleteMutation.mutate(
+              { rsvpId: rsvp.id },
+              {
+                onSuccess: () => {
+                  // Clear pending changes for this row
+                  setPendingChanges((prev) => {
+                    const updated = { ...prev };
+                    delete updated[rsvp.id];
+                    return updated;
+                  });
 
-              // Clear pending changes for this row
-              setPendingChanges((prev) => {
-                const updated = { ...prev };
-                delete updated[rsvp.id];
-                return updated;
-              });
-
-              toast.success("RSVP deleted successfully");
-            } catch (error) {
-              toast.error("Failed to delete RSVP: " + (error as Error).message);
-            }
+                  toast.success("RSVP deleted successfully");
+                },
+                onError: (error) => {
+                  toast.error(
+                    "Failed to delete RSVP: " + (error as Error).message,
+                  );
+                },
+              },
+            );
           };
 
           return (
@@ -590,7 +750,11 @@ export default function RsvpsPage() {
                     size="sm"
                     variant="outline"
                     className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                    disabled={deleteRsvpCompleteMutation.isPending}
                   >
+                    {deleteRsvpCompleteMutation.isPending && (
+                      <Spinner className="mr-1 h-3 w-3" />
+                    )}
                     Delete
                   </Button>
                 </AlertDialogTrigger>
@@ -623,9 +787,13 @@ export default function RsvpsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       pendingChanges,
-      updateRsvpComplete,
-      deleteRsvpComplete,
+      updateRsvpCompleteMutation,
+      deleteRsvpCompleteMutation,
+      updateRsvpListKeyMutation,
       customFieldColumns,
+      loadingListUpdates,
+      loadingApprovalUpdates,
+      loadingTicketUpdates,
     ],
   );
 
@@ -695,21 +863,384 @@ export default function RsvpsPage() {
     listFilter !== "all" ||
     redemptionFilter !== "all";
 
+  // Selection handlers (basic implementations, will be updated after table creation)
+  const toggleSelectRow = React.useCallback((rsvpId: string) => {
+    const newSelectedRows = new Set(selectedRows);
+    if (newSelectedRows.has(rsvpId)) {
+      newSelectedRows.delete(rsvpId);
+    } else {
+      newSelectedRows.add(rsvpId);
+    }
+    setSelectedRows(newSelectedRows);
+  }, [selectedRows]);
+
+  // Clear selection when filters change
+  React.useEffect(() => {
+    setSelectedRows(new Set());
+  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter]);
+
+  // Bulk action handlers
+  const handleBulkListChange = async (newListKey: string) => {
+    const selectedRsvps = filtered.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    const count = selectedRsvps.length;
+
+    if (count === 0) return;
+
+    // Add all selected IDs to loading state
+    setLoadingListUpdates((prev) => {
+      const next = new Set(prev);
+      selectedRsvps.forEach((rsvp) => next.add(rsvp.id));
+      return next;
+    });
+
+    // Show updating toast
+    toast.info(`Updating ${count} RSVPs...`);
+
+    // Execute all updates in parallel
+    const updatePromises = selectedRsvps.map((rsvp: any) =>
+      updateRsvpListKeyMutation.mutateAsync({
+        rsvpId: rsvp.id,
+        listKey: newListKey,
+      }),
+    );
+
+    try {
+      await Promise.all(updatePromises);
+      toast.success(
+        `Changed list to '${newListKey.toUpperCase()}' for ${count} RSVPs`,
+      );
+      setSelectedRows(new Set());
+      // Clear loading state
+      setLoadingListUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    } catch (error) {
+      toast.error(`Failed to update list: ${(error as Error).message}`);
+      // Clear loading state on error
+      setLoadingListUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkApprovalChange = async (newStatus: string) => {
+    const selectedRsvps = filtered.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    const count = selectedRsvps.length;
+
+    if (count === 0) return;
+
+    // Add all selected IDs to loading state
+    setLoadingApprovalUpdates((prev) => {
+      const next = new Set(prev);
+      selectedRsvps.forEach((rsvp) => next.add(rsvp.id));
+      return next;
+    });
+
+    // Show updating toast
+    toast.info(`Updating ${count} RSVPs...`);
+
+    // Execute all updates in parallel
+    const updatePromises = selectedRsvps.map((rsvp: any) =>
+      updateRsvpCompleteMutation.mutateAsync({
+        rsvpId: rsvp.id,
+        approvalStatus: newStatus as any,
+      }),
+    );
+
+    try {
+      await Promise.all(updatePromises);
+      const statusText = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+      toast.success(`Changed approval to '${statusText}' for ${count} RSVPs`);
+      setSelectedRows(new Set());
+      // Clear loading state
+      setLoadingApprovalUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    } catch (error) {
+      toast.error(
+        `Failed to update approval status: ${(error as Error).message}`,
+      );
+      // Clear loading state on error
+      setLoadingApprovalUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkTicketStatusChange = async (newStatus: string) => {
+    const selectedRsvps = filtered.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    // Filter out redeemed tickets as they can't be changed
+    const changeableRsvps = selectedRsvps.filter(
+      (rsvp: any) => rsvp.redemptionStatus !== "redeemed",
+    );
+    const count = changeableRsvps.length;
+    const redeemedCount = selectedRsvps.length - changeableRsvps.length;
+
+    if (count === 0) {
+      if (redeemedCount > 0) {
+        toast.error("Cannot change ticket status for redeemed tickets");
+      }
+      return;
+    }
+
+    // Add all changeable IDs to loading state
+    setLoadingTicketUpdates((prev) => {
+      const next = new Set(prev);
+      changeableRsvps.forEach((rsvp) => next.add(rsvp.id));
+      return next;
+    });
+
+    // Show updating toast
+    toast.info(`Updating ${count} RSVPs...`);
+
+    // Execute all updates in parallel
+    const updatePromises = changeableRsvps.map((rsvp: any) =>
+      updateRsvpCompleteMutation.mutateAsync({
+        rsvpId: rsvp.id,
+        ticketStatus: newStatus as any,
+      }),
+    );
+
+    try {
+      await Promise.all(updatePromises);
+      const statusLabel =
+        newStatus === "not-issued"
+          ? "None"
+          : newStatus === "issued"
+            ? "Issued"
+            : newStatus === "disabled"
+              ? "Disabled"
+              : newStatus;
+
+      let message = `Changed ticket status to '${statusLabel}' for ${count} RSVPs`;
+      if (redeemedCount > 0) {
+        message += ` (${redeemedCount} redeemed tickets skipped)`;
+      }
+      toast.success(message);
+      setSelectedRows(new Set());
+      // Clear loading state
+      setLoadingTicketUpdates((prev) => {
+        const next = new Set(prev);
+        changeableRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    } catch (error) {
+      toast.error(
+        `Failed to update ticket status: ${(error as Error).message}`,
+      );
+      // Clear loading state on error
+      setLoadingTicketUpdates((prev) => {
+        const next = new Set(prev);
+        changeableRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedRsvps = filtered.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    const count = selectedRsvps.length;
+
+    if (count === 0) return;
+
+    // Execute all deletions in parallel
+    const deletePromises = selectedRsvps.map((rsvp: any) =>
+      deleteRsvpCompleteMutation.mutateAsync({ rsvpId: rsvp.id }),
+    );
+
+    try {
+      await Promise.all(deletePromises);
+      toast.success(`Deleted ${count} RSVPs`);
+      setSelectedRows(new Set());
+    } catch (error) {
+      toast.error(`Failed to delete RSVPs: ${(error as Error).message}`);
+    }
+  };
+
+  // Create initial columns without selection functionality
+  const initialCols = React.useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        id: "select",
+        header: "Select",
+        cell: ({ row }) => (
+          <Checkbox
+            checked={selectedRows.has(row.original.id)}
+            onCheckedChange={() => toggleSelectRow(row.original.id)}
+            aria-label="Select row"
+            className="ml-2"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      },
+      ...baseCols,
+    ],
+    [baseCols, selectedRows, toggleSelectRow],
+  );
+
+  // Pagination change handler that updates URL
+  const handlePaginationChange = (updaterOrValue: any) => {
+    const newPagination =
+      typeof updaterOrValue === "function"
+        ? updaterOrValue({ pageIndex, pageSize })
+        : updaterOrValue;
+
+    const params = new URLSearchParams(searchParams as any);
+    params.set("page", newPagination.pageIndex.toString());
+    params.set("pageSize", newPagination.pageSize.toString());
+    router.replace(`/host/rsvps?${params.toString()}`, { scroll: false });
+  };
+
   const table = useReactTable({
     data: filtered,
-    columns: cols,
-    state: { sorting },
+    columns: initialCols,
+    state: { sorting, pagination: { pageIndex, pageSize } },
+    autoResetPageIndex: false,
     onSortingChange: setSorting,
+    onPaginationChange: handlePaginationChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    initialState: {
-      pagination: {
-        pageIndex: 0,
-        pageSize: 20,
-      },
-    },
   });
+
+  // Selection state management (computed values after table creation)
+  const currentPageRows = table.getRowModel().rows;
+  const currentPageIds = currentPageRows.map((row) => row.original.id);
+  const currentPageSelectedCount = currentPageIds.filter((id) =>
+    selectedRows.has(id),
+  ).length;
+
+  const allSelected = React.useMemo(() => {
+    return (
+      currentPageRows.length > 0 &&
+      currentPageSelectedCount === currentPageRows.length
+    );
+  }, [currentPageSelectedCount, currentPageRows.length]);
+
+  const someSelected = React.useMemo(() => {
+    return (
+      currentPageSelectedCount > 0 &&
+      currentPageSelectedCount < currentPageRows.length
+    );
+  }, [currentPageSelectedCount, currentPageRows.length]);
+
+  // Update the toggle select all function with proper logic
+  const toggleSelectAllCurrent = React.useCallback(() => {
+    if (allSelected) {
+      // If user had previous selections and we're unchecking, restore them
+      if (previousSelection && previousSelection.size > 0) {
+        setSelectedRows(new Set(previousSelection));
+        setPreviousSelection(null);
+      } else {
+        setSelectedRows(new Set());
+      }
+    } else {
+      // Save current selection as previous selection
+      if (selectedRows.size > 0) {
+        setPreviousSelection(new Set(selectedRows));
+      }
+      // Select all items on current page
+      const newSelection = new Set(selectedRows);
+      currentPageIds.forEach((id) => newSelection.add(id));
+      setSelectedRows(newSelection);
+    }
+  }, [allSelected, previousSelection, selectedRows, currentPageIds, setPreviousSelection]);
+
+  // Keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeydown = (e: KeyboardEvent) => {
+      // Cmd+A / Ctrl+A to select all
+      if ((e.metaKey || e.ctrlKey) && e.key === "a" && !e.shiftKey) {
+        // Only handle if we're not typing in an input field
+        const target = e.target as HTMLElement;
+        if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
+          e.preventDefault();
+          toggleSelectAllCurrent();
+        }
+      }
+      // Escape to clear selection
+      if (e.key === "Escape") {
+        setSelectedRows(new Set());
+      }
+    };
+
+    document.addEventListener("keydown", handleKeydown);
+    return () => document.removeEventListener("keydown", handleKeydown);
+  }, [toggleSelectAllCurrent]);
+
+  // Create the final columns with proper header checkbox
+  const finalCols = React.useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        id: "select",
+        header: ({ table }) => (
+          <Checkbox
+            checked={allSelected || someSelected ? true : false}
+            onCheckedChange={toggleSelectAllCurrent}
+            aria-label="Select all"
+            className="ml-2"
+            ref={(el: HTMLButtonElement | null) => {
+              if (el) {
+                // For button-based checkbox, we need to find the actual input element
+                const input = el.querySelector('input[type="checkbox"]') as HTMLInputElement;
+                if (input) {
+                  input.indeterminate = someSelected;
+                }
+              }
+            }}
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={selectedRows.has(row.original.id)}
+            onCheckedChange={() => toggleSelectRow(row.original.id)}
+            aria-label="Select row"
+            className="ml-2"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      },
+      ...baseCols,
+    ],
+    [
+      baseCols,
+      selectedRows,
+      allSelected,
+      someSelected,
+      toggleSelectAllCurrent,
+      toggleSelectRow,
+    ],
+  );
+
+  // Update table columns
+  React.useEffect(() => {
+    table.setOptions((prev) => ({
+      ...prev,
+      columns: finalCols,
+    }));
+  }, [finalCols, table]);
+
+  // Check if any main queries are loading
+  const isLoading =
+    events === undefined || rsvps === undefined || currentEvent === undefined;
 
   return (
     <div className="flex-1 space-y-4">
@@ -848,93 +1379,272 @@ export default function RsvpsPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="text-left text-foreground/70">
-                {hg.headers.map((h) => (
-                  <th
-                    key={h.id}
-                    className="px-2 py-1 cursor-pointer"
-                    onClick={h.column.getToggleSortingHandler()}
+      {/* Bulk Actions Bar */}
+      {selectedRows.size > 0 && (
+        <div className="flex items-center justify-between bg-muted/50 border rounded-md p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">
+              {selectedRows.size} selected
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedRows(new Set())}
+            >
+              Clear selection
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="inline-block">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={(e) => {
+                      // Programmatically trigger context menu on left click
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const contextMenuEvent = new MouseEvent("contextmenu", {
+                        bubbles: true,
+                        clientX: rect.left,
+                        clientY: rect.bottom,
+                      });
+                      e.currentTarget.dispatchEvent(contextMenuEvent);
+                    }}
                   >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {{ asc: " ▲", desc: " ▼" }[
-                      h.column.getIsSorted() as string
-                    ] ?? null}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => {
-              const rsvp = row.original;
-              const changes = pendingChanges[rsvp.id];
-              const hasChanges =
-                changes &&
-                (changes.currentApprovalStatus !==
-                  changes.originalApprovalStatus ||
-                  changes.currentTicketStatus !== changes.originalTicketStatus);
+                    Bulk Actions
+                  </Button>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="w-56">
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>Change List</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-48">
+                    {(listCredentials?.map((cred) => cred.listKey) || []).map(
+                      (listKey) => (
+                        <ContextMenuItem
+                          key={listKey}
+                          onClick={() => handleBulkListChange(listKey)}
+                        >
+                          {listKey.toUpperCase()}
+                        </ContextMenuItem>
+                      ),
+                    )}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>Change Approval</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-48">
+                    <ContextMenuItem
+                      onClick={() => handleBulkApprovalChange("pending")}
+                    >
+                      <span className="text-amber-700">Pending</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkApprovalChange("approved")}
+                    >
+                      <span className="text-green-700">Approved</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkApprovalChange("denied")}
+                    >
+                      <span className="text-red-700">Denied</span>
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>Change Ticket</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-48">
+                    <ContextMenuItem
+                      onClick={() => handleBulkTicketStatusChange("not-issued")}
+                    >
+                      <span className="text-gray-700">None</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkTicketStatusChange("issued")}
+                    >
+                      <span className="text-purple-700">Issued</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkTicketStatusChange("disabled")}
+                    >
+                      <span className="text-red-700">Disabled</span>
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSeparator />
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <ContextMenuItem
+                      variant="destructive"
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      Delete Selected
+                    </ContextMenuItem>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Selected RSVPs</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to delete {selectedRows.size}{" "}
+                        selected RSVPs? This will permanently remove the RSVPs,
+                        any associated ticket/redemption codes, and approval
+                        history. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleBulkDelete}
+                        className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                      >
+                        Delete {selectedRows.size} RSVPs
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </ContextMenuContent>
+            </ContextMenu>
+          </div>
+        </div>
+      )}
 
-              return (
-                <tr
-                  key={row.id}
-                  className={`border-t border-foreground/10 ${
-                    hasChanges ? "bg-yellow-50 border-yellow-200" : ""
-                  }`}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-2 py-1">
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </td>
+      {isLoading ? (
+        <TableSkeleton rows={10} columns={8} />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id} className="text-left text-foreground/70">
+                  {hg.headers.map((h) => (
+                    <th
+                      key={h.id}
+                      className="px-2 py-1 cursor-pointer"
+                      onClick={h.column.getToggleSortingHandler()}
+                    >
+                      {flexRender(h.column.columnDef.header, h.getContext())}
+                      {{ asc: " ▲", desc: " ▼" }[
+                        h.column.getIsSorted() as string
+                      ] ?? null}
+                    </th>
                   ))}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-xs text-foreground/70">
-          Page {table.getState().pagination.pageIndex + 1} of{" "}
-          {table.getPageCount() || 1}
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => {
+                const rsvp = row.original;
+                const changes = pendingChanges[rsvp.id];
+                const hasChanges =
+                  changes &&
+                  (changes.currentApprovalStatus !==
+                    changes.originalApprovalStatus ||
+                    changes.currentTicketStatus !==
+                      changes.originalTicketStatus);
+
+                const isSelected = selectedRows.has(rsvp.id);
+
+                return (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "border-t border-foreground/10 transition-colors hover:bg-muted/50",
+                      hasChanges && "bg-yellow-50 border-yellow-200",
+                      isSelected &&
+                        "bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800",
+                    )}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          "px-2 py-1",
+                          cell.column.id !== "select" &&
+                            cell.column.id !== "listKey" &&
+                            cell.column.id !== "approvalStatus" &&
+                            cell.column.id !== "ticketStatus" &&
+                            cell.column.id !== "actions" &&
+                            "cursor-pointer",
+                        )}
+                        onClick={
+                          cell.column.id !== "select" &&
+                          cell.column.id !== "listKey" &&
+                          cell.column.id !== "approvalStatus" &&
+                          cell.column.id !== "ticketStatus" &&
+                          cell.column.id !== "actions"
+                            ? () => toggleSelectRow(rsvp.id)
+                            : undefined
+                        }
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={String(table.getState().pagination.pageSize)}
-            onValueChange={(value) => {
-              table.setPageSize(Number(value));
-            }}
-          >
-            {[10, 20, 50, 100].map((number) => (
-              <SelectOption key={number} value={String(number)}>
-                {number} / page
-              </SelectOption>
-            ))}
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-          </Button>
+      )}
+
+      {!isLoading && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-foreground/70">
+            Page {pageIndex + 1} of {table.getPageCount() || 1}
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                const params = new URLSearchParams(searchParams as any);
+                params.set("pageSize", value);
+                params.set("page", "0"); // Reset to first page when changing page size
+                router.replace(`/host/rsvps?${params.toString()}`, {
+                  scroll: false,
+                });
+              }}
+            >
+              {[10, 20, 50, 100].map((number) => (
+                <SelectOption key={number} value={String(number)}>
+                  {number} / page
+                </SelectOption>
+              ))}
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const params = new URLSearchParams(searchParams as any);
+                params.set("page", (pageIndex - 1).toString());
+                router.replace(`/host/rsvps?${params.toString()}`, {
+                  scroll: false,
+                });
+              }}
+              disabled={!table.getCanPreviousPage()}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const params = new URLSearchParams(searchParams as any);
+                params.set("page", (pageIndex + 1).toString());
+                router.replace(`/host/rsvps?${params.toString()}`, {
+                  scroll: false,
+                });
+              }}
+              disabled={!table.getCanNextPage()}
+            >
+              Next
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       <Dialog open={showQR} onOpenChange={setShowQR}>
         <DialogContent>
