@@ -9,6 +9,7 @@ import {
   Home,
   Plus,
   User,
+  MessageSquare,
 } from "lucide-react";
 
 import {
@@ -45,6 +46,12 @@ const navigationItems = [
     title: "RSVPs",
     url: "/host/rsvps",
     icon: Users,
+    isActive: false,
+  },
+  {
+    title: "Text Blasts",
+    url: "/host/text-blasts",
+    icon: MessageSquare,
     isActive: false,
   },
   {

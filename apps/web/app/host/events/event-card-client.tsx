@@ -78,7 +78,6 @@ export default function EventCardClient({
         <CardContent className="pb-0">
           <div className="flex items-center gap-2 mb-1">
             <div className="font-medium">{event.name}</div>
-            {JSON.stringify(event)}
             {event.isFeatured && (
               <Badge variant="secondary" className="text-xs">
                 Featured

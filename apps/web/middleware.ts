@@ -12,6 +12,10 @@ const isPublicRoute = createRouteMatcher([
   "/redeem(.*)",
   "/sign-in(.*)",
   "/api/public(.*)",
+  "/terms",
+  "/privacy",
+  "/cookies",
+  "/data",
 ]);
 
 // Helper function to check if it's an event route and extract eventId

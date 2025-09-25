@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 type Enc = { ivB64: string; ctB64: string; tagB64: string };
 
@@ -51,4 +51,17 @@ export const getForClerk = query({
   },
 });
 
-// Obfuscation helpers are now used in the Node action before saving.
+/**
+ * Internal query to get profile with encrypted phone data
+ * Used by other Convex functions for SMS operations
+ */
+export const getByClerkUserIdInternal = internalQuery({
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, { clerkUserId }) => {
+    const profile = await ctx.db
+      .query("profiles")
+      .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
+    return profile;
+  },
+});

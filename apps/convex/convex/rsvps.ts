@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 import { api } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -9,6 +9,8 @@ export const submitRequest = mutation({
     note: v.optional(v.string()),
     shareContact: v.boolean(),
     attendees: v.optional(v.number()),
+    smsConsent: v.optional(v.boolean()), // SMS consent from user
+    smsConsentIpAddress: v.optional(v.string()), // IP address for compliance
     // Contact is optional because user may have an existing encrypted profile.
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
@@ -52,6 +54,9 @@ export const submitRequest = mutation({
         note: args.note,
         shareContact: args.shareContact,
         attendees: requestedAttendees,
+        smsConsent: args.smsConsent,
+        smsConsentTimestamp: args.smsConsent !== undefined ? now : undefined,
+        smsConsentIpAddress: args.smsConsent === true ? args.smsConsentIpAddress : undefined,
         status: "pending",
         createdAt: now,
         updatedAt: now,
@@ -66,6 +71,9 @@ export const submitRequest = mutation({
         note: args.note,
         shareContact: args.shareContact,
         attendees: requestedAttendees,
+        smsConsent: args.smsConsent,
+        smsConsentTimestamp: args.smsConsent !== undefined ? now : existing.smsConsentTimestamp,
+        smsConsentIpAddress: args.smsConsent === true ? args.smsConsentIpAddress : existing.smsConsentIpAddress,
         // Reset to pending when re-requesting (unless already approved)
         status: existing.status === "approved" ? existing.status : "pending",
         updatedAt: now,
@@ -73,6 +81,38 @@ export const submitRequest = mutation({
     }
 
     return { ok: true as const };
+  },
+});
+
+/**
+ * Internal query to check if a user has consented to SMS for a specific event
+ * Used by SMS infrastructure to verify consent before sending messages
+ * NOTE: Consent is now implicit through Terms of Service acceptance upon account creation
+ */
+export const checkSmsConsentForUserEvent = internalQuery({
+  args: {
+    eventId: v.id("events"),
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, { eventId, clerkUserId }) => {
+    const rsvp = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_user", (q) => q.eq("eventId", eventId).eq("clerkUserId", clerkUserId))
+      .unique();
+
+    // Check if user has an account (implicit consent through Terms of Service)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
+
+    // Return consent status - true if user has account and RSVP (implicit consent through ToS)
+    return {
+      hasConsented: !!(user && rsvp), // Has account + RSVP = implicit consent
+      consentTimestamp: rsvp?.smsConsentTimestamp || user?.createdAt,
+      consentIpAddress: rsvp?.smsConsentIpAddress,
+      rsvpStatus: rsvp?.status,
+    };
   },
 });
 

@@ -310,12 +310,15 @@ export default function RsvpPage({
       await upsertContact({
         phone: phone || undefined,
       });
+
       await submitRsvp({
         eventId: eventId as Id<"events">,
         listKey,
         note: note || undefined,
         shareContact: true,
         attendees: form.getValues("attendees") || 1,
+        smsConsent: true, // Implicit consent through Terms of Service acceptance
+        smsConsentIpAddress: undefined, // Not needed for implicit consent
       });
 
       trackRSVPSubmission({
@@ -388,6 +391,7 @@ export default function RsvpPage({
                     openUserProfile={openUserProfile}
                     isSignedIn={!!user}
                   />
+
                   <div className="rounded border border-primary/30 p-3 space-y-2">
                     <div className="font-medium text-xs text-primary">
                       NOTE FOR HOSTS (optional)

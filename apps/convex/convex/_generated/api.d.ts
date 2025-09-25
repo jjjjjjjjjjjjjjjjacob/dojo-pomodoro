@@ -17,6 +17,7 @@ import type * as approvals from "../approvals.js";
 import type * as credentials from "../credentials.js";
 import type * as credentialsNode from "../credentialsNode.js";
 import type * as dashboard from "../dashboard.js";
+import type * as debugSms from "../debugSms.js";
 import type * as events from "../events.js";
 import type * as eventsNode from "../eventsNode.js";
 import type * as files from "../files.js";
@@ -32,7 +33,19 @@ import type * as profilesNode from "../profilesNode.js";
 import type * as redemptions from "../redemptions.js";
 import type * as rsvps from "../rsvps.js";
 import type * as seed from "../seed.js";
+import type * as simpleSms from "../simpleSms.js";
+import type * as sms from "../sms.js";
+import type * as smsActions from "../smsActions.js";
+import type * as smsInfrastructure from "../smsInfrastructure.js";
+import type * as smsMonitoring from "../smsMonitoring.js";
+import type * as smsMonitoringActions from "../smsMonitoringActions.js";
+import type * as smsTemplates from "../smsTemplates.js";
+import type * as testSms from "../testSms.js";
+import type * as testTwilio from "../testTwilio.js";
+import type * as textBlasts from "../textBlasts.js";
+import type * as twilioActions from "../twilioActions.js";
 import type * as users from "../users.js";
+import type * as webhooks from "../webhooks.js";
 
 /**
  * A utility for referencing Convex functions in your app's API.
@@ -47,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   credentials: typeof credentials;
   credentialsNode: typeof credentialsNode;
   dashboard: typeof dashboard;
+  debugSms: typeof debugSms;
   events: typeof events;
   eventsNode: typeof eventsNode;
   files: typeof files;
@@ -62,7 +76,19 @@ declare const fullApi: ApiFromModules<{
   redemptions: typeof redemptions;
   rsvps: typeof rsvps;
   seed: typeof seed;
+  simpleSms: typeof simpleSms;
+  sms: typeof sms;
+  smsActions: typeof smsActions;
+  smsInfrastructure: typeof smsInfrastructure;
+  smsMonitoring: typeof smsMonitoring;
+  smsMonitoringActions: typeof smsMonitoringActions;
+  smsTemplates: typeof smsTemplates;
+  testSms: typeof testSms;
+  testTwilio: typeof testTwilio;
+  textBlasts: typeof textBlasts;
+  twilioActions: typeof twilioActions;
   users: typeof users;
+  webhooks: typeof webhooks;
 }>;
 export declare const api: FilterApi<
   typeof fullApi,

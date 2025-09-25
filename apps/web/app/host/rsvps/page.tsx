@@ -1,7 +1,8 @@
 "use client";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Select, SelectOption } from "@/components/ui/select";
@@ -49,6 +50,8 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { useDebounce } from "@/lib/hooks/use-debounce";
+import { Spinner } from "@/components/ui/spinner";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import {
   Copy,
   MoreHorizontal,
@@ -71,7 +74,12 @@ import { cn } from "@/lib/utils";
 export default function RsvpsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const events = useQuery(api.events.listAll, {});
+
+  // Convert to TanStack Query
+  const eventsQuery = useQuery({
+    ...convexQuery(api.events.listAll, {}),
+  });
+  const events = eventsQuery.data;
   const eventsSorted = (events ?? [])
     .slice()
     .sort((a: any, b: any) => (b.eventDate ?? 0) - (a.eventDate ?? 0));
@@ -90,27 +98,51 @@ export default function RsvpsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
-  const rsvps = useQuery(
-    api.rsvps.listForEvent,
-    eventId ? { eventId: eventId as Id<"events"> } : "skip",
-  );
-  const currentEvent = useQuery(
-    api.events.get,
-    eventId ? { eventId: eventId as Id<"events"> } : "skip",
-  );
-  const listCredentials = useQuery(
-    api.credentials.getCredsForEvent,
-    eventId ? { eventId: eventId as Id<"events"> } : "skip",
-  );
-  const approve = useMutation(api.approvals.approve);
-  const deny = useMutation(api.approvals.deny);
-  const toggleRedemptionStatus = useMutation(
-    api.redemptions.toggleRedemptionStatus,
-  );
-  const updateTicketStatus = useMutation(api.redemptions.updateTicketStatus);
-  const updateRsvpComplete = useMutation(api.rsvps.updateRsvpComplete);
-  const updateRsvpListKey = useMutation(api.rsvps.updateRsvpListKey);
-  const deleteRsvpComplete = useMutation(api.rsvps.deleteRsvpComplete);
+  const rsvpsQuery = useQuery({
+    ...convexQuery(
+      api.rsvps.listForEvent,
+      eventId ? { eventId: eventId as Id<"events"> } : "skip"
+    ),
+  });
+  const rsvps = rsvpsQuery.data;
+
+  const currentEventQuery = useQuery({
+    ...convexQuery(
+      api.events.get,
+      eventId ? { eventId: eventId as Id<"events"> } : "skip"
+    ),
+  });
+  const currentEvent = currentEventQuery.data;
+
+  const listCredentialsQuery = useQuery({
+    ...convexQuery(
+      api.credentials.getCredsForEvent,
+      eventId ? { eventId: eventId as Id<"events"> } : "skip"
+    ),
+  });
+  const listCredentials = listCredentialsQuery.data;
+  // Convert mutations to TanStack Query
+  const approveMutation = useMutation({
+    mutationFn: useConvexMutation(api.approvals.approve),
+  });
+  const denyMutation = useMutation({
+    mutationFn: useConvexMutation(api.approvals.deny),
+  });
+  const toggleRedemptionStatusMutation = useMutation({
+    mutationFn: useConvexMutation(api.redemptions.toggleRedemptionStatus),
+  });
+  const updateTicketStatusMutation = useMutation({
+    mutationFn: useConvexMutation(api.redemptions.updateTicketStatus),
+  });
+  const updateRsvpCompleteMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.updateRsvpComplete),
+  });
+  const updateRsvpListKeyMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.updateRsvpListKey),
+  });
+  const deleteRsvpCompleteMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.deleteRsvpComplete),
+  });
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
   ]);
@@ -234,21 +266,25 @@ export default function RsvpsPage() {
               rsvp.contact?.phone ||
               "Guest";
 
-            try {
-              await updateRsvpListKey({
+            updateRsvpListKeyMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 listKey: newListKey,
-              });
-
-              toast.success(
-                `Changed ${guestName}'s list to '${newListKey.toUpperCase()}'`,
-              );
-            } catch (error) {
-              toast.error(
-                `Failed to update ${guestName}'s list: ` +
-                  (error as Error).message,
-              );
-            }
+              },
+              {
+                onSuccess: () => {
+                  toast.success(
+                    `Changed ${guestName}'s list to '${newListKey.toUpperCase()}'`,
+                  );
+                },
+                onError: (error) => {
+                  toast.error(
+                    `Failed to update ${guestName}'s list: ` +
+                      (error as Error).message,
+                  );
+                },
+              }
+            );
           };
 
           if (availableListKeys.length <= 1) {
@@ -263,7 +299,11 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className="h-6 px-2 text-xs"
+                  disabled={updateRsvpListKeyMutation.isPending}
                 >
+                  {updateRsvpListKeyMutation.isPending && (
+                    <Spinner className="mr-1 h-3 w-3" />
+                  )}
                   {currentListKey?.toUpperCase()}
                 </Button>
               </DropdownMenuTrigger>
@@ -336,21 +376,25 @@ export default function RsvpsPage() {
               rsvp.contact?.phone ||
               "Guest";
 
-            try {
-              await updateRsvpComplete({
+            updateRsvpCompleteMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 approvalStatus: newStatus as any,
-              });
-
-              const statusText =
-                newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
-              toast.success(`Changed ${guestName}'s RSVP to '${statusText}'`);
-            } catch (error) {
-              toast.error(
-                `Failed to update ${guestName}'s approval status: ` +
-                  (error as Error).message,
-              );
-            }
+              },
+              {
+                onSuccess: () => {
+                  const statusText =
+                    newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+                  toast.success(`Changed ${guestName}'s RSVP to '${statusText}'`);
+                },
+                onError: (error) => {
+                  toast.error(
+                    `Failed to update ${guestName}'s approval status: ` +
+                      (error as Error).message,
+                  );
+                },
+              }
+            );
           };
 
           const getStatusColor = (currentStatus: string) => {
@@ -372,7 +416,11 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className={cn(getStatusColor(currentApprovalStatus))}
+                  disabled={updateRsvpCompleteMutation.isPending}
                 >
+                  {updateRsvpCompleteMutation.isPending && (
+                    <Spinner className="mr-1 h-3 w-3" />
+                  )}
                   {currentApprovalStatus.charAt(0).toUpperCase() +
                     currentApprovalStatus.slice(1)}
                 </Button>
@@ -424,20 +472,24 @@ export default function RsvpsPage() {
               rsvp.contact?.phone ||
               "Guest";
 
-            try {
-              await updateRsvpComplete({
+            updateRsvpCompleteMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 ticketStatus: newStatus as any,
-              });
-
-              const statusText = getTicketStatusLabel(newStatus);
-              toast.success(`Changed ${guestName}'s ticket to '${statusText}'`);
-            } catch (error) {
-              toast.error(
-                `Failed to update ${guestName}'s ticket status: ` +
-                  (error as Error).message,
-              );
-            }
+              },
+              {
+                onSuccess: () => {
+                  const statusText = getTicketStatusLabel(newStatus);
+                  toast.success(`Changed ${guestName}'s ticket to '${statusText}'`);
+                },
+                onError: (error) => {
+                  toast.error(
+                    `Failed to update ${guestName}'s ticket status: ` +
+                      (error as Error).message,
+                  );
+                },
+              }
+            );
           };
 
           const getTicketStatusColor = (status: string) => {
@@ -475,8 +527,11 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className={cn(getTicketStatusColor(currentTicketStatus))}
-                  disabled={isRedeemed}
+                  disabled={isRedeemed || updateRsvpCompleteMutation.isPending}
                 >
+                  {updateRsvpCompleteMutation.isPending && (
+                    <Spinner className="mr-1 h-3 w-3" />
+                  )}
                   {getTicketStatusLabel(currentTicketStatus)}
                 </Button>
               </DropdownMenuTrigger>
@@ -536,8 +591,8 @@ export default function RsvpsPage() {
           const handleSave = async () => {
             if (!changes || !hasChanges) return;
 
-            try {
-              await updateRsvpComplete({
+            updateRsvpCompleteMutation.mutate(
+              {
                 rsvpId: rsvp.id,
                 approvalStatus:
                   changes.currentApprovalStatus !==
@@ -548,38 +603,46 @@ export default function RsvpsPage() {
                   changes.currentTicketStatus !== changes.originalTicketStatus
                     ? (changes.currentTicketStatus as any)
                     : undefined,
-              });
+              },
+              {
+                onSuccess: () => {
+                  // Clear pending changes for this row
+                  setPendingChanges((prev) => {
+                    const updated = { ...prev };
+                    delete updated[rsvp.id];
+                    return updated;
+                  });
 
-              // Clear pending changes for this row
-              setPendingChanges((prev) => {
-                const updated = { ...prev };
-                delete updated[rsvp.id];
-                return updated;
-              });
-
-              toast.success("Changes saved successfully");
-            } catch (error) {
-              toast.error(
-                "Failed to save changes: " + (error as Error).message,
-              );
-            }
+                  toast.success("Changes saved successfully");
+                },
+                onError: (error) => {
+                  toast.error(
+                    "Failed to save changes: " + (error as Error).message,
+                  );
+                },
+              }
+            );
           };
 
           const handleDelete = async () => {
-            try {
-              await deleteRsvpComplete({ rsvpId: rsvp.id });
+            deleteRsvpCompleteMutation.mutate(
+              { rsvpId: rsvp.id },
+              {
+                onSuccess: () => {
+                  // Clear pending changes for this row
+                  setPendingChanges((prev) => {
+                    const updated = { ...prev };
+                    delete updated[rsvp.id];
+                    return updated;
+                  });
 
-              // Clear pending changes for this row
-              setPendingChanges((prev) => {
-                const updated = { ...prev };
-                delete updated[rsvp.id];
-                return updated;
-              });
-
-              toast.success("RSVP deleted successfully");
-            } catch (error) {
-              toast.error("Failed to delete RSVP: " + (error as Error).message);
-            }
+                  toast.success("RSVP deleted successfully");
+                },
+                onError: (error) => {
+                  toast.error("Failed to delete RSVP: " + (error as Error).message);
+                },
+              }
+            );
           };
 
           return (
@@ -590,7 +653,11 @@ export default function RsvpsPage() {
                     size="sm"
                     variant="outline"
                     className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                    disabled={deleteRsvpCompleteMutation.isPending}
                   >
+                    {deleteRsvpCompleteMutation.isPending && (
+                      <Spinner className="mr-1 h-3 w-3" />
+                    )}
                     Delete
                   </Button>
                 </AlertDialogTrigger>
@@ -623,8 +690,9 @@ export default function RsvpsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       pendingChanges,
-      updateRsvpComplete,
-      deleteRsvpComplete,
+      updateRsvpCompleteMutation,
+      deleteRsvpCompleteMutation,
+      updateRsvpListKeyMutation,
       customFieldColumns,
     ],
   );
@@ -710,6 +778,9 @@ export default function RsvpsPage() {
       },
     },
   });
+
+  // Check if any main queries are loading
+  const isLoading = eventsQuery.isLoading || rsvpsQuery.isLoading || currentEventQuery.isLoading;
 
   return (
     <div className="flex-1 space-y-4">
@@ -848,93 +919,100 @@ export default function RsvpsPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="text-left text-foreground/70">
-                {hg.headers.map((h) => (
-                  <th
-                    key={h.id}
-                    className="px-2 py-1 cursor-pointer"
-                    onClick={h.column.getToggleSortingHandler()}
-                  >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {{ asc: " ▲", desc: " ▼" }[
-                      h.column.getIsSorted() as string
-                    ] ?? null}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => {
-              const rsvp = row.original;
-              const changes = pendingChanges[rsvp.id];
-              const hasChanges =
-                changes &&
-                (changes.currentApprovalStatus !==
-                  changes.originalApprovalStatus ||
-                  changes.currentTicketStatus !== changes.originalTicketStatus);
-
-              return (
-                <tr
-                  key={row.id}
-                  className={`border-t border-foreground/10 ${
-                    hasChanges ? "bg-yellow-50 border-yellow-200" : ""
-                  }`}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-2 py-1">
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </td>
+      {isLoading ? (
+        <TableSkeleton rows={10} columns={8} />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id} className="text-left text-foreground/70">
+                  {hg.headers.map((h) => (
+                    <th
+                      key={h.id}
+                      className="px-2 py-1 cursor-pointer"
+                      onClick={h.column.getToggleSortingHandler()}
+                    >
+                      {flexRender(h.column.columnDef.header, h.getContext())}
+                      {{ asc: " ▲", desc: " ▼" }[
+                        h.column.getIsSorted() as string
+                      ] ?? null}
+                    </th>
                   ))}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-xs text-foreground/70">
-          Page {table.getState().pagination.pageIndex + 1} of{" "}
-          {table.getPageCount() || 1}
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => {
+                const rsvp = row.original;
+                const changes = pendingChanges[rsvp.id];
+                const hasChanges =
+                  changes &&
+                  (changes.currentApprovalStatus !==
+                    changes.originalApprovalStatus ||
+                    changes.currentTicketStatus !== changes.originalTicketStatus);
+
+                return (
+                  <tr
+                    key={row.id}
+                    className={`border-t border-foreground/10 ${
+                      hasChanges ? "bg-yellow-50 border-yellow-200" : ""
+                    }`}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-2 py-1">
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={String(table.getState().pagination.pageSize)}
-            onValueChange={(value) => {
-              table.setPageSize(Number(value));
-            }}
-          >
-            {[10, 20, 50, 100].map((number) => (
-              <SelectOption key={number} value={String(number)}>
-                {number} / page
-              </SelectOption>
-            ))}
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-          </Button>
+      )}
+
+      {!isLoading && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-foreground/70">
+            Page {table.getState().pagination.pageIndex + 1} of{" "}
+            {table.getPageCount() || 1}
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={String(table.getState().pagination.pageSize)}
+              onValueChange={(value) => {
+                table.setPageSize(Number(value));
+              }}
+            >
+              {[10, 20, 50, 100].map((number) => (
+                <SelectOption key={number} value={String(number)}>
+                  {number} / page
+                </SelectOption>
+              ))}
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+            >
+              Next
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       <Dialog open={showQR} onOpenChange={setShowQR}>
         <DialogContent>

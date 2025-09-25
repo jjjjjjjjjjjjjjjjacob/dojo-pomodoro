@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "convex": "^1.27.0",
-    "convex-helpers": "^0.1.104"
+    "convex-helpers": "^0.1.104",
+    "twilio": "^5.9.0"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

@@ -80,6 +80,9 @@ export interface RSVP {
   shareContact: boolean;
   note?: string;
   attendees?: number;
+  smsConsent?: boolean;
+  smsConsentTimestamp?: number;
+  smsConsentIpAddress?: string;
   status: "pending" | "approved" | "denied" | "attending";
   createdAt: number;
   updatedAt: number;

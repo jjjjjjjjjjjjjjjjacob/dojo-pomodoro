@@ -18,7 +18,7 @@ import Link from "next/link";
 import { useTracking } from "@/app/hooks/use-tracking";
 import { useEffect } from "react";
 import DojoPomodoreIcon from "@/components/icons/dojo-pomodoro-icon";
-import { LogOut, LogIn } from "lucide-react";
+import { LogOut, LogIn, Settings, DoorOpen } from "lucide-react";
 
 function useRoleFlags() {
   const { isSignedIn, user } = useUser();
@@ -47,21 +47,6 @@ export default function HeaderClient() {
 
   return (
     <header className="fixed top-0 w-full flex items-center justify-end gap-2 p-3">
-      <SignedIn>
-        {isDoor && (
-          <Link href="/door">
-            <Button variant="outline" size="sm">
-              Door Portal
-            </Button>
-          </Link>
-        )}
-        {isHost && (
-          <Link href="/host">
-            <Button size="sm">Host Dashboard</Button>
-          </Link>
-        )}
-      </SignedIn>
-
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -74,6 +59,23 @@ export default function HeaderClient() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
           <SignedIn>
+            {isHost && (
+              <DropdownMenuItem asChild>
+                <Link href="/host" className="flex items-center gap-2">
+                  <Settings size={16} />
+                  Host Dashboard
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {isDoor && (
+              <DropdownMenuItem asChild>
+                <Link href="/door" className="flex items-center gap-2">
+                  <DoorOpen size={16} />
+                  Door Portal
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {(isHost || isDoor) && <DropdownMenuSeparator />}
             {/* TODO: Uncomment when profile page is implemented
             <DropdownMenuItem asChild>
               <Link href="/profile" className="flex items-center gap-2">

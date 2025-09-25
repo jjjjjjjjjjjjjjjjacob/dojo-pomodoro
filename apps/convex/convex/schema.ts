@@ -83,6 +83,9 @@ export default defineSchema({
     shareContact: v.boolean(),
     note: v.optional(v.string()),
     attendees: v.optional(v.number()), // total number of attendees including RSVP person (default 1)
+    smsConsent: v.optional(v.boolean()), // whether user consented to SMS notifications
+    smsConsentTimestamp: v.optional(v.number()), // when SMS consent was given/withdrawn
+    smsConsentIpAddress: v.optional(v.string()), // IP address when consent was given for compliance
     status: v.string(), // 'pending' | 'approved' | 'denied' | 'attending
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -121,4 +124,68 @@ export default defineSchema({
   })
     .index("by_code", ["code"]) // unique lookup
     .index("by_event_user", ["eventId", "clerkUserId"]), // ensure one redemption per user/event
+
+  // SMS notifications tracking
+  smsNotifications: defineTable({
+    eventId: v.id("events"),
+    recipientClerkUserId: v.string(),
+    recipientPhoneObfuscated: v.string(), // ***-***-1234 format for display
+    type: v.string(), // 'approval' | 'blast' | 'reminder'
+    message: v.string(),
+    status: v.string(), // 'pending' | 'sent' | 'failed'
+    messageId: v.optional(v.string()), // AWS SNS MessageId
+    errorMessage: v.optional(v.string()),
+    sentAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_user", ["recipientClerkUserId"])
+    .index("by_status", ["status"])
+    .index("by_type", ["type"]),
+
+  // Text blast campaigns
+  textBlasts: defineTable({
+    eventId: v.id("events"),
+    name: v.string(),
+    message: v.string(),
+    targetLists: v.array(v.string()), // ['vip', 'ga', etc.]
+    recipientCount: v.number(),
+    sentCount: v.number(),
+    failedCount: v.number(),
+    sentBy: v.string(), // clerkUserId of host who sent
+    scheduledFor: v.optional(v.number()),
+    sentAt: v.optional(v.number()),
+    status: v.string(), // 'draft' | 'sending' | 'sent' | 'failed'
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_status", ["status"])
+    .index("by_sent_by", ["sentBy"]),
+
+  // SMS usage tracking for cost monitoring and analytics
+  smsUsageLogs: defineTable({
+    messageId: v.string(), // AWS SNS Message ID
+    phoneNumber: v.string(), // Obfuscated for privacy
+    messageLength: v.number(),
+    messageType: v.string(), // 'Transactional' | 'Promotional'
+    estimatedCost: v.number(), // Cost in USD
+    actualCost: v.optional(v.number()), // If available from AWS billing
+    timestamp: v.number(),
+    status: v.optional(v.string()), // 'delivered' | 'failed' | 'unknown'
+  })
+    .index("by_timestamp", ["timestamp"])
+    .index("by_message_type", ["messageType"])
+    .index("by_cost", ["estimatedCost"]),
+
+  // SMS opt-outs and preferences
+  smsOptOuts: defineTable({
+    phoneNumber: v.string(), // Hashed for privacy
+    clerkUserId: v.optional(v.string()),
+    optedOutAt: v.number(),
+    reason: v.optional(v.string()), // 'user_request' | 'carrier_block' | 'invalid_number'
+    reOptInAt: v.optional(v.number()),
+  })
+    .index("by_phone", ["phoneNumber"])
+    .index("by_user", ["clerkUserId"]),
 });
