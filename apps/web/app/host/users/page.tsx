@@ -144,38 +144,6 @@ export default function UsersPage() {
     (sorting.length === 1 &&
       (sorting[0].id !== "createdAt" || !sorting[0].desc));
 
-  const handleRoleChange = async (
-    userId: string,
-    newRole: string,
-    isGuest = false,
-  ) => {
-    try {
-      if (isGuest) {
-        await promoteUserToOrganization.mutateAsync({
-          userId: userId as any,
-          role: newRole,
-        });
-      } else {
-        await updateUserRole.mutateAsync({ userId: userId as any, newRole });
-      }
-
-      // Clear pending changes for this user
-      setPendingChanges((prev) => {
-        const updated = { ...prev };
-        delete updated[userId];
-        return updated;
-      });
-
-      toast.success(
-        isGuest
-          ? "User promoted successfully"
-          : "User role updated successfully",
-      );
-    } catch (error) {
-      toast.error("Failed to update user role: " + (error as Error).message);
-    }
-  };
-
   const getRoleIcon = (role: string) => {
     switch (role) {
       case "admin":
@@ -229,8 +197,39 @@ export default function UsersPage() {
   };
 
   // Define table columns
-  const columns = React.useMemo<ColumnDef<any>[]>(
-    () => [
+  const columns = React.useMemo<ColumnDef<any>[]>(() => {
+    const handleRoleChange = async (
+      userId: string,
+      newRole: string,
+      isGuest = false,
+    ) => {
+      try {
+        if (isGuest) {
+          await promoteUserToOrganization.mutateAsync({
+            userId: userId as any,
+            role: newRole,
+          });
+        } else {
+          await updateUserRole.mutateAsync({ userId: userId as any, newRole });
+        }
+
+        // Clear pending changes for this user
+        setPendingChanges((prev) => {
+          const updated = { ...prev };
+          delete updated[userId];
+          return updated;
+        });
+
+        toast.success(
+          isGuest
+            ? "User promoted successfully"
+            : "User role updated successfully",
+        );
+      } catch (error) {
+        toast.error("Failed to update user role: " + (error as Error).message);
+      }
+    };
+    return [
       {
         id: "user",
         header: "User",
@@ -390,9 +389,8 @@ export default function UsersPage() {
           return null;
         },
       },
-    ],
-    [pendingChanges, handleRoleChange],
-  );
+    ];
+  }, [pendingChanges, promoteUserToOrganization, updateUserRole]);
 
   const table = useReactTable({
     data: filteredUsers,

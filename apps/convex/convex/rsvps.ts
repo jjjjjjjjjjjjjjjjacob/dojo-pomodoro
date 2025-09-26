@@ -1,6 +1,13 @@
-import { mutation, query } from "./_generated/server";
-import { api } from "./_generated/api";
+import { mutation, query, QueryCtx } from "./_generated/server";
+import { api, components } from "./_generated/api";
 import { v } from "convex/values";
+import { Id, Doc } from "./_generated/dataModel";
+import {
+  insertRsvpIntoAggregate,
+  updateRsvpInAggregate,
+  deleteRsvpFromAggregate,
+  countRsvpsWithAggregate,
+} from "./lib/rsvpAggregate";
 
 export const submitRequest = mutation({
   args: {
@@ -45,7 +52,7 @@ export const submitRequest = mutation({
       .unique();
 
     if (!existing) {
-      await ctx.db.insert("rsvps", {
+      const rsvpId = await ctx.db.insert("rsvps", {
         eventId: args.eventId,
         clerkUserId,
         listKey: args.listKey,
@@ -56,11 +63,20 @@ export const submitRequest = mutation({
         createdAt: now,
         updatedAt: now,
       });
+
+      // Sync with aggregate
+      const newRsvp = await ctx.db.get(rsvpId);
+      if (newRsvp) {
+        await insertRsvpIntoAggregate(ctx, newRsvp);
+      }
     } else {
       // Prevent re-requesting the same denied list
       if (existing.status === "denied" && existing.listKey === args.listKey) {
         throw new Error("Denied for this list; try a different password");
       }
+      // Get old state before update for aggregate sync
+      const oldRsvp = await ctx.db.get(existing._id);
+
       await ctx.db.patch(existing._id, {
         listKey: args.listKey,
         note: args.note,
@@ -70,6 +86,12 @@ export const submitRequest = mutation({
         status: existing.status === "approved" ? existing.status : "pending",
         updatedAt: now,
       });
+
+      // Sync with aggregate
+      const newRsvp = await ctx.db.get(existing._id);
+      if (oldRsvp && newRsvp) {
+        await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+      }
     }
 
     return { ok: true as const };
@@ -145,119 +167,502 @@ export const listForEvent = query({
   },
 });
 
-export const listForEventPaginated = query({
+// Count query for filtered RSVPs using aggregate
+export const countForEventFiltered = query({
   args: {
     eventId: v.id("events"),
-    pageIndex: v.optional(v.number()),
-    pageSize: v.optional(v.number())
+    statusFilter: v.optional(v.string()),
+    listFilter: v.optional(v.string()),
+    guestSearch: v.optional(v.string()),
+    redemptionFilter: v.optional(v.string()),
   },
-  handler: async (ctx, { eventId, pageIndex = 0, pageSize = 10 }): Promise<{
-    page: any[];
-    totalCount: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-    pageIndex: number;
-    pageSize: number;
-    isDone: boolean;
-    continueCursor: string | null;
-  }> => {
-    // Get the total count for the event
-    const totalCount = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .collect()
-      .then(rows => rows.length);
+  handler: async (
+    ctx,
+    {
+      eventId,
+      statusFilter = "all",
+      listFilter = "all",
+      guestSearch = "",
+      redemptionFilter = "all",
+    },
+  ) => {
+    // If there's a guest search, fall back to manual counting
+    // (aggregate doesn't support text search)
+    if (guestSearch.trim()) {
+      let baseQuery = ctx.db
+        .query("rsvps")
+        .withSearchIndex("search_text", (q) => {
+          let searchQuery = q.search("userName", guestSearch.trim());
+          searchQuery = searchQuery.eq("eventId", eventId);
+          if (statusFilter !== "all") {
+            searchQuery = searchQuery.eq("status", statusFilter);
+          }
+          // Note: Cannot filter by listKey in search index, will filter after
+          return searchQuery;
+        });
 
-    // Get paginated results
-    const paginationResults = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .paginate({
-        cursor: null, // For simplicity, we'll use offset-based pagination
-        numItems: pageSize,
-      });
+      // Apply list filter after getting results (needed for search queries)
+      let results = await baseQuery.collect();
+      if (listFilter !== "all") {
+        results = results.filter((rsvp) => rsvp.listKey === listFilter);
+      }
 
-    // Since Convex doesn't support offset directly, we need to implement our own offset logic
-    // For now, we'll collect all and slice (not ideal for large datasets, but matches existing behavior)
-    const allRows = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .collect();
+      if (redemptionFilter === "all") {
+        return results.length;
+      }
 
-    const startIndex = pageIndex * pageSize;
-    const endIndex = startIndex + pageSize;
-    const paginatedRows = allRows.slice(startIndex, endIndex);
+      // Filter by redemption status - need to check redemptions table
+      let filteredResults = results;
+      if (redemptionFilter !== "all") {
+        const redemptions = await Promise.all(
+          results.map(async (rsvp) =>
+            ctx.db
+              .query("redemptions")
+              .withIndex("by_event_user", (q) =>
+                q.eq("eventId", eventId).eq("clerkUserId", rsvp.clerkUserId),
+              )
+              .unique(),
+          ),
+        );
 
-    const enrichedRsvps = await Promise.all(
-      paginatedRows.map(async (r) => {
-        // Look up user's display name
-        const user = await ctx.db
-          .query("users")
-          .withIndex("by_clerkUserId", (q) =>
-            q.eq("clerkUserId", r.clerkUserId),
-          )
-          .unique();
-        const name = user?.name;
-        const firstName = user?.firstName;
-        const lastName = user?.lastName;
-        // Redemption info for this user+event
-        const redemption = await ctx.db
-          .query("redemptions")
-          .withIndex("by_event_user", (q) =>
-            q.eq("eventId", eventId).eq("clerkUserId", r.clerkUserId),
-          )
-          .unique();
-        let redemptionStatus: "none" | "issued" | "redeemed" | "disabled" =
-          "none";
+        filteredResults = results.filter((rsvp, index) => {
+          const redemption = redemptions[index];
+          let redemptionStatus = "none";
+          if (redemption) {
+            if (redemption.disabledAt) redemptionStatus = "disabled";
+            else if (redemption.redeemedAt) redemptionStatus = "redeemed";
+            else redemptionStatus = "issued";
+          }
+
+          if (redemptionFilter === "not-issued") {
+            return redemptionStatus === "none";
+          }
+          return redemptionStatus === redemptionFilter;
+        });
+      }
+
+      return filteredResults.length;
+    }
+
+    // Use aggregate for efficient counting
+
+    // First, test aggregate health
+
+    const baseCount = await countRsvpsWithAggregate(
+      ctx,
+      eventId,
+      statusFilter,
+      listFilter,
+    );
+
+    // For redemption filtering, we still need to check manually
+    // since redemption status is in a separate table
+    if (redemptionFilter !== "all") {
+      // Get all RSVPs matching the current filters
+      let baseQuery = ctx.db
+        .query("rsvps")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId));
+
+      if (statusFilter !== "all") {
+        baseQuery = baseQuery.filter((q) =>
+          q.eq(q.field("status"), statusFilter),
+        );
+      }
+      if (listFilter !== "all") {
+        baseQuery = baseQuery.filter((q) =>
+          q.eq(q.field("listKey"), listFilter),
+        );
+      }
+
+      const rsvps = await baseQuery.collect();
+
+      // Check redemption status for each
+      const redemptions = await Promise.all(
+        rsvps.map(async (rsvp) =>
+          ctx.db
+            .query("redemptions")
+            .withIndex("by_event_user", (q) =>
+              q.eq("eventId", eventId).eq("clerkUserId", rsvp.clerkUserId),
+            )
+            .unique(),
+        ),
+      );
+
+      const filteredRsvps = rsvps.filter((rsvp, index) => {
+        const redemption = redemptions[index];
+        let redemptionStatus = "none";
         if (redemption) {
           if (redemption.disabledAt) redemptionStatus = "disabled";
           else if (redemption.redeemedAt) redemptionStatus = "redeemed";
           else redemptionStatus = "issued";
         }
-        let contact: { email?: string; phone?: string } | undefined;
-        if (r.shareContact) {
-          const prof = await ctx.runQuery(api.profiles.getForClerk, {
-            clerkUserId: r.clerkUserId,
-          });
-          if (prof) {
-            contact = {
-              email: prof.emailObfuscated,
-              phone: prof.phoneObfuscated,
-            };
-          }
+
+        if (redemptionFilter === "not-issued") {
+          return redemptionStatus === "none";
         }
-        return {
-          id: r._id,
-          clerkUserId: r.clerkUserId,
-          name,
-          firstName,
-          lastName,
-          listKey: r.listKey,
-          note: r.note,
-          status: r.status,
-          attendees: r.attendees,
-          contact,
-          metadata: user?.metadata,
-          redemptionStatus,
-          redemptionCode: redemption?.code,
-          createdAt: r.createdAt,
-        };
-      }),
+        return redemptionStatus === redemptionFilter;
+      });
+
+      return filteredRsvps.length;
+    }
+
+    return baseCount;
+  },
+});
+
+// Type definitions for enriched RSVP data
+type EnrichedRsvp = {
+  id: Id<"rsvps">;
+  clerkUserId: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  listKey: string;
+  credentialId?: Id<"listCredentials">;
+  note?: string;
+  status: string;
+  attendees?: number;
+  contact?: {
+    email?: string;
+    phone?: string;
+  };
+  metadata?: Record<string, any>;
+  redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
+  redemptionCode?: string;
+  createdAt: number;
+};
+
+type PaginatedRsvpResult = {
+  page: EnrichedRsvp[];
+  nextCursor: string | null;
+  isDone: boolean;
+};
+
+export const listForEventPaginated = query({
+  args: {
+    eventId: v.id("events"),
+    cursor: v.optional(v.string()),
+    pageSize: v.optional(v.number()),
+    guestSearch: v.optional(v.string()),
+    statusFilter: v.optional(v.string()),
+    listFilter: v.optional(v.string()), // Filter by list key
+    redemptionFilter: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    {
+      eventId,
+      cursor,
+      pageSize = 20,
+      guestSearch = "",
+      statusFilter = "all",
+      listFilter = "all",
+      redemptionFilter = "all",
+    },
+  ): Promise<PaginatedRsvpResult> => {
+    // Choose the most efficient index based on filters
+    let baseQuery: any = ctx.db.query("rsvps");
+
+    // Use text search if searching by guest name
+    if (guestSearch.trim()) {
+      baseQuery = baseQuery.withSearchIndex("search_text", (q: any) => {
+        let searchQuery = q.search("userName", guestSearch.trim());
+        searchQuery = searchQuery.eq("eventId", eventId);
+        if (statusFilter !== "all") {
+          searchQuery = searchQuery.eq("status", statusFilter);
+        }
+        // Note: Cannot filter by listKey in search index, will filter after pagination
+        return searchQuery;
+      });
+    } else {
+      // Use indexes for efficient filtering - for now using basic indexes since we're filtering by listKey
+      if (statusFilter !== "all") {
+        baseQuery = baseQuery.withIndex("by_event_status", (q: any) =>
+          q.eq("eventId", eventId).eq("status", statusFilter),
+        );
+      } else {
+        baseQuery = baseQuery.withIndex("by_event", (q: any) =>
+          q.eq("eventId", eventId),
+        );
+      }
+
+      // Apply listKey filter after index filtering
+      if (listFilter !== "all") {
+        baseQuery = baseQuery.filter((q: any) =>
+          q.eq(q.field("listKey"), listFilter),
+        );
+      }
+    }
+
+    // Use proper Convex cursor-based pagination
+    let paginatedResult;
+    if (guestSearch.trim()) {
+      // For search queries, don't apply ordering (they use relevance order)
+      paginatedResult = await baseQuery.paginate({
+        cursor: cursor ?? null,
+        numItems: pageSize,
+      });
+    } else {
+      // For non-search queries, apply descending order
+      paginatedResult = await baseQuery.order("desc").paginate({
+        cursor: cursor ?? null,
+        numItems: pageSize,
+      });
+    }
+
+    // Batch fetch related data to avoid N+1 queries
+    const credentialIds = [
+      ...new Set(
+        paginatedResult.page
+          .map((r: Doc<"rsvps">) => r.credentialId)
+          .filter((id: any): id is Id<"listCredentials"> => id !== undefined),
+      ),
+    ] as Id<"listCredentials">[];
+    const credentials = await Promise.all(
+      credentialIds.map(async (id) => ctx.db.get(id)),
+    );
+    const credentialMap = Object.fromEntries(
+      credentials.filter((c) => c).map((c) => [c!._id, c]),
     );
 
-    const hasNextPage = endIndex < totalCount;
-    const hasPreviousPage = pageIndex > 0;
+    // Batch fetch user data for metadata (custom fields)
+    const userClerkIds = [
+      ...new Set(paginatedResult.page.map((r: Doc<"rsvps">) => r.clerkUserId)),
+    ] as string[];
+    const users = await Promise.all(
+      userClerkIds.map(async (clerkUserId: string) =>
+        ctx.db
+          .query("users")
+          .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", clerkUserId))
+          .unique(),
+      ),
+    );
+    const userMap = Object.fromEntries(
+      users.filter((u) => u).map((u) => [u!.clerkUserId, u]),
+    );
+
+    // Batch fetch redemption data
+    const redemptions = await Promise.all(
+      paginatedResult.page.map(async (rsvp: Doc<"rsvps">) =>
+        ctx.db
+          .query("redemptions")
+          .withIndex("by_event_user", (q) =>
+            q.eq("eventId", eventId).eq("clerkUserId", rsvp.clerkUserId),
+          )
+          .unique(),
+      ),
+    );
+    const redemptionMap = Object.fromEntries(
+      redemptions.filter((r) => r).map((r) => [r!.clerkUserId, r]),
+    );
+
+    // Enrich with batched data (avoid N+1 queries)
+    let enrichedPage = paginatedResult.page.map((rsvp: Doc<"rsvps">) => {
+      const redemption = redemptionMap[rsvp.clerkUserId];
+      let redemptionStatus: "none" | "issued" | "redeemed" | "disabled" =
+        "none";
+      if (redemption) {
+        if (redemption.disabledAt) redemptionStatus = "disabled";
+        else if (redemption.redeemedAt) redemptionStatus = "redeemed";
+        else redemptionStatus = "issued";
+      }
+
+      const credential = rsvp.credentialId
+        ? credentialMap[rsvp.credentialId]
+        : null;
+      const user = userMap[rsvp.clerkUserId];
+
+      return {
+        id: rsvp._id,
+        clerkUserId: rsvp.clerkUserId,
+        name: rsvp.userName || "", // Use denormalized field
+        firstName: rsvp.userName ? rsvp.userName.split(" ")[0] : "",
+        lastName: rsvp.userName
+          ? rsvp.userName.split(" ").slice(1).join(" ")
+          : "",
+        listKey: (credential && 'listKey' in credential ? credential.listKey : null) || rsvp.listKey || "", // Fallback to old field during migration
+        credentialId: rsvp.credentialId,
+        note: rsvp.note,
+        status: rsvp.status,
+        attendees: rsvp.attendees,
+        contact: rsvp.shareContact
+          ? {
+              email: rsvp.userEmail,
+              phone: rsvp.userPhone,
+            }
+          : undefined,
+        metadata: user?.metadata, // Include user metadata for custom fields
+        redemptionStatus,
+        redemptionCode: redemption?.code,
+        createdAt: rsvp.createdAt,
+      };
+    });
+
+    // Apply redemption filter after enrichment
+    if (redemptionFilter !== "all") {
+      if (redemptionFilter === "not-issued") {
+        enrichedPage = enrichedPage.filter(
+          (rsvp: any) => rsvp.redemptionStatus === "none",
+        );
+      } else {
+        enrichedPage = enrichedPage.filter(
+          (rsvp: any) => rsvp.redemptionStatus === redemptionFilter,
+        );
+      }
+    }
+
+    // Apply listKey filter after enrichment (needed for search queries)
+    if (guestSearch.trim() && listFilter !== "all") {
+      enrichedPage = enrichedPage.filter(
+        (rsvp: EnrichedRsvp) => rsvp.listKey === listFilter,
+      );
+    }
 
     return {
-      page: enrichedRsvps,
-      totalCount,
-      hasNextPage,
-      hasPreviousPage,
-      pageIndex,
-      pageSize,
-      isDone: !hasNextPage,
-      continueCursor: hasNextPage ? `page_${pageIndex + 1}` : null,
+      page: enrichedPage,
+      nextCursor: paginatedResult.continueCursor,
+      isDone: paginatedResult.isDone,
     };
+  },
+});
+
+// Migration mutation to populate credentialId and denormalized fields
+export const migrateRsvpsToCredentialRefs = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const allRsvps = await ctx.db.query("rsvps").collect();
+
+    let migratedCount = 0;
+    let skippedCount = 0;
+
+    for (const rsvp of allRsvps) {
+      // Skip if already migrated
+      if (rsvp.credentialId && rsvp.userName) {
+        skippedCount++;
+        continue;
+      }
+
+      try {
+        const updates: any = {};
+
+        // Find the credential for this RSVP if not already set
+        if (!rsvp.credentialId && rsvp.listKey) {
+          const credential = await ctx.db
+            .query("listCredentials")
+            .withIndex("by_event_key", (q) =>
+              q.eq("eventId", rsvp.eventId).eq("listKey", rsvp.listKey!),
+            )
+            .unique();
+
+          if (credential) {
+            updates.credentialId = credential._id;
+          }
+        }
+
+        // Fetch user data for denormalization if not already set
+        if (!rsvp.userName) {
+          const user = await ctx.db
+            .query("users")
+            .withIndex("by_clerkUserId", (q) =>
+              q.eq("clerkUserId", rsvp.clerkUserId),
+            )
+            .unique();
+
+          if (user) {
+            // Construct display name
+            const displayName =
+              user.firstName && user.lastName
+                ? `${user.firstName} ${user.lastName}`
+                : user.name || "";
+            updates.userName = displayName;
+          }
+        }
+
+        // Fetch profile data for email/phone if sharing contact and not already set
+        if (rsvp.shareContact && !rsvp.userEmail && !rsvp.userPhone) {
+          const profile = await ctx.runQuery(api.profiles.getForClerk, {
+            clerkUserId: rsvp.clerkUserId,
+          });
+
+          if (profile) {
+            updates.userEmail = profile.emailObfuscated;
+            updates.userPhone = profile.phoneObfuscated;
+          }
+        }
+
+        // Apply updates if any
+        if (Object.keys(updates).length > 0) {
+          await ctx.db.patch(rsvp._id, updates);
+          migratedCount++;
+        }
+      } catch (error) {
+        console.error(`Failed to migrate RSVP ${rsvp._id}:`, error);
+      }
+    }
+
+    return { migratedCount, skippedCount, totalRsvps: allRsvps.length };
+  },
+});
+
+// Similar migration for approvals
+export const migrateApprovalsToCredentialRefs = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const allApprovals = await ctx.db.query("approvals").collect();
+
+    let migratedCount = 0;
+
+    for (const approval of allApprovals) {
+      if (!approval.credentialId && approval.listKey) {
+        const credential = await ctx.db
+          .query("listCredentials")
+          .withIndex("by_event_key", (q) =>
+            q.eq("eventId", approval.eventId).eq("listKey", approval.listKey!),
+          )
+          .unique();
+
+        if (credential) {
+          await ctx.db.patch(approval._id, {
+            credentialId: credential._id,
+          });
+          migratedCount++;
+        }
+      }
+    }
+
+    return { migratedCount, totalApprovals: allApprovals.length };
+  },
+});
+
+// Similar migration for redemptions
+export const migrateRedemptionsToCredentialRefs = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const allRedemptions = await ctx.db.query("redemptions").collect();
+
+    let migratedCount = 0;
+
+    for (const redemption of allRedemptions) {
+      if (!redemption.credentialId && redemption.listKey) {
+        const credential = await ctx.db
+          .query("listCredentials")
+          .withIndex("by_event_key", (q) =>
+            q
+              .eq("eventId", redemption.eventId)
+              .eq("listKey", redemption.listKey!),
+          )
+          .unique();
+
+        if (credential) {
+          await ctx.db.patch(redemption._id, {
+            credentialId: credential._id,
+          });
+          migratedCount++;
+        }
+      }
+    }
+
+    return { migratedCount, totalRedemptions: allRedemptions.length };
   },
 });
 
@@ -367,10 +772,19 @@ export const acceptRsvp = mutation({
       .unique();
     if (!rsvp) throw new Error("No RSVP found");
 
+    // Get old state before update for aggregate sync
+    const oldRsvp = await ctx.db.get(rsvp._id);
+
     await ctx.db.patch(rsvp._id, {
       status: "attending",
       updatedAt: Date.now(),
     });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvp._id);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+    }
     return { ok: true as const };
   },
 });
@@ -452,6 +866,13 @@ export const createDirect = mutation({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvpId);
+    if (newRsvp) {
+      await insertRsvpIntoAggregate(ctx, newRsvp);
+    }
+
     return rsvpId;
   },
 });
@@ -462,7 +883,16 @@ export const deleteRSVP = mutation({
     rsvpId: v.id("rsvps"),
   },
   handler: async (ctx, args) => {
+    // Get RSVP before deleting for aggregate sync
+    const rsvp = await ctx.db.get(args.rsvpId);
+
     await ctx.db.delete(args.rsvpId);
+
+    // Sync with aggregate
+    if (rsvp) {
+      await deleteRsvpFromAggregate(ctx, rsvp);
+    }
+
     return { deleted: true };
   },
 });
@@ -496,10 +926,19 @@ export const updateRsvpComplete = mutation({
 
     // Update approval status if provided
     if (args.approvalStatus && args.approvalStatus !== rsvp.status) {
+      // Get old state before update for aggregate sync
+      const oldRsvp = await ctx.db.get(args.rsvpId);
+
       await ctx.db.patch(args.rsvpId, {
         status: args.approvalStatus,
         updatedAt: now,
       });
+
+      // Sync with aggregate
+      const newRsvp = await ctx.db.get(args.rsvpId);
+      if (oldRsvp && newRsvp) {
+        await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+      }
 
       // Handle redemption based on approval status
       if (args.approvalStatus === "approved") {
@@ -580,8 +1019,15 @@ export const deleteRsvpComplete = mutation({
       await ctx.db.delete(approval._id);
     }
 
+    // Get RSVP before deleting for aggregate sync (already have it from line 927)
+
     // Delete the RSVP itself
     await ctx.db.delete(args.rsvpId);
+
+    // Sync with aggregate
+    if (rsvp) {
+      await deleteRsvpFromAggregate(ctx, rsvp);
+    }
 
     return { deleted: true };
   },
@@ -603,9 +1049,18 @@ export const updateRsvpListKey = mutation({
     const rsvp = await ctx.db.get(args.rsvpId);
     if (!rsvp) throw new Error("RSVP not found");
 
+    // Get old state before update for aggregate sync
+    const oldRsvp = await ctx.db.get(args.rsvpId);
+
     await ctx.db.patch(args.rsvpId, {
       listKey: args.listKey,
     });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(args.rsvpId);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+    }
 
     // Update related records with the new list key
     // Update redemption record if it exists
@@ -639,10 +1094,12 @@ export const updateRsvpListKey = mutation({
 // Bulk update list key for multiple RSVPs
 export const bulkUpdateListKey = mutation({
   args: {
-    updates: v.array(v.object({
-      rsvpId: v.id("rsvps"),
-      listKey: v.string(),
-    })),
+    updates: v.array(
+      v.object({
+        rsvpId: v.id("rsvps"),
+        listKey: v.string(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -663,14 +1120,23 @@ export const bulkUpdateListKey = mutation({
           continue;
         }
 
+        // Get old state before update for aggregate sync
+        const oldRsvp = await ctx.db.get(update.rsvpId);
+
         // Update RSVP
         await ctx.db.patch(update.rsvpId, { listKey: update.listKey });
+
+        // Sync with aggregate
+        const newRsvp = await ctx.db.get(update.rsvpId);
+        if (oldRsvp && newRsvp) {
+          await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+        }
 
         // Update related redemption if exists
         const redemption = await ctx.db
           .query("redemptions")
           .withIndex("by_event_user", (q) =>
-            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId)
+            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
           )
           .unique();
         if (redemption) {
@@ -697,17 +1163,34 @@ export const bulkUpdateListKey = mutation({
   },
 });
 
+// Migrations for aggregate backfilling
+import { Migrations } from "@convex-dev/migrations";
+
+export const migrations = new Migrations(components.migrations);
+export const run = migrations.runner();
+
+export const backfillRsvpAggregate = migrations.define({
+  table: "rsvps",
+  migrateOne: async (ctx, rsvpDoc) => {
+    // Insert existing record into aggregate
+    await insertRsvpIntoAggregate(ctx, rsvpDoc);
+  },
+  batchSize: 10_000,
+});
+
 // Bulk update approval status for multiple RSVPs
 export const bulkUpdateApproval = mutation({
   args: {
-    updates: v.array(v.object({
-      rsvpId: v.id("rsvps"),
-      approvalStatus: v.union(
-        v.literal("pending"),
-        v.literal("approved"),
-        v.literal("denied")
-      ),
-    })),
+    updates: v.array(
+      v.object({
+        rsvpId: v.id("rsvps"),
+        approvalStatus: v.union(
+          v.literal("pending"),
+          v.literal("approved"),
+          v.literal("denied"),
+        ),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -728,11 +1211,20 @@ export const bulkUpdateApproval = mutation({
           continue;
         }
 
+        // Get old state before update for aggregate sync
+        const oldRsvp = await ctx.db.get(update.rsvpId);
+
         // Update approval status
         await ctx.db.patch(update.rsvpId, {
           status: update.approvalStatus,
           updatedAt: now,
         });
+
+        // Sync with aggregate
+        const newRsvp = await ctx.db.get(update.rsvpId);
+        if (oldRsvp && newRsvp) {
+          await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+        }
 
         // Handle redemption based on approval status
         if (update.approvalStatus === "approved") {
@@ -744,7 +1236,7 @@ export const bulkUpdateApproval = mutation({
           const redemption = await ctx.db
             .query("redemptions")
             .withIndex("by_event_user", (q) =>
-              q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId)
+              q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
             )
             .unique();
           if (redemption && !redemption.disabledAt) {
@@ -777,14 +1269,16 @@ export const bulkUpdateApproval = mutation({
 // Bulk update ticket status for multiple RSVPs
 export const bulkUpdateTicketStatus = mutation({
   args: {
-    updates: v.array(v.object({
-      rsvpId: v.id("rsvps"),
-      ticketStatus: v.union(
-        v.literal("issued"),
-        v.literal("not-issued"),
-        v.literal("disabled")
-      ),
-    })),
+    updates: v.array(
+      v.object({
+        rsvpId: v.id("rsvps"),
+        ticketStatus: v.union(
+          v.literal("issued"),
+          v.literal("not-issued"),
+          v.literal("disabled"),
+        ),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -839,7 +1333,7 @@ export const bulkDeleteRsvps = mutation({
         const redemption = await ctx.db
           .query("redemptions")
           .withIndex("by_event_user", (q) =>
-            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId)
+            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
           )
           .unique();
         if (redemption) {
@@ -855,8 +1349,16 @@ export const bulkDeleteRsvps = mutation({
           await ctx.db.delete(approval._id);
         }
 
+        // Get RSVP before deleting for aggregate sync (already have it from line 1233)
+
         // Delete RSVP
         await ctx.db.delete(rsvpId);
+
+        // Sync with aggregate
+        if (rsvp) {
+          await deleteRsvpFromAggregate(ctx, rsvp);
+        }
+
         results.success++;
       } catch (error) {
         results.failed++;

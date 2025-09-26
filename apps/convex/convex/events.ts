@@ -31,12 +31,13 @@ export const insertWithCreds = mutation({
         passwordIterations: v.number(),
         passwordFingerprint: v.string(),
         generateQR: v.optional(v.boolean()),
-      })
+      }),
     ),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    if (args.eventDate < now) throw new Error("Event date must be in the future");
+    if (args.eventDate < now)
+      throw new Error("Event date must be in the future");
     const eventId = await ctx.db.insert("events", {
       name: args.name,
       hosts: args.hosts,
@@ -50,7 +51,11 @@ export const insertWithCreds = mutation({
       updatedAt: now,
     });
     for (const credential of args.creds) {
-      await ctx.db.insert("listCredentials", { eventId, ...credential, createdAt: now });
+      await ctx.db.insert("listCredentials", {
+        eventId,
+        ...credential,
+        createdAt: now,
+      });
     }
     return { eventId };
   },
@@ -85,7 +90,17 @@ export const update = mutation({
     if (!event) throw new NotFoundError("Event");
 
     const patch: EventPatch & { updatedAt: number } = { updatedAt: Date.now() };
-    const updateableFields = ["name", "hosts", "location", "flyerUrl", "flyerStorageId", "eventDate", "maxAttendees", "isFeatured", "customFields"] as const;
+    const updateableFields = [
+      "name",
+      "hosts",
+      "location",
+      "flyerUrl",
+      "flyerStorageId",
+      "eventDate",
+      "maxAttendees",
+      "isFeatured",
+      "customFields",
+    ] as const;
 
     for (const fieldKey of updateableFields) {
       if (args[fieldKey] !== undefined) {
@@ -122,7 +137,15 @@ export const addListCredential = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await ctx.db.insert("listCredentials", { eventId: args.eventId, listKey: args.listKey, passwordHash: args.passwordHash, passwordSalt: args.passwordSalt, passwordIterations: args.passwordIterations, passwordFingerprint: args.passwordFingerprint, createdAt: now });
+    await ctx.db.insert("listCredentials", {
+      eventId: args.eventId,
+      listKey: args.listKey,
+      passwordHash: args.passwordHash,
+      passwordSalt: args.passwordSalt,
+      passwordIterations: args.passwordIterations,
+      passwordFingerprint: args.passwordFingerprint,
+      createdAt: now,
+    });
     return { ok: true as const };
   },
 });

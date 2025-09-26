@@ -65,7 +65,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"]) // lookup for a given event
-    .index("by_fingerprint", ["passwordFingerprint"]),
+    .index("by_fingerprint", ["passwordFingerprint"])
+    .index("by_event_key", ["eventId", "listKey"]), // NEW: for migration lookups
 
   profiles: defineTable({
     clerkUserId: v.string(),
@@ -80,7 +81,12 @@ export default defineSchema({
   rsvps: defineTable({
     eventId: v.id("events"),
     clerkUserId: v.string(),
-    listKey: v.string(),
+    listKey: v.optional(v.string()), // Made optional for migration - will be removed after migration
+    credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
+    // Denormalized fields for efficient search and display
+    userName: v.optional(v.string()), // Denormalized from users table
+    userEmail: v.optional(v.string()), // Denormalized from profile
+    userPhone: v.optional(v.string()), // Denormalized from profile
     shareContact: v.boolean(),
     note: v.optional(v.string()),
     attendees: v.optional(v.number()), // total number of attendees including RSVP person (default 1)
@@ -90,13 +96,22 @@ export default defineSchema({
   })
     .index("by_event", ["eventId"]) // host view
     .index("by_user", ["clerkUserId"]) // user lookup
-    .index("by_event_user", ["eventId", "clerkUserId"]),
+    .index("by_event_user", ["eventId", "clerkUserId"])
+    // NEW indexes for efficient filtering
+    .index("by_event_status", ["eventId", "status"])
+    .index("by_event_credential", ["eventId", "credentialId"])
+    .index("by_event_status_credential", ["eventId", "status", "credentialId"])
+    .searchIndex("search_text", {
+      searchField: "userName",
+      filterFields: ["eventId", "status", "credentialId"]
+    }),
 
   approvals: defineTable({
     eventId: v.id("events"),
     rsvpId: v.id("rsvps"),
     clerkUserId: v.string(),
-    listKey: v.string(),
+    listKey: v.optional(v.string()), // Made optional for migration - will be removed after migration
+    credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
     decision: v.string(), // 'approved' | 'denied'
     decidedBy: v.string(), // clerkUserId of host
     decidedAt: v.number(),
@@ -106,7 +121,8 @@ export default defineSchema({
   redemptions: defineTable({
     eventId: v.id("events"),
     clerkUserId: v.string(),
-    listKey: v.string(),
+    listKey: v.optional(v.string()), // Made optional for migration - will be removed after migration
+    credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
     code: v.string(), // url-safe token
     createdAt: v.number(),
     disabledAt: v.optional(v.number()),

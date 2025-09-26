@@ -9,6 +9,15 @@ import type { Id } from "@convex/_generated/dataModel";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -37,7 +46,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -114,29 +122,57 @@ export default function RsvpsPage() {
   }, [eventId]);
   */
 
-  // Read pagination directly from URL params
-  const pageIndex = parseInt(searchParams.get("page") || "0");
+  // Cursor-based pagination state with history for Previous button
+  const [cursor, setCursor] = React.useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = React.useState<(string | null)[]>([]);
   const pageSize = parseInt(searchParams.get("pageSize") || "20");
+
+  // Filter state - moved before useQuery to avoid uninitialized variable error
+  const [guestSearch, setGuestSearch] = React.useState("");
+  const debouncedGuest = useDebounce(guestSearch, 250);
+  const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [listFilter, setListFilter] = React.useState<string>("all");
+  const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
+
+  // Reset cursor and history when filters change
+  React.useEffect(() => {
+    setCursor(null);
+    setCursorHistory([]);
+  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter]);
 
   const rsvpsPaginated = useQuery(
     api.rsvps.listForEventPaginated,
     eventId
       ? {
           eventId: eventId as Id<"events">,
-          pageIndex,
+          ...(cursor && { cursor }),
           pageSize,
+          guestSearch: debouncedGuest,
+          statusFilter,
+          listFilter,
+          redemptionFilter,
         }
       : "skip",
   );
 
-  // Extract the page data for backwards compatibility
+  // Get total count using the aggregate-based count query
+  const totalCount = useQuery(
+    api.rsvps.countForEventFiltered,
+    eventId
+      ? {
+          eventId: eventId as Id<"events">,
+          guestSearch: debouncedGuest,
+          statusFilter,
+          listFilter,
+          redemptionFilter,
+        }
+      : "skip",
+  );
+
+  // Extract the page data
   const rsvps = React.useMemo(
     () => rsvpsPaginated?.page || [],
     [rsvpsPaginated?.page],
-  );
-  const totalCount = React.useMemo(
-    () => rsvpsPaginated?.totalCount || 0,
-    [rsvpsPaginated?.totalCount],
   );
 
   const currentEvent = useQuery(
@@ -187,11 +223,6 @@ export default function RsvpsPage() {
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
   ]);
-  const [guestSearch, setGuestSearch] = React.useState("");
-  const debouncedGuest = useDebounce(guestSearch, 250);
-  const [statusFilter, setStatusFilter] = React.useState<string>("all");
-  const [listFilter, setListFilter] = React.useState<string>("all");
-  const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
   const [pendingChanges, setPendingChanges] = React.useState<
     Record<
       string,
@@ -246,7 +277,7 @@ export default function RsvpsPage() {
   const normalizeFieldKey = (key: string): string => {
     return key
       .toLowerCase()
-      .replace(/[^a-z0-9]/g, '') // Remove all non-alphanumeric characters
+      .replace(/[^a-z0-9]/g, "") // Remove all non-alphanumeric characters
       .trim();
   };
 
@@ -256,7 +287,7 @@ export default function RsvpsPage() {
 
     return currentEvent.customFields.map((field) => ({
       id: `custom_${field.key}`,
-      header: field.label.replace(/:\s*$/, '').trim(), // Remove trailing colon and spaces
+      header: field.label.replace(/:\s*$/, "").trim(), // Remove trailing colon and spaces
       accessorFn: (r: any) => {
         if (!r.metadata) return "";
 
@@ -919,56 +950,16 @@ export default function RsvpsPage() {
     ],
   );
 
-  const filtered = React.useMemo(() => {
-    let result = (rsvps ?? []) as any[];
+  // Filtering is now handled by the backend
 
-    // Apply guest search filter
-    const query = debouncedGuest.trim().toLowerCase();
-    if (query) {
-      result = result.filter((rsvp: any) => {
-        const name = (rsvp.name ?? "").toLowerCase();
-        const email = (rsvp.contact?.email ?? "").toLowerCase();
-        const phone = (rsvp.contact?.phone ?? "").toLowerCase();
-        return (
-          name.includes(query) || email.includes(query) || phone.includes(query)
-        );
-      });
-    }
-
-    // Apply status filter
-    if (statusFilter !== "all") {
-      result = result.filter((rsvp: any) => rsvp.status === statusFilter);
-    }
-
-    // Apply list filter
-    if (listFilter !== "all") {
-      result = result.filter((rsvp: any) => rsvp.listKey === listFilter);
-    }
-
-    // Apply redemption filter
-    if (redemptionFilter !== "all") {
-      if (redemptionFilter === "not-issued") {
-        result = result.filter((rsvp: any) => rsvp.redemptionStatus === "none");
-      } else {
-        result = result.filter(
-          (rsvp: any) => rsvp.redemptionStatus === redemptionFilter,
-        );
-      }
-    }
-
-    return result;
-  }, [rsvps, debouncedGuest, statusFilter, listFilter, redemptionFilter]);
-
-  // Get unique values for filter dropdowns
+  // Get unique values for filter dropdowns - use all available options, not just filtered results
   const uniqueListKeys = React.useMemo(() => {
-    const lists = new Set((rsvps ?? []).map((rsvp: any) => rsvp.listKey));
-    return Array.from(lists).sort();
-  }, [rsvps]);
+    return listCredentials?.map((cred) => cred.listKey).sort() || [];
+  }, [listCredentials]);
 
   const uniqueStatuses = React.useMemo(() => {
-    const statuses = new Set((rsvps ?? []).map((rsvp: any) => rsvp.status));
-    return Array.from(statuses).sort();
-  }, [rsvps]);
+    return ["pending", "approved", "denied", "attending"];
+  }, []);
 
   // Clear all filters function
   const clearAllFilters = () => {
@@ -999,14 +990,45 @@ export default function RsvpsPage() {
     [selectedRows],
   );
 
-  // Clear selection when filters change
+  // Clear selection when filters change or page changes
   React.useEffect(() => {
     setSelectedRows(new Set());
-  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter]);
+  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter, cursor]);
+
+  // Calculate pagination info for cursor-based pagination
+  const currentPage = cursorHistory.length + 1;
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(
+    currentPage * pageSize,
+    startItem + (rsvps?.length || 0) - 1,
+  );
+
+  // Navigation handlers for cursor-based pagination
+  const goToNextPage = React.useCallback(() => {
+    if (rsvpsPaginated?.nextCursor && !rsvpsPaginated.isDone) {
+      // Always save current cursor to history before moving to next (even if null)
+      setCursorHistory((prev) => [...prev, cursor]);
+      setCursor(rsvpsPaginated.nextCursor);
+    }
+  }, [rsvpsPaginated?.nextCursor, rsvpsPaginated?.isDone, cursor]);
+
+  const goToPreviousPage = React.useCallback(() => {
+    if (cursorHistory.length > 0) {
+      // Get the previous cursor from history
+      const previousCursor = cursorHistory[cursorHistory.length - 1];
+      // Remove it from history
+      setCursorHistory((prev) => prev.slice(0, -1));
+      // Set as current cursor
+      setCursor(previousCursor);
+    } else {
+      // Go to first page if no history
+      setCursor(null);
+    }
+  }, [cursorHistory]);
 
   // Bulk action handlers
   const handleBulkListChange = async (newListKey: string) => {
-    const selectedRsvps = filtered.filter((rsvp: any) =>
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
       selectedRows.has(rsvp.id),
     );
     const count = selectedRsvps.length;
@@ -1061,7 +1083,7 @@ export default function RsvpsPage() {
   };
 
   const handleBulkApprovalChange = async (newStatus: string) => {
-    const selectedRsvps = filtered.filter((rsvp: any) =>
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
       selectedRows.has(rsvp.id),
     );
     const count = selectedRsvps.length;
@@ -1120,7 +1142,7 @@ export default function RsvpsPage() {
   };
 
   const handleBulkTicketStatusChange = async (newStatus: string) => {
-    const selectedRsvps = filtered.filter((rsvp: any) =>
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
       selectedRows.has(rsvp.id),
     );
     // Filter out redeemed tickets as they can't be changed
@@ -1202,7 +1224,7 @@ export default function RsvpsPage() {
   };
 
   const handleBulkDelete = async () => {
-    const selectedRsvps = filtered.filter((rsvp: any) =>
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
       selectedRows.has(rsvp.id),
     );
     const count = selectedRsvps.length;
@@ -1251,29 +1273,15 @@ export default function RsvpsPage() {
     [baseCols, selectedRows, toggleSelectRow],
   );
 
-  // Pagination change handler that updates URL
-  const handlePaginationChange = (updaterOrValue: any) => {
-    const newPagination =
-      typeof updaterOrValue === "function"
-        ? updaterOrValue({ pageIndex, pageSize })
-        : updaterOrValue;
-
-    const params = new URLSearchParams(searchParams as any);
-    params.set("page", newPagination.pageIndex.toString());
-    params.set("pageSize", newPagination.pageSize.toString());
-    router.replace(`/host/rsvps?${params.toString()}`, { scroll: false });
-  };
-
   const table = useReactTable({
-    data: filtered,
+    data: rsvps,
     columns: initialCols,
-    state: { sorting, pagination: { pageIndex, pageSize } },
-    autoResetPageIndex: false,
+    state: { sorting },
+    manualPagination: true, // Enable manual pagination
     onSortingChange: setSorting,
-    onPaginationChange: handlePaginationChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    // Remove getPaginationRowModel() for manual pagination
   });
 
   // Selection state management (computed values after table creation)
@@ -1406,7 +1414,8 @@ export default function RsvpsPage() {
   const isLoading =
     events === undefined ||
     rsvpsPaginated === undefined ||
-    currentEvent === undefined;
+    currentEvent === undefined ||
+    totalCount === undefined;
 
   return (
     <div className="flex-1 space-y-4">
@@ -1540,7 +1549,7 @@ export default function RsvpsPage() {
             </Badge>
           )}
           <span className="text-xs text-foreground/60">
-            (Showing {filtered.length} of {totalCount} total RSVPs)
+            (Showing {rsvps.length} RSVPs on this page)
           </span>
         </div>
       )}
@@ -1758,59 +1767,71 @@ export default function RsvpsPage() {
       )}
 
       {!isLoading && rsvpsPaginated && (
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-foreground/70">
-            Page {pageIndex + 1} of {Math.ceil(totalCount / pageSize) || 1} •
-            Showing {Math.min(pageIndex * pageSize + 1, totalCount)} -{" "}
-            {Math.min((pageIndex + 1) * pageSize, totalCount)} of {totalCount}{" "}
-            RSVPs
+        <div className="flex items-center justify-between gap-3 pt-4 border-t">
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-foreground/70">
+              {!rsvps || rsvps.length === 0 ? (
+                <span>No RSVPs found{hasActiveFilters && " (filtered)"}</span>
+              ) : (
+                <span>
+                  Showing {startItem}-{endItem} of {totalCount || "?"} RSVPs
+                  {hasActiveFilters && " (filtered)"}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
                 const params = new URLSearchParams(searchParams as any);
                 params.set("pageSize", value);
-                params.set("page", "0"); // Reset to first page when changing page size
                 router.replace(`/host/rsvps?${params.toString()}`, {
                   scroll: false,
                 });
+                setCursor(null);
+                setCursorHistory([]);
               }}
             >
               {[10, 20, 50, 100].map((number) => (
                 <SelectOption key={number} value={String(number)}>
-                  {number} / page
+                  {number} per page
                 </SelectOption>
               ))}
             </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const params = new URLSearchParams(searchParams as any);
-                params.set("page", (pageIndex - 1).toString());
-                router.replace(`/host/rsvps?${params.toString()}`, {
-                  scroll: false,
-                });
-              }}
-              disabled={!rsvpsPaginated.hasPreviousPage}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const params = new URLSearchParams(searchParams as any);
-                params.set("page", (pageIndex + 1).toString());
-                router.replace(`/host/rsvps?${params.toString()}`, {
-                  scroll: false,
-                });
-              }}
-              disabled={!rsvpsPaginated.hasNextPage}
-            >
-              Next
-            </Button>
+            <Pagination className="justify-end">
+              <PaginationContent className="gap-1 sm:gap-2">
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={goToPreviousPage}
+                    className={cn(
+                      "h-8 w-8 sm:h-9 sm:w-auto sm:px-3",
+                      cursor === null && cursorHistory.length === 0
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer",
+                    )}
+                  />
+                </PaginationItem>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    Page {currentPage}
+                  </span>
+                </div>
+
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={goToNextPage}
+                    className={cn(
+                      "h-8 w-8 sm:h-9 sm:w-auto sm:px-3",
+                      rsvpsPaginated?.isDone || !rsvpsPaginated?.nextCursor
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer",
+                    )}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </div>
         </div>
       )}

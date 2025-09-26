@@ -482,7 +482,7 @@ export default function RsvpPage({
                           Show this QR code at the door
                         </div>
                         <div className="text-xs text-primary/60 text-center">
-                          List: {myRedemption.listKey.toUpperCase()}
+                          List: {myRedemption.listKey?.toUpperCase() || 'N/A'}
                         </div>
                       </div>
                     )}
