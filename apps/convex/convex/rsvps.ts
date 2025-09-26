@@ -26,6 +26,18 @@ export const submitRequest = mutation({
     if (!identity) throw new Error("Unauthorized");
     const clerkUserId = identity.subject;
 
+    // Fetch user to populate userName for search
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
+
+    const userName = user
+      ? [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+        user.name ||
+        ""
+      : "";
+
     // Ensure event exists and is upcoming
     const event = await ctx.db.get(args.eventId);
     const now = Date.now();
@@ -56,6 +68,7 @@ export const submitRequest = mutation({
         eventId: args.eventId,
         clerkUserId,
         listKey: args.listKey,
+        userName, // For search functionality
         note: args.note,
         shareContact: args.shareContact,
         attendees: requestedAttendees,
@@ -79,6 +92,7 @@ export const submitRequest = mutation({
 
       await ctx.db.patch(existing._id, {
         listKey: args.listKey,
+        userName, // Keep userName in sync
         note: args.note,
         shareContact: args.shareContact,
         attendees: requestedAttendees,
@@ -519,10 +533,10 @@ export const listForEventPaginated = query({
         id: rsvp._id,
         clerkUserId: rsvp.clerkUserId,
         name:
-          rsvp.userName ||
           [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
           user?.name ||
-          "", // Prefer firstName/lastName from users table, fallback to old fields
+          rsvp.userName ||
+          "", // PRIORITY: users table (fresh data) → rsvp.userName (fallback)
         firstName: user?.firstName ||
           (rsvp.userName ? rsvp.userName.split(" ")[0] : ""),
         lastName: user?.lastName ||

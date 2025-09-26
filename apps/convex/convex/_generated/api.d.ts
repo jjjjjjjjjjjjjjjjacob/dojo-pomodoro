@@ -12,6 +12,7 @@ import type * as approvals from "../approvals.js";
 import type * as credentials from "../credentials.js";
 import type * as credentialsNode from "../credentialsNode.js";
 import type * as dashboard from "../dashboard.js";
+import type * as devUtils from "../devUtils.js";
 import type * as events from "../events.js";
 import type * as eventsNode from "../eventsNode.js";
 import type * as files from "../files.js";
@@ -27,6 +28,7 @@ import type * as profilesNode from "../profilesNode.js";
 import type * as redemptions from "../redemptions.js";
 import type * as rsvps from "../rsvps.js";
 import type * as seed from "../seed.js";
+import type * as triggers from "../triggers.js";
 import type * as users from "../users.js";
 
 import type {
@@ -48,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   credentials: typeof credentials;
   credentialsNode: typeof credentialsNode;
   dashboard: typeof dashboard;
+  devUtils: typeof devUtils;
   events: typeof events;
   eventsNode: typeof eventsNode;
   files: typeof files;
@@ -63,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   redemptions: typeof redemptions;
   rsvps: typeof rsvps;
   seed: typeof seed;
+  triggers: typeof triggers;
   users: typeof users;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
