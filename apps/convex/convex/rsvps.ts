@@ -269,9 +269,28 @@ export const countForEventFiltered = query({
         );
       }
       if (listFilter !== "all") {
-        baseQuery = baseQuery.filter((q) =>
-          q.eq(q.field("listKey"), listFilter),
-        );
+        const credential = await ctx.db
+          .query("listCredentials")
+          .withIndex("by_event_key", (q: any) =>
+            q.eq("eventId", eventId).eq("listKey", listFilter)
+          )
+          .unique();
+
+        if (credential) {
+          baseQuery = baseQuery.filter((q: any) => {
+            return q.or(
+              q.eq(q.field("credentialId"), credential._id),
+              q.and(
+                q.eq(q.field("listKey"), listFilter),
+                q.eq(q.field("credentialId"), undefined)
+              )
+            );
+          });
+        } else {
+          baseQuery = baseQuery.filter((q: any) =>
+            q.eq(q.field("listKey"), listFilter),
+          );
+        }
       }
 
       const rsvps = await baseQuery.collect();
@@ -388,9 +407,31 @@ export const listForEventPaginated = query({
 
       // Apply listKey filter after index filtering
       if (listFilter !== "all") {
-        baseQuery = baseQuery.filter((q: any) =>
-          q.eq(q.field("listKey"), listFilter),
-        );
+        // First try to get the credentialId for this listKey to enable efficient filtering
+        const credential = await ctx.db
+          .query("listCredentials")
+          .withIndex("by_event_key", (q: any) =>
+            q.eq("eventId", eventId).eq("listKey", listFilter)
+          )
+          .unique();
+
+        if (credential) {
+          // Filter by credentialId when possible (more efficient for migrated records)
+          baseQuery = baseQuery.filter((q: any) => {
+            return q.or(
+              q.eq(q.field("credentialId"), credential._id),
+              q.and(
+                q.eq(q.field("listKey"), listFilter),
+                q.eq(q.field("credentialId"), undefined)
+              )
+            );
+          });
+        } else {
+          // Fallback to listKey filter for unmigrated data
+          baseQuery = baseQuery.filter((q: any) =>
+            q.eq(q.field("listKey"), listFilter),
+          );
+        }
       }
     }
 
@@ -562,11 +603,18 @@ export const statusForUserEvent = query({
     const chosen = approved || pending || denied || attending || rsvps[0];
 
     // Get list credential info to check generateQR setting
-    const listCredential = await ctx.db
-      .query("listCredentials")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .filter((q) => q.eq(q.field("listKey"), chosen.listKey))
-      .unique();
+    let listCredential = null;
+    if (chosen.credentialId) {
+      // Use credentialId for direct lookup when available
+      listCredential = await ctx.db.get(chosen.credentialId);
+    } else if (chosen.listKey) {
+      // Fallback to listKey lookup for backward compatibility
+      listCredential = await ctx.db
+        .query("listCredentials")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId))
+        .filter((q) => q.eq(q.field("listKey"), chosen.listKey))
+        .unique();
+    }
 
     return {
       listKey: chosen.listKey,

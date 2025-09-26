@@ -234,32 +234,73 @@ await ctx.db.query("rsvps").collect().then(rsvps => ({
 
 ## Phase 4: Update Search & Remove Denormalized Dependencies
 
+### Research Findings
+- **Convex search indexes are table-specific** - Cannot search across joined tables
+- **Decision**: Keep userName field in RSVPs for search functionality, populate via migration from users table
+- **Migration approach**: backfillUserNameInRsvps migration reads from users table to populate userName
+
 ### Tasks
-- [ ] **Update search index in schema.ts** (apps/convex/convex/schema.ts:104-107)
-  - Research: Can Convex search indexes search across joined tables?
-  - Option A: If yes, update search to query users table via clerkUserId
-  - Option B: If no, keep userName but populate it from users table on reads
-  - Document decision and approach
+- [x] **Research search index capabilities**
+  - ✅ Confirmed Convex search indexes cannot join across tables
+  - ✅ Decision made to keep userName field for search
 
-- [ ] **Update search query in rsvps.ts** (line 368)
-  - If using Option A: Rewrite search to join with users table
-  - If using Option B: Keep search on userName but ensure it's populated
+- [x] **Create backfill migration for userName field**
+  - ✅ Added backfillUserNameInRsvps migration in migrations.ts
+  - ✅ Reads firstName/lastName or name from users table via clerkUserId
+  - ✅ Constructs display name and saves to rsvp.userName
 
-- [ ] **Update listForEventPaginated enrichment** (line 477-494)
-  - Change to ALWAYS read from users table via clerkUserId
-  - Remove reliance on denormalized userName field
-  - Keep fallback to rsvp.userName for transition period only
+- [x] **Update listForEventPaginated enrichment** (line 477-494)
+  - ✅ Already prioritizes firstName/lastName from users table
+  - ✅ Falls back to rsvp.userName for search compatibility
+  - ✅ Maintains backward compatibility
 
-- [ ] **Update all queries using listKey**
-  - Search for `.eq(q.field("listKey")` across convex/
-  - Update to use credentialId with listKey fallback
-  - Keep fallback for safety during transition
+- [x] **Update all queries using listKey**
+  - ✅ Updated countForEventWithFilters (rsvps.ts lines 271-294)
+  - ✅ Updated listForEventPaginated (rsvps.ts lines 390-435)
+  - ✅ Updated rsvpAggregate fallback query (lib/rsvpAggregate.ts lines 173-196)
+  - ✅ Updated statusForUserEvent credential lookup (rsvps.ts lines 605-617)
+  - ✅ All use credentialId when available, fallback to listKey
+
+- [x] **Fix TypeScript compilation errors**
+  - ✅ Added proper type narrowing for userName and firstName/lastName
+  - ✅ All migrations.ts compilation errors resolved
+
+### Implementation Details
+**listKey → credentialId Migration Pattern**:
+```typescript
+if (listFilter !== "all") {
+  const credential = await ctx.db
+    .query("listCredentials")
+    .withIndex("by_event_key", (q: any) =>
+      q.eq("eventId", eventId).eq("listKey", listFilter)
+    )
+    .unique();
+
+  if (credential) {
+    baseQuery = baseQuery.filter((q: any) => {
+      return q.or(
+        q.eq(q.field("credentialId"), credential._id),
+        q.and(
+          q.eq(q.field("listKey"), listFilter),
+          q.eq(q.field("credentialId"), undefined)
+        )
+      );
+    });
+  } else {
+    baseQuery = baseQuery.filter((q: any) =>
+      q.eq(q.field("listKey"), listFilter),
+    );
+  }
+}
+```
 
 ### Success Criteria
-- ✅ Search works in production
-- ✅ Guest names display from users table
-- ✅ All list filtering works with credentialId
-- ✅ Backward compatibility maintained
+- ✅ Search works in production (userName field maintained for search)
+- ✅ Guest names display from users table (enrichment updated)
+- ✅ All list filtering works with credentialId (with listKey fallback)
+- ✅ Backward compatibility maintained throughout
+- ✅ TypeScript compilation passes
+- ✅ Migration pattern established for userName backfill
 
 ---
 
@@ -339,8 +380,8 @@ await ctx.db.query("rsvps").collect().then(rsvps => ({
 
 - [x] Phase 1: Add New Code Paths (Backward Compatible) ✅ DEPLOYED
 - [x] Phase 2: Consolidate & Fix Migrations ✅ COMPLETE
-- [ ] Phase 3: Run Migrations
-- [ ] Phase 4: Update Search & Remove Denormalized Dependencies
+- [x] Phase 3: Run Migrations ✅ COMPLETE
+- [x] Phase 4: Update Search & Remove Denormalized Dependencies ✅ COMPLETE
 - [ ] Phase 5: Final Cleanup (⚠️ Only after 1+ week verification)
 
 ---

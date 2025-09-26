@@ -94,3 +94,36 @@ export const migrateRedemptionsCredentialRefs = migrations.define({
     console.warn(`No credential found for redemption ${redemption._id} with listKey: ${redemption.listKey}`);
   },
 });
+
+// Backfill userName field for search functionality
+export const backfillUserNameInRsvps = migrations.define({
+  table: "rsvps",
+  migrateOne: async (ctx, rsvp) => {
+    // Skip if userName is already populated
+    if (rsvp.userName && typeof rsvp.userName === "string" && rsvp.userName.trim() !== "") return;
+
+    // Get user data via clerkUserId
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q: any) =>
+        q.eq("clerkUserId", rsvp.clerkUserId)
+      )
+      .unique();
+
+    if (user) {
+      // Construct display name from users table
+      let displayName = "";
+      if (user.firstName && user.lastName && typeof user.firstName === "string" && typeof user.lastName === "string") {
+        displayName = `${user.firstName} ${user.lastName}`;
+      } else if (user.firstName && typeof user.firstName === "string") {
+        displayName = user.firstName;
+      } else if (user.name && typeof user.name === "string") {
+        displayName = user.name;
+      }
+
+      if (displayName.trim()) {
+        return { userName: displayName.trim() };
+      }
+    }
+  },
+});

@@ -171,9 +171,28 @@ export async function countRsvpsWithAggregate(
         );
       }
       if (listFilter !== "all") {
-        fallbackQuery = fallbackQuery.filter((q: any) =>
-          q.eq(q.field("listKey"), listFilter),
-        );
+        const credential = await ctx.db
+          .query("listCredentials")
+          .withIndex("by_event_key", (q: any) =>
+            q.eq("eventId", eventId).eq("listKey", listFilter)
+          )
+          .unique();
+
+        if (credential) {
+          fallbackQuery = fallbackQuery.filter((q: any) => {
+            return q.or(
+              q.eq(q.field("credentialId"), credential._id),
+              q.and(
+                q.eq(q.field("listKey"), listFilter),
+                q.eq(q.field("credentialId"), undefined)
+              )
+            );
+          });
+        } else {
+          fallbackQuery = fallbackQuery.filter((q: any) =>
+            q.eq(q.field("listKey"), listFilter),
+          );
+        }
       }
 
       const fallbackCount = await fallbackQuery
