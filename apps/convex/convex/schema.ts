@@ -44,6 +44,7 @@ export default defineSchema({
           placeholder: v.optional(v.string()),
           required: v.optional(v.boolean()),
           copyEnabled: v.optional(v.boolean()),
+          prependUrl: v.optional(v.string()),
         }),
       ),
     ),

@@ -71,6 +71,8 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
+  ExternalLink,
+  Link,
 } from "lucide-react";
 import {
   ColumnDef,
@@ -81,7 +83,7 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { cn } from "@/lib/utils";
+import { cn, sanitizeFieldValue } from "@/lib/utils";
 
 export default function RsvpsPage() {
   const router = useRouter();
@@ -112,9 +114,29 @@ export default function RsvpsPage() {
   }, [eventId]);
   */
 
-  const rsvps = useQuery(
-    api.rsvps.listForEvent,
-    eventId ? { eventId: eventId as Id<"events"> } : "skip",
+  // Read pagination directly from URL params
+  const pageIndex = parseInt(searchParams.get("page") || "0");
+  const pageSize = parseInt(searchParams.get("pageSize") || "20");
+
+  const rsvpsPaginated = useQuery(
+    api.rsvps.listForEventPaginated,
+    eventId
+      ? {
+          eventId: eventId as Id<"events">,
+          pageIndex,
+          pageSize,
+        }
+      : "skip",
+  );
+
+  // Extract the page data for backwards compatibility
+  const rsvps = React.useMemo(
+    () => rsvpsPaginated?.page || [],
+    [rsvpsPaginated?.page],
+  );
+  const totalCount = React.useMemo(
+    () => rsvpsPaginated?.totalCount || 0,
+    [rsvpsPaginated?.totalCount],
   );
 
   const currentEvent = useQuery(
@@ -147,6 +169,20 @@ export default function RsvpsPage() {
   });
   const deleteRsvpCompleteMutation = useMutation({
     mutationFn: useConvexMutation(api.rsvps.deleteRsvpComplete),
+  });
+
+  // Bulk mutations
+  const bulkUpdateListKeyMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkUpdateListKey),
+  });
+  const bulkUpdateApprovalMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkUpdateApproval),
+  });
+  const bulkUpdateTicketStatusMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkUpdateTicketStatus),
+  });
+  const bulkDeleteRsvpsMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkDeleteRsvps),
   });
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
@@ -206,10 +242,6 @@ export default function RsvpsPage() {
     }
   }, [loadingListUpdates, loadingApprovalUpdates, loadingTicketUpdates]);
 
-  // Read pagination directly from URL params
-  const pageIndex = parseInt(searchParams.get("page") || "0");
-  const pageSize = parseInt(searchParams.get("pageSize") || "20");
-
   // Generate dynamic custom field columns
   const customFieldColumns = React.useMemo(() => {
     if (!currentEvent?.customFields) return [];
@@ -219,46 +251,100 @@ export default function RsvpsPage() {
       header: field.label,
       accessorFn: (r: any) => r.metadata?.[field.key] || "",
       cell: ({ getValue }: any) => {
-        const value = getValue() as string;
+        const rawValue = getValue() as string;
+        const hasPrependUrl = !!field.prependUrl;
         const isCopyEnabled = field.copyEnabled;
 
         const handleCopyClick = async () => {
-          if (!isCopyEnabled || !value || value === "-") return;
+          if (!rawValue || rawValue === "-") return;
 
           try {
-            await navigator.clipboard.writeText(value);
-            toast.success(`Copied: ${value}`);
+            await navigator.clipboard.writeText(rawValue);
+            toast.success(`Copied: ${rawValue}`);
           } catch (err) {
             toast.error("Failed to copy to clipboard");
           }
         };
 
-        if (!isCopyEnabled || !value || value === "-") {
-          return <span className="truncate max-w-32">{value || "-"}</span>;
+        const handleCopyFullUrl = async (fullUrl: string) => {
+          try {
+            await navigator.clipboard.writeText(fullUrl);
+            toast.success(`Copied URL: ${fullUrl}`);
+          } catch (err) {
+            toast.error("Failed to copy URL to clipboard");
+          }
+        };
+
+        // Handle fields with prependUrl
+        if (hasPrependUrl && rawValue && rawValue !== "-") {
+          const sanitizedValue = sanitizeFieldValue(rawValue, field.key);
+          const fullUrl = `${field.prependUrl}${sanitizedValue}`;
+
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <div
+                  className="flex items-center gap-1 cursor-pointer group hover:bg-muted/50 rounded px-2 py-1 -mx-2 -my-1"
+                  onClick={(e) => e.stopPropagation()} // Prevent row selection
+                >
+                  <span className="truncate max-w-32 group-hover:underline">
+                    {rawValue}
+                  </span>
+                  <ExternalLink className="h-3 w-3 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem
+                  onClick={() =>
+                    window.open(fullUrl, "_blank", "noopener,noreferrer")
+                  }
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Open in new tab
+                </DropdownMenuItem>
+                {isCopyEnabled && (
+                  <DropdownMenuItem onClick={handleCopyClick}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy value
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => handleCopyFullUrl(fullUrl)}>
+                  <Link className="h-4 w-4 mr-2" />
+                  Copy full URL
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
         }
 
-        return (
-          <div
-            className={cn(
-              "flex items-center justify-between w-full group cursor-pointer transition-colors duration-150 rounded px-2 py-1 -mx-2 -my-1",
-            )}
-            onClick={handleCopyClick}
-          >
-            <span className="truncate max-w-32">{value}</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 bg-muted transition-opacity duration-150 ml-2 flex-shrink-0" />
-              </TooltipTrigger>
-              <TooltipContent
-                align="center"
-                variant="secondary"
-                className="py-1 px-2 z-10"
-              >
-                copy
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        );
+        // Handle regular copy-enabled fields
+        if (isCopyEnabled && rawValue && rawValue !== "-") {
+          return (
+            <div
+              className={cn(
+                "flex items-center justify-between w-full group cursor-pointer transition-colors duration-150 rounded px-2 py-1 -mx-2 -my-1",
+              )}
+              onClick={handleCopyClick}
+            >
+              <span className="truncate max-w-32">{rawValue}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 bg-muted transition-opacity duration-150 ml-2 flex-shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent
+                  align="center"
+                  variant="secondary"
+                  className="py-1 px-2 z-10"
+                >
+                  copy
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          );
+        }
+
+        // Handle regular fields without special functionality
+        return <span className="truncate max-w-32">{rawValue || "-"}</span>;
       },
     }));
   }, [currentEvent?.customFields]);
@@ -312,6 +398,9 @@ export default function RsvpsPage() {
 
             // Add to loading state
             setLoadingListUpdates((prev) => new Set(prev).add(rsvp.id));
+
+            // Show updating toast for single update
+            toast.info(`Updating ${guestName}'s list...`);
 
             updateRsvpListKeyMutation.mutate(
               {
@@ -439,6 +528,9 @@ export default function RsvpsPage() {
             // Add to loading state
             setLoadingApprovalUpdates((prev) => new Set(prev).add(rsvp.id));
 
+            // Show updating toast for single update
+            toast.info(`Updating ${guestName}'s approval status...`);
+
             updateRsvpCompleteMutation.mutate(
               {
                 rsvpId: rsvp.id,
@@ -477,12 +569,12 @@ export default function RsvpsPage() {
           const getStatusColor = (currentStatus: string) => {
             switch (currentStatus) {
               case "approved":
-                return "text-green-700 border-green-200 bg-green-50";
+                return "text-green-700 border-green-200 bg-green-50 hover:bg-green-10 hover:text-green-700";
               case "denied":
-                return "text-red-700 border-red-200 bg-red-50";
+                return "text-red-700 border-red-200 bg-red-50 hover:bg-red-10 hover:text-red-700";
               case "pending":
               default:
-                return "text-amber-700 border-amber-200 bg-amber-50";
+                return "text-amber-700 border-amber-200 bg-amber-50 hover:bg-amber-10 hover:text-amber-700";
             }
           };
 
@@ -554,6 +646,9 @@ export default function RsvpsPage() {
             // Add to loading state
             setLoadingTicketUpdates((prev) => new Set(prev).add(rsvp.id));
 
+            // Show updating toast for single update
+            toast.info(`Updating ${guestName}'s ticket status...`);
+
             updateRsvpCompleteMutation.mutate(
               {
                 rsvpId: rsvp.id,
@@ -591,11 +686,11 @@ export default function RsvpsPage() {
           const getTicketStatusColor = (status: string) => {
             switch (status) {
               case "issued":
-                return "text-purple-700 border-purple-200 bg-purple-50";
+                return "text-purple-700 border-purple-200 bg-purple-50 hover:bg-purple-10 hover:text-purple-700";
               case "redeemed":
-                return "text-blue-700 border-blue-200 bg-blue-50";
+                return "text-blue-700 border-blue-200 bg-blue-50 hover:text-blue-700 hover:bg-blue-10";
               case "disabled":
-                return "text-red-700 border-red-200 bg-red-50";
+                return "text-red-700 border-red-200 bg-red-50 hover:bg-red-10 hover:text-red-700";
               case "not-issued":
               default:
                 return "text-gray-700 border-gray-200 bg-gray-50";
@@ -864,15 +959,18 @@ export default function RsvpsPage() {
     redemptionFilter !== "all";
 
   // Selection handlers (basic implementations, will be updated after table creation)
-  const toggleSelectRow = React.useCallback((rsvpId: string) => {
-    const newSelectedRows = new Set(selectedRows);
-    if (newSelectedRows.has(rsvpId)) {
-      newSelectedRows.delete(rsvpId);
-    } else {
-      newSelectedRows.add(rsvpId);
-    }
-    setSelectedRows(newSelectedRows);
-  }, [selectedRows]);
+  const toggleSelectRow = React.useCallback(
+    (rsvpId: string) => {
+      const newSelectedRows = new Set(selectedRows);
+      if (newSelectedRows.has(rsvpId)) {
+        newSelectedRows.delete(rsvpId);
+      } else {
+        newSelectedRows.add(rsvpId);
+      }
+      setSelectedRows(newSelectedRows);
+    },
+    [selectedRows],
+  );
 
   // Clear selection when filters change
   React.useEffect(() => {
@@ -898,19 +996,25 @@ export default function RsvpsPage() {
     // Show updating toast
     toast.info(`Updating ${count} RSVPs...`);
 
-    // Execute all updates in parallel
-    const updatePromises = selectedRsvps.map((rsvp: any) =>
-      updateRsvpListKeyMutation.mutateAsync({
-        rsvpId: rsvp.id,
-        listKey: newListKey,
-      }),
-    );
+    // Execute bulk update in single mutation
+    const updates = selectedRsvps.map((rsvp: any) => ({
+      rsvpId: rsvp.id,
+      listKey: newListKey,
+    }));
 
     try {
-      await Promise.all(updatePromises);
-      toast.success(
-        `Changed list to '${newListKey.toUpperCase()}' for ${count} RSVPs`,
-      );
+      const result = await bulkUpdateListKeyMutation.mutateAsync({ updates });
+
+      if (result.failed > 0) {
+        toast.warning(
+          `Updated ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`,
+        );
+      } else {
+        toast.success(
+          `Changed list to '${newListKey.toUpperCase()}' for ${count} RSVPs`,
+        );
+      }
+
       setSelectedRows(new Set());
       // Clear loading state
       setLoadingListUpdates((prev) => {
@@ -947,18 +1051,27 @@ export default function RsvpsPage() {
     // Show updating toast
     toast.info(`Updating ${count} RSVPs...`);
 
-    // Execute all updates in parallel
-    const updatePromises = selectedRsvps.map((rsvp: any) =>
-      updateRsvpCompleteMutation.mutateAsync({
-        rsvpId: rsvp.id,
-        approvalStatus: newStatus as any,
-      }),
-    );
+    // Execute bulk update in single mutation
+    const updates = selectedRsvps.map((rsvp: any) => ({
+      rsvpId: rsvp.id,
+      approvalStatus: newStatus as any,
+    }));
 
     try {
-      await Promise.all(updatePromises);
-      const statusText = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
-      toast.success(`Changed approval to '${statusText}' for ${count} RSVPs`);
+      const result = await bulkUpdateApprovalMutation.mutateAsync({ updates });
+
+      if (result.failed > 0) {
+        const statusText =
+          newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+        toast.warning(
+          `Updated ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`,
+        );
+      } else {
+        const statusText =
+          newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+        toast.success(`Changed approval to '${statusText}' for ${count} RSVPs`);
+      }
+
       setSelectedRows(new Set());
       // Clear loading state
       setLoadingApprovalUpdates((prev) => {
@@ -1007,16 +1120,17 @@ export default function RsvpsPage() {
     // Show updating toast
     toast.info(`Updating ${count} RSVPs...`);
 
-    // Execute all updates in parallel
-    const updatePromises = changeableRsvps.map((rsvp: any) =>
-      updateRsvpCompleteMutation.mutateAsync({
-        rsvpId: rsvp.id,
-        ticketStatus: newStatus as any,
-      }),
-    );
+    // Execute bulk update in single mutation
+    const updates = changeableRsvps.map((rsvp: any) => ({
+      rsvpId: rsvp.id,
+      ticketStatus: newStatus as any,
+    }));
 
     try {
-      await Promise.all(updatePromises);
+      const result = await bulkUpdateTicketStatusMutation.mutateAsync({
+        updates,
+      });
+
       const statusLabel =
         newStatus === "not-issued"
           ? "None"
@@ -1026,11 +1140,20 @@ export default function RsvpsPage() {
               ? "Disabled"
               : newStatus;
 
-      let message = `Changed ticket status to '${statusLabel}' for ${count} RSVPs`;
-      if (redeemedCount > 0) {
-        message += ` (${redeemedCount} redeemed tickets skipped)`;
+      if (result.failed > 0) {
+        let message = `Updated ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`;
+        if (redeemedCount > 0) {
+          message += ` (${redeemedCount} redeemed tickets skipped)`;
+        }
+        toast.warning(message);
+      } else {
+        let message = `Changed ticket status to '${statusLabel}' for ${count} RSVPs`;
+        if (redeemedCount > 0) {
+          message += ` (${redeemedCount} redeemed tickets skipped)`;
+        }
+        toast.success(message);
       }
-      toast.success(message);
+
       setSelectedRows(new Set());
       // Clear loading state
       setLoadingTicketUpdates((prev) => {
@@ -1059,14 +1182,20 @@ export default function RsvpsPage() {
 
     if (count === 0) return;
 
-    // Execute all deletions in parallel
-    const deletePromises = selectedRsvps.map((rsvp: any) =>
-      deleteRsvpCompleteMutation.mutateAsync({ rsvpId: rsvp.id }),
-    );
+    // Execute bulk deletion in single mutation
+    const rsvpIds = selectedRsvps.map((rsvp: any) => rsvp.id);
 
     try {
-      await Promise.all(deletePromises);
-      toast.success(`Deleted ${count} RSVPs`);
+      const result = await bulkDeleteRsvpsMutation.mutateAsync({ rsvpIds });
+
+      if (result.failed > 0) {
+        toast.warning(
+          `Deleted ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`,
+        );
+      } else {
+        toast.success(`Deleted ${count} RSVPs`);
+      }
+
       setSelectedRows(new Set());
     } catch (error) {
       toast.error(`Failed to delete RSVPs: ${(error as Error).message}`);
@@ -1161,7 +1290,13 @@ export default function RsvpsPage() {
       currentPageIds.forEach((id) => newSelection.add(id));
       setSelectedRows(newSelection);
     }
-  }, [allSelected, previousSelection, selectedRows, currentPageIds, setPreviousSelection]);
+  }, [
+    allSelected,
+    previousSelection,
+    selectedRows,
+    currentPageIds,
+    setPreviousSelection,
+  ]);
 
   // Keyboard shortcuts
   React.useEffect(() => {
@@ -1199,7 +1334,9 @@ export default function RsvpsPage() {
             ref={(el: HTMLButtonElement | null) => {
               if (el) {
                 // For button-based checkbox, we need to find the actual input element
-                const input = el.querySelector('input[type="checkbox"]') as HTMLInputElement;
+                const input = el.querySelector(
+                  'input[type="checkbox"]',
+                ) as HTMLInputElement;
                 if (input) {
                   input.indeterminate = someSelected;
                 }
@@ -1240,7 +1377,9 @@ export default function RsvpsPage() {
 
   // Check if any main queries are loading
   const isLoading =
-    events === undefined || rsvps === undefined || currentEvent === undefined;
+    events === undefined ||
+    rsvpsPaginated === undefined ||
+    currentEvent === undefined;
 
   return (
     <div className="flex-1 space-y-4">
@@ -1374,7 +1513,7 @@ export default function RsvpsPage() {
             </Badge>
           )}
           <span className="text-xs text-foreground/60">
-            (Showing {filtered.length} of {(rsvps ?? []).length} total RSVPs)
+            (Showing {filtered.length} of {totalCount} total RSVPs)
           </span>
         </div>
       )}
@@ -1591,10 +1730,13 @@ export default function RsvpsPage() {
         </div>
       )}
 
-      {!isLoading && (
+      {!isLoading && rsvpsPaginated && (
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-foreground/70">
-            Page {pageIndex + 1} of {table.getPageCount() || 1}
+            Page {pageIndex + 1} of {Math.ceil(totalCount / pageSize) || 1} •
+            Showing {Math.min(pageIndex * pageSize + 1, totalCount)} -{" "}
+            {Math.min((pageIndex + 1) * pageSize, totalCount)} of {totalCount}{" "}
+            RSVPs
           </div>
           <div className="flex items-center gap-2">
             <Select
@@ -1624,7 +1766,7 @@ export default function RsvpsPage() {
                   scroll: false,
                 });
               }}
-              disabled={!table.getCanPreviousPage()}
+              disabled={!rsvpsPaginated.hasPreviousPage}
             >
               Previous
             </Button>
@@ -1638,7 +1780,7 @@ export default function RsvpsPage() {
                   scroll: false,
                 });
               }}
-              disabled={!table.getCanNextPage()}
+              disabled={!rsvpsPaginated.hasNextPage}
             >
               Next
             </Button>

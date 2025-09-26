@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
 import {
@@ -39,14 +40,35 @@ import { cn } from "@/lib/utils";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useAuth } from "@clerk/nextjs";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  getPaginationRowModel,
+  SortingState,
+  useReactTable,
+} from "@tanstack/react-table";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 export default function UsersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { isSignedIn } = useAuth();
+
+  // Read pagination directly from URL params
+  const pageIndex = parseInt(searchParams.get("page") || "0");
+  const pageSize = parseInt(searchParams.get("pageSize") || "10");
+
   const usersQuery = useQuery({
-    ...convexQuery(api.users.listOrganizationUsers, {}),
+    ...convexQuery(api.users.listOrganizationUsersPaginated, {
+      pageIndex,
+      pageSize,
+    }),
     enabled: !!isSignedIn,
   });
-  const users = usersQuery.data;
+  const usersData = usersQuery.data;
+  const users = usersData?.users;
 
   const userStatsQuery = useQuery({
     ...convexQuery(api.users.getUserStats, {}),
@@ -60,11 +82,12 @@ export default function UsersPage() {
   const promoteUserToOrganization = useMutation({
     mutationFn: useConvexMutation(api.users.promoteUserToOrganization),
   });
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: "createdAt", desc: true },
+  ]);
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 250);
   const [roleFilter, setRoleFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<string>("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>(
     {},
   );
@@ -99,56 +122,27 @@ export default function UsersPage() {
       result = result.filter((user) => user.role === roleFilter);
     }
 
-    // Apply sorting
-    result.sort((a, b) => {
-      let aValue: any;
-      let bValue: any;
-
-      switch (sortBy) {
-        case "name":
-          aValue =
-            `${a.firstName || ""} ${a.lastName || ""}`.trim() || a.name || "";
-          bValue =
-            `${b.firstName || ""} ${b.lastName || ""}`.trim() || b.name || "";
-          break;
-        case "role":
-          aValue = a.role || "";
-          bValue = b.role || "";
-          break;
-        case "createdAt":
-        default:
-          aValue = a.createdAt;
-          bValue = b.createdAt;
-          break;
-      }
-
-      if (typeof aValue === "string" && typeof bValue === "string") {
-        aValue = aValue.toLowerCase();
-        bValue = bValue.toLowerCase();
-      }
-
-      if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
-      if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
-      return 0;
-    });
-
     return result;
-  }, [users, debouncedSearch, roleFilter, sortBy, sortOrder]);
+  }, [users, debouncedSearch, roleFilter]);
 
   // Clear all filters function
   const clearAllFilters = () => {
     setSearchQuery("");
     setRoleFilter("all");
-    setSortBy("createdAt");
-    setSortOrder("desc");
+    setSorting([{ id: "createdAt", desc: true }]);
+    // Reset to first page when clearing filters
+    const params = new URLSearchParams(searchParams as any);
+    params.set("page", "0");
+    router.replace(`/host/users?${params.toString()}`, { scroll: false });
   };
 
   // Check if any filters are active
   const hasActiveFilters =
     searchQuery.trim() !== "" ||
     roleFilter !== "all" ||
-    sortBy !== "createdAt" ||
-    sortOrder !== "desc";
+    sorting.length > 1 ||
+    (sorting.length === 1 &&
+      (sorting[0].id !== "createdAt" || !sorting[0].desc));
 
   const handleRoleChange = async (
     userId: string,
@@ -221,8 +215,201 @@ export default function UsersPage() {
     }
   };
 
+  // Pagination change handler that updates URL
+  const handlePaginationChange = (updaterOrValue: any) => {
+    const newPagination =
+      typeof updaterOrValue === "function"
+        ? updaterOrValue({ pageIndex, pageSize })
+        : updaterOrValue;
+
+    const params = new URLSearchParams(searchParams as any);
+    params.set("page", newPagination.pageIndex.toString());
+    params.set("pageSize", newPagination.pageSize.toString());
+    router.replace(`/host/users?${params.toString()}`, { scroll: false });
+  };
+
+  // Define table columns
+  const columns = React.useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        id: "user",
+        header: "User",
+        accessorFn: (row) => {
+          const displayName =
+            `${row.firstName || ""} ${row.lastName || ""}`.trim();
+          return displayName || row.name || "Unknown User";
+        },
+        cell: ({ row }) => {
+          const user = row.original;
+          const displayName =
+            `${user.firstName || ""} ${user.lastName || ""}`.trim();
+          return (
+            <div className="flex items-center gap-3">
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={user.imageUrl || undefined} />
+                <AvatarFallback>
+                  {(user.firstName || user.name || "U").charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <div className="font-medium">
+                  {displayName || user.name || "Unknown User"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  ID: {user.clerkUserId?.slice(-8) || "Unknown"}
+                </div>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: "role",
+        header: "Role",
+        accessorKey: "role",
+        cell: ({ row }) => {
+          const user = row.original;
+          const currentRole = pendingChanges[user._id] || user.role;
+          const hasChanges = currentRole !== user.role;
+
+          if (currentRole === "guest") {
+            return (
+              <Badge
+                variant="outline"
+                className={cn(getRoleColor(currentRole))}
+              >
+                <div className="flex items-center gap-1">
+                  {getRoleIcon(currentRole)}
+                  {getRoleLabel(currentRole)}
+                </div>
+              </Badge>
+            );
+          }
+
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(getRoleColor(currentRole))}
+                >
+                  <div className="flex items-center gap-1">
+                    {getRoleIcon(currentRole)}
+                    {getRoleLabel(currentRole)}
+                  </div>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuRadioGroup
+                  value={currentRole}
+                  onValueChange={(value) =>
+                    setPendingChanges((prev) => ({
+                      ...prev,
+                      [user._id]: value,
+                    }))
+                  }
+                >
+                  <DropdownMenuRadioItem value="member">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4" />
+                      <span>Member</span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="admin">
+                    <div className="flex items-center gap-2">
+                      <Crown className="h-4 w-4" />
+                      <span>Admin</span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
+      },
+      {
+        id: "createdAt",
+        header: "Joined",
+        accessorKey: "createdAt",
+        cell: ({ getValue }) => {
+          const timestamp = getValue() as number;
+          const date = new Date(timestamp);
+          return (
+            <span className="text-muted-foreground">
+              {date.toLocaleDateString()}
+            </span>
+          );
+        },
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const user = row.original;
+          const currentRole = pendingChanges[user._id] || user.role;
+          const hasChanges = currentRole !== user.role;
+
+          if (user.role === "guest" && !hasChanges) {
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-xs">
+                    Actions
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem
+                    onClick={() => handleRoleChange(user._id, "member", true)}
+                  >
+                    <Shield className="mr-2 h-4 w-4" />
+                    Promote to Member
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleRoleChange(user._id, "admin", true)}
+                  >
+                    <Crown className="mr-2 h-4 w-4" />
+                    Promote to Admin
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          } else if (hasChanges) {
+            return (
+              <Button
+                size="sm"
+                onClick={() =>
+                  handleRoleChange(user._id, currentRole, user.role === "guest")
+                }
+                className="text-xs"
+              >
+                Save
+              </Button>
+            );
+          }
+          return null;
+        },
+      },
+    ],
+    [pendingChanges, handleRoleChange],
+  );
+
+  const table = useReactTable({
+    data: filteredUsers,
+    columns,
+    state: { sorting, pagination: { pageIndex, pageSize } },
+    autoResetPageIndex: false,
+    onSortingChange: setSorting,
+    onPaginationChange: handlePaginationChange,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
+    pageCount: usersData?.pagination?.totalPages || 1,
+  });
+
   if (!users || !userStats) {
-    return <UsersSkeleton />;
+    return <TableSkeleton rows={10} columns={4} />;
   }
 
   return (
@@ -311,7 +498,15 @@ export default function UsersPage() {
           />
         </div>
         <div className="text-sm text-muted-foreground">
-          Showing {filteredUsers.length} of {users?.length || 0} users
+          {usersData?.pagination ? (
+            <>
+              Showing {usersData.pagination.startIndex}-
+              {usersData.pagination.endIndex} of{" "}
+              {usersData.pagination.totalCount} users
+            </>
+          ) : (
+            <>Showing {filteredUsers.length} users</>
+          )}
         </div>
       </div>
 
@@ -328,24 +523,6 @@ export default function UsersPage() {
           <SelectOption value="member">Member</SelectOption>
           <SelectOption value="guest">Guest</SelectOption>
         </Select>
-        <span className="mx-2 h-6 w-px bg-foreground/20" />
-        <Select value={sortBy} onValueChange={setSortBy} className="w-36">
-          <SelectOption value="createdAt">Date Joined</SelectOption>
-          <SelectOption value="name">Name</SelectOption>
-          <SelectOption value="role">Role</SelectOption>
-        </Select>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-          className="px-3"
-        >
-          {sortOrder === "asc" ? (
-            <ChevronUp className="h-4 w-4" />
-          ) : (
-            <ChevronDown className="h-4 w-4" />
-          )}
-        </Button>
         {hasActiveFilters && (
           <Button
             size="sm"
@@ -384,27 +561,19 @@ export default function UsersPage() {
               </button>
             </Badge>
           )}
-          {sortBy !== "createdAt" && (
+          {(sorting.length > 1 ||
+            (sorting.length === 1 &&
+              (sorting[0].id !== "createdAt" || !sorting[0].desc))) && (
             <Badge variant="secondary" className="gap-1">
               Sort:{" "}
-              {sortBy === "name"
+              {sorting[0]?.id === "user"
                 ? "Name"
-                : sortBy === "role"
+                : sorting[0]?.id === "role"
                   ? "Role"
                   : "Date Joined"}
+              {sorting[0]?.desc ? " (desc)" : " (asc)"}
               <button
-                onClick={() => setSortBy("createdAt")}
-                className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          )}
-          {sortOrder !== "desc" && (
-            <Badge variant="secondary" className="gap-1">
-              Order: Ascending
-              <button
-                onClick={() => setSortOrder("desc")}
+                onClick={() => setSorting([{ id: "createdAt", desc: true }])}
                 className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
               >
                 <X className="w-3 h-3" />
@@ -412,7 +581,15 @@ export default function UsersPage() {
             </Badge>
           )}
           <span className="text-xs text-foreground/60">
-            (Showing {filteredUsers.length} of {users?.length || 0} total users)
+            {usersData?.pagination ? (
+              <>
+                ({usersData.pagination.startIndex}-
+                {usersData.pagination.endIndex} of{" "}
+                {usersData.pagination.totalCount} total users)
+              </>
+            ) : (
+              <>(Showing {filteredUsers.length} users)</>
+            )}
           </span>
         </div>
       )}
@@ -430,152 +607,51 @@ export default function UsersPage() {
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="text-left text-foreground/70 border-b">
-                  <th className="px-2 py-3">User</th>
-                  <th className="px-2 py-3">Role</th>
-                  <th className="px-2 py-3">Joined</th>
-                  <th className="px-2 py-3">Actions</th>
-                </tr>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr
+                    key={headerGroup.id}
+                    className="text-left text-foreground/70 border-b"
+                  >
+                    {headerGroup.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        className="px-2 py-3 cursor-pointer"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                        {{ asc: " ▲", desc: " ▼" }[
+                          header.column.getIsSorted() as string
+                        ] ?? null}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
               </thead>
               <tbody>
-                {filteredUsers.map((user) => {
+                {table.getRowModel().rows.map((row) => {
+                  const user = row.original;
                   const currentRole = pendingChanges[user._id] || user.role;
                   const hasChanges = currentRole !== user.role;
 
                   return (
                     <tr
-                      key={user._id}
+                      key={row.id}
                       className={cn(
                         "border-b border-foreground/10",
                         hasChanges ? "bg-yellow-50 border-yellow-200" : "",
                       )}
                     >
-                      <td className="px-2 py-3">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={user.imageUrl || undefined} />
-                            <AvatarFallback>
-                              {(user.firstName || user.name || "U")
-                                .charAt(0)
-                                .toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <div className="font-medium">
-                              {`${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-                                user.name ||
-                                "Unknown User"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              ID: {user.clerkUserId?.slice(-8) || "Unknown"}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-2 py-3">
-                        {currentRole === "guest" ? (
-                          <Badge
-                            variant="outline"
-                            className={cn(getRoleColor(currentRole))}
-                          >
-                            <div className="flex items-center gap-1">
-                              {getRoleIcon(currentRole)}
-                              {getRoleLabel(currentRole)}
-                            </div>
-                          </Badge>
-                        ) : (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className={cn(getRoleColor(currentRole))}
-                              >
-                                <div className="flex items-center gap-1">
-                                  {getRoleIcon(currentRole)}
-                                  {getRoleLabel(currentRole)}
-                                </div>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent>
-                              <DropdownMenuRadioGroup
-                                value={currentRole}
-                                onValueChange={(value) =>
-                                  setPendingChanges((prev) => ({
-                                    ...prev,
-                                    [user._id]: value,
-                                  }))
-                                }
-                              >
-                                <DropdownMenuRadioItem value="member">
-                                  <div className="flex items-center gap-2">
-                                    <Shield className="h-4 w-4" />
-                                    <span>Member</span>
-                                  </div>
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem value="admin">
-                                  <div className="flex items-center gap-2">
-                                    <Crown className="h-4 w-4" />
-                                    <span>Admin</span>
-                                  </div>
-                                </DropdownMenuRadioItem>
-                              </DropdownMenuRadioGroup>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </td>
-                      <td className="px-2 py-3">
-                        <span className="text-muted-foreground">
-                          {new Date(user.createdAt).toLocaleDateString()}
-                        </span>
-                      </td>
-                      <td className="px-2 py-3">
-                        {user.role === "guest" && !hasChanges ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs"
-                              >
-                                Actions
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  handleRoleChange(user._id, "member", true)
-                                }
-                              >
-                                <Shield className="mr-2 h-4 w-4" />
-                                Promote to Member
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  handleRoleChange(user._id, "admin", true)
-                                }
-                              >
-                                <Crown className="mr-2 h-4 w-4" />
-                                Promote to Admin
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : hasChanges ? (
-                          <Button
-                            size="sm"
-                            onClick={() =>
-                              handleRoleChange(
-                                user._id,
-                                currentRole,
-                                user.role === "guest",
-                              )
-                            }
-                            className="text-xs"
-                          >
-                            Save
-                          </Button>
-                        ) : null}
-                      </td>
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-2 py-3">
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </td>
+                      ))}
                     </tr>
                   );
                 })}
@@ -583,7 +659,7 @@ export default function UsersPage() {
             </table>
           </div>
 
-          {filteredUsers.length === 0 && (
+          {table.getRowModel().rows.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <p className="text-lg text-muted-foreground mb-2">
                 No users found
@@ -597,51 +673,66 @@ export default function UsersPage() {
           )}
         </CardContent>
       </Card>
-    </div>
-  );
-}
 
-function UsersSkeleton() {
-  return (
-    <div className="flex-1 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="h-8 w-32 bg-muted rounded animate-pulse" />
-          <div className="h-4 w-48 bg-muted rounded animate-pulse mt-2" />
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-foreground/70">
+          {usersData?.pagination ? (
+            <>
+              Page {pageIndex + 1} of {usersData.pagination.totalPages || 1}
+            </>
+          ) : (
+            <>Page 1 of 1</>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Select
+            value={String(pageSize)}
+            onValueChange={(value) => {
+              const params = new URLSearchParams(searchParams as any);
+              params.set("pageSize", value);
+              params.set("page", "0"); // Reset to first page when changing page size
+              router.replace(`/host/users?${params.toString()}`, {
+                scroll: false,
+              });
+            }}
+          >
+            {[10, 20, 50, 100].map((number) => (
+              <SelectOption key={number} value={String(number)}>
+                {number} / page
+              </SelectOption>
+            ))}
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const params = new URLSearchParams(searchParams as any);
+              params.set("page", (pageIndex - 1).toString());
+              router.replace(`/host/users?${params.toString()}`, {
+                scroll: false,
+              });
+            }}
+            disabled={!usersData?.pagination?.hasPreviousPage}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const params = new URLSearchParams(searchParams as any);
+              params.set("page", (pageIndex + 1).toString());
+              router.replace(`/host/users?${params.toString()}`, {
+                scroll: false,
+              });
+            }}
+            disabled={!usersData?.pagination?.hasNextPage}
+          >
+            Next
+          </Button>
         </div>
       </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[...Array(4)].map((_, i) => (
-          <Card key={i}>
-            <CardHeader>
-              <div className="h-4 w-24 bg-muted rounded animate-pulse" />
-            </CardHeader>
-            <CardContent>
-              <div className="h-8 w-16 bg-muted rounded animate-pulse" />
-              <div className="h-3 w-32 bg-muted rounded animate-pulse mt-2" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <div className="h-6 w-32 bg-muted rounded animate-pulse" />
-          <div className="h-4 w-48 bg-muted rounded animate-pulse" />
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="flex items-center space-x-4">
-                <div className="h-8 w-8 bg-muted rounded-full animate-pulse" />
-                <div className="h-4 w-32 bg-muted rounded animate-pulse" />
-                <div className="h-6 w-16 bg-muted rounded animate-pulse ml-auto" />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
