@@ -242,14 +242,41 @@ export default function RsvpsPage() {
     }
   }, [loadingListUpdates, loadingApprovalUpdates, loadingTicketUpdates]);
 
+  // Normalize a field key for metadata lookup
+  const normalizeFieldKey = (key: string): string => {
+    return key
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '') // Remove all non-alphanumeric characters
+      .trim();
+  };
+
   // Generate dynamic custom field columns
   const customFieldColumns = React.useMemo(() => {
     if (!currentEvent?.customFields) return [];
 
     return currentEvent.customFields.map((field) => ({
       id: `custom_${field.key}`,
-      header: field.label,
-      accessorFn: (r: any) => r.metadata?.[field.key] || "",
+      header: field.label.replace(/:\s*$/, '').trim(), // Remove trailing colon and spaces
+      accessorFn: (r: any) => {
+        if (!r.metadata) return "";
+
+        // Try exact match first
+        if (r.metadata[field.key]) {
+          return r.metadata[field.key];
+        }
+
+        // Try normalized key
+        const normalizedKey = normalizeFieldKey(field.key);
+
+        // Check all metadata keys for a normalized match
+        for (const [metaKey, metaValue] of Object.entries(r.metadata)) {
+          if (normalizeFieldKey(metaKey) === normalizedKey) {
+            return metaValue;
+          }
+        }
+
+        return "";
+      },
       cell: ({ getValue }: any) => {
         const rawValue = getValue() as string;
         const hasPrependUrl = !!field.prependUrl;
