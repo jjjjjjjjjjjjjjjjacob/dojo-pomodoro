@@ -1,0 +1,382 @@
+# Convex Data Model Cleanup & Migration Plan
+
+## Overview
+This document tracks the migration from denormalized data to a clean, normalized data model. The migration follows Convex best practices with zero downtime and backward compatibility throughout.
+
+## Current Problems
+- ❌ Production shows "(no contact)" because firstName/lastName aren't saved
+- ❌ RSVPs have unused denormalized fields: userName, userEmail, userPhone
+- ❌ Search broken in production (relies on userName which isn't populated)
+- ❌ listKey not fully migrated to credentialId references
+- ❌ Old migrations use manual mutations instead of migrations.define()
+- ❌ Missing `showLogs: true` causes overlogging runtime errors
+
+---
+
+## Phase 1: Add New Code Paths (Keep Old Ones - Backward Compatible)
+
+### Tasks
+- [ ] **Update `updateProfileMeta` mutation** (apps/convex/convex/users.ts:143)
+  - Add `firstName: v.optional(v.string())` to args
+  - Add `lastName: v.optional(v.string())` to args
+  - Keep existing `name` parameter for backward compatibility
+  - Update handler to save firstName/lastName when provided
+  - Continue saving name field for backward compatibility
+
+- [ ] **Update RSVP submission page** (apps/web/app/events/[eventId]/rsvp/page.tsx:313)
+  - Update line 313 to pass firstName and lastName to updateProfileMeta
+  - Keep passing name field for backward compatibility
+  - Example: `await updateProfileMeta({ name: name.trim(), firstName, lastName, metadata: custom })`
+
+- [ ] **Update enrichment logic** (apps/convex/convex/rsvps.ts:480-490)
+  - Already has fallback to users table ✓
+  - Verify it prefers firstName/lastName from users table
+  - Keep userName fallback for transition period
+
+- [ ] **Keep all backward compatibility code active**
+  - Do NOT remove any old fields yet
+  - Do NOT remove name field maintenance in guest-info-form.tsx
+  - All old code paths must continue working
+
+### Success Criteria
+- ✅ New RSVPs save firstName/lastName to users table
+- ✅ Old RSVPs continue to work with existing data
+- ✅ No breaking changes
+- ✅ Ready to deploy to production
+
+---
+
+## Phase 2: Consolidate & Fix Migrations (Proper Convex Pattern)
+
+### Tasks
+- [ ] **Create consolidated migrations file** (apps/convex/convex/migrations.ts)
+  - Import Migrations from @convex-dev/migrations
+  - Import components
+  - Create migrations instance: `export const migrations = new Migrations(components.migrations)`
+  - Create runner: `export const run = migrations.runner()`
+
+- [ ] **User name parsing migration**
+  ```typescript
+  export const parseUserNamesToFirstLast = migrations.define({
+    table: "users",
+    migrateOne: async (ctx, user) => {
+      // Only migrate if has name but missing firstName/lastName
+      if (!user.name || user.name.trim() === "") return;
+      if (user.firstName && user.lastName) return; // Already migrated
+
+      const parts = user.name.trim().split(" ").filter(p => p.trim());
+      if (parts.length === 0) return;
+
+      if (parts.length === 1) {
+        return { firstName: parts[0], lastName: "" };
+      } else {
+        return {
+          firstName: parts.slice(0, -1).join(" "),
+          lastName: parts[parts.length - 1]
+        };
+      }
+    },
+    showLogs: true, // IMPORTANT: Prevents overlogging errors
+  });
+  ```
+
+- [ ] **Fix RSVP credential migration**
+  - Remove userName/userEmail/userPhone backfill logic from migrateRsvpsToCredentialRefs
+  - Only set credentialId from listKey
+  - DO NOT populate denormalized fields
+  ```typescript
+  export const migrateRsvpsCredentialRefs = migrations.define({
+    table: "rsvps",
+    migrateOne: async (ctx, rsvp) => {
+      if (rsvp.credentialId) return; // Already migrated
+      if (!rsvp.listKey) return; // Nothing to migrate
+
+      const credential = await ctx.db
+        .query("listCredentials")
+        .withIndex("by_event_key", (q) =>
+          q.eq("eventId", rsvp.eventId).eq("listKey", rsvp.listKey)
+        )
+        .unique();
+
+      if (credential) {
+        return { credentialId: credential._id };
+      }
+    },
+    showLogs: true,
+  });
+  ```
+
+- [ ] **Approvals credential migration**
+  ```typescript
+  export const migrateApprovalsCredentialRefs = migrations.define({
+    table: "approvals",
+    migrateOne: async (ctx, approval) => {
+      if (approval.credentialId) return;
+      if (!approval.listKey) return;
+
+      const credential = await ctx.db
+        .query("listCredentials")
+        .withIndex("by_event_key", (q) =>
+          q.eq("eventId", approval.eventId).eq("listKey", approval.listKey)
+        )
+        .unique();
+
+      if (credential) {
+        return { credentialId: credential._id };
+      }
+    },
+    showLogs: true,
+  });
+  ```
+
+- [ ] **Redemptions credential migration**
+  ```typescript
+  export const migrateRedemptionsCredentialRefs = migrations.define({
+    table: "redemptions",
+    migrateOne: async (ctx, redemption) => {
+      if (redemption.credentialId) return;
+      if (!redemption.listKey) return;
+
+      const credential = await ctx.db
+        .query("listCredentials")
+        .withIndex("by_event_key", (q) =>
+          q.eq("eventId", redemption.eventId).eq("listKey", redemption.listKey)
+        )
+        .unique();
+
+      if (credential) {
+        return { credentialId: credential._id };
+      }
+    },
+    showLogs: true,
+  });
+  ```
+
+- [ ] **Remove old migration code from rsvps.ts**
+  - Remove `migrateRsvpsToCredentialRefs` mutation (line 541)
+  - Remove `migrateApprovalsToCredentialRefs` mutation (line 619)
+  - Remove `migrateRedemptionsToCredentialRefs` mutation (line 649)
+  - Keep `migrations` instance and `backfillRsvpAggregate` (line 1180+)
+
+- [ ] **Delete old migration files**
+  - Delete apps/convex/convex/migrations/parseUserNames.ts
+  - Delete apps/convex/convex/migrations/cleanupUserNames.ts
+  - Remove migrations/ directory if empty
+
+### Success Criteria
+- ✅ All migrations use migrations.define() pattern
+- ✅ All migrations have showLogs: true
+- ✅ Migrations don't backfill denormalized fields
+- ✅ Code compiles without errors
+
+---
+
+## Phase 3: Run Migrations
+
+### Instructions
+1. **Deploy Phase 1 & 2 code changes to production**
+   ```bash
+   cd apps/convex
+   npx convex deploy
+   ```
+
+2. **Run user name parsing migration**
+   - Open Convex dashboard
+   - Navigate to Functions
+   - Run `migrations:run` with migration name: `parseUserNamesToFirstLast`
+   - Monitor logs for completion
+
+3. **Run RSVP credential migration**
+   - Run `migrations:run` with migration name: `migrateRsvpsCredentialRefs`
+   - Monitor logs
+
+4. **Run approvals credential migration**
+   - Run `migrations:run` with migration name: `migrateApprovalsCredentialRefs`
+   - Monitor logs
+
+5. **Run redemptions credential migration**
+   - Run `migrations:run` with migration name: `migrateRedemptionsCredentialRefs`
+   - Monitor logs
+
+### Verification Queries
+Run these in Convex dashboard to verify migrations:
+
+```javascript
+// Check users migration status
+await ctx.db.query("users").collect().then(users => ({
+  total: users.length,
+  hasName: users.filter(u => u.name).length,
+  hasFirstName: users.filter(u => u.firstName).length,
+  hasLastName: users.filter(u => u.lastName).length,
+  hasBoth: users.filter(u => u.firstName && u.lastName).length,
+  needsMigration: users.filter(u => u.name && (!u.firstName || !u.lastName)).length
+}))
+
+// Check RSVPs credential migration
+await ctx.db.query("rsvps").collect().then(rsvps => ({
+  total: rsvps.length,
+  hasCredentialId: rsvps.filter(r => r.credentialId).length,
+  hasListKey: rsvps.filter(r => r.listKey).length,
+  needsMigration: rsvps.filter(r => r.listKey && !r.credentialId).length
+}))
+```
+
+### Success Criteria
+- ✅ All users with names have firstName/lastName populated
+- ✅ All RSVPs with listKey have credentialId
+- ✅ All approvals with listKey have credentialId
+- ✅ All redemptions with listKey have credentialId
+- ✅ Guest names display correctly in production
+- ✅ No runtime errors
+
+---
+
+## Phase 4: Update Search & Remove Denormalized Dependencies
+
+### Tasks
+- [ ] **Update search index in schema.ts** (apps/convex/convex/schema.ts:104-107)
+  - Research: Can Convex search indexes search across joined tables?
+  - Option A: If yes, update search to query users table via clerkUserId
+  - Option B: If no, keep userName but populate it from users table on reads
+  - Document decision and approach
+
+- [ ] **Update search query in rsvps.ts** (line 368)
+  - If using Option A: Rewrite search to join with users table
+  - If using Option B: Keep search on userName but ensure it's populated
+
+- [ ] **Update listForEventPaginated enrichment** (line 477-494)
+  - Change to ALWAYS read from users table via clerkUserId
+  - Remove reliance on denormalized userName field
+  - Keep fallback to rsvp.userName for transition period only
+
+- [ ] **Update all queries using listKey**
+  - Search for `.eq(q.field("listKey")` across convex/
+  - Update to use credentialId with listKey fallback
+  - Keep fallback for safety during transition
+
+### Success Criteria
+- ✅ Search works in production
+- ✅ Guest names display from users table
+- ✅ All list filtering works with credentialId
+- ✅ Backward compatibility maintained
+
+---
+
+## Phase 5: Final Cleanup (ONLY AFTER PHASES 1-4 VERIFIED IN PRODUCTION)
+
+⚠️ **CRITICAL: Do NOT perform Phase 5 until phases 1-4 are fully verified in production for at least 1 week**
+
+### Schema Cleanup Tasks
+- [ ] **Remove denormalized fields from rsvps table** (schema.ts:87-89)
+  - Remove `userName: v.optional(v.string())`
+  - Remove `userEmail: v.optional(v.string())`
+  - Remove `userPhone: v.optional(v.string())`
+
+- [ ] **Remove old name field from users table** (schema.ts:9)
+  - Remove `name: v.optional(v.string())`
+  - Remove comment "Keep during migration phase"
+
+- [ ] **Remove listKey fields** (schema.ts)
+  - Remove `listKey: v.optional(v.string())` from rsvps (line 84)
+  - Remove `listKey: v.optional(v.string())` from approvals (line 113)
+  - Remove `listKey: v.optional(v.string())` from redemptions (line 124)
+  - Remove comments "Made optional for migration - will be removed"
+
+- [ ] **Update search index** (schema.ts:104-107)
+  - If search was changed to use users table, update index definition
+  - Remove userName from searchField if no longer needed
+
+- [ ] **Push schema changes**
+  ```bash
+  cd apps/convex
+  npx convex deploy
+  ```
+
+### Code Cleanup Tasks
+- [ ] **Remove backward compatibility from guest-info-form.tsx**
+  - Remove code that updates combined `name` for backward compatibility
+  - Only update firstName/lastName state
+
+- [ ] **Remove backward compatibility from RSVP page**
+  - Remove `name` state variable (line 88)
+  - Remove `setName` calls (lines 207, 228)
+  - Update updateProfileMeta to only pass firstName/lastName
+
+- [ ] **Remove backward compatibility from updateProfileMeta**
+  - Remove `name: v.optional(v.string())` from args
+  - Remove name handling in insert/patch operations
+
+- [ ] **Remove fallback code from enrichment**
+  - Remove `rsvp.userName` fallbacks
+  - Remove `user?.name` fallbacks
+  - Only use firstName/lastName from users table
+
+- [ ] **Remove all listKey fallbacks**
+  - Search for `rsvp.listKey` across codebase
+  - Remove all fallback logic using listKey
+  - Only use credentialId references
+
+### Verification
+- [ ] Run full test suite (if available)
+- [ ] Manual testing of RSVP flow
+- [ ] Manual testing of host dashboard
+- [ ] Manual testing of search
+- [ ] Manual testing of guest list filtering
+- [ ] Verify no console errors in production
+
+### Success Criteria
+- ✅ Schema only contains normalized fields
+- ✅ No denormalized data in RSVPs
+- ✅ All user data comes from users table
+- ✅ All list data comes from credentials table
+- ✅ No backward compatibility code remains
+- ✅ Clean, maintainable codebase
+
+---
+
+## Migration Progress Tracker
+
+- [ ] Phase 1: Add New Code Paths (Backward Compatible)
+- [ ] Phase 2: Consolidate & Fix Migrations
+- [ ] Phase 3: Run Migrations
+- [ ] Phase 4: Update Search & Remove Denormalized Dependencies
+- [ ] Phase 5: Final Cleanup (⚠️ Only after 1+ week verification)
+
+---
+
+## Rollback Plan
+
+If issues occur after Phase 3 or 4:
+1. All old code paths still exist - system will automatically fallback
+2. Denormalized fields still in schema - no data loss
+3. Can continue investigation without time pressure
+4. Fix issues and re-run migrations as needed
+
+If issues occur after Phase 5:
+1. Revert schema changes immediately
+2. Restore backward compatibility code
+3. Investigate issues
+4. Re-plan Phase 5 execution
+
+---
+
+## Notes & Learnings
+
+### Key Decisions
+- Using migrations.define() with showLogs: true to prevent runtime errors
+- Maintaining full backward compatibility until Phase 5
+- Multi-phase approach allows validation at each step
+- No data deletion until final verification complete
+
+### Convex Migration Best Practices Applied
+- ✅ Batch processing with default 100 documents
+- ✅ Return object from migrateOne for automatic patching
+- ✅ Optional fields during migration in schema
+- ✅ Dual reads strategy (new field with old field fallback)
+- ✅ Schema changes separate from code changes
+- ✅ Zero downtime migration
+
+### References
+- [Convex Migrations Docs](https://docs.convex.dev/production/migrations)
+- [Convex Aggregate Component](https://docs.convex.dev/components/aggregate)
+- Project CLAUDE.md for development commands

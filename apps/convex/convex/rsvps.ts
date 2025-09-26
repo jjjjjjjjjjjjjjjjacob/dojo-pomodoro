@@ -433,7 +433,9 @@ export const listForEventPaginated = query({
       userClerkIds.map(async (clerkUserId: string) =>
         ctx.db
           .query("users")
-          .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", clerkUserId))
+          .withIndex("by_clerkUserId", (q: any) =>
+            q.eq("clerkUserId", clerkUserId),
+          )
           .unique(),
       ),
     );
@@ -475,12 +477,19 @@ export const listForEventPaginated = query({
       return {
         id: rsvp._id,
         clerkUserId: rsvp.clerkUserId,
-        name: rsvp.userName || "", // Use denormalized field
-        firstName: rsvp.userName ? rsvp.userName.split(" ")[0] : "",
-        lastName: rsvp.userName
-          ? rsvp.userName.split(" ").slice(1).join(" ")
-          : "",
-        listKey: (credential && 'listKey' in credential ? credential.listKey : null) || rsvp.listKey || "", // Fallback to old field during migration
+        name:
+          rsvp.userName ||
+          [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+          user?.name ||
+          "", // Prefer firstName/lastName from users table, fallback to old fields
+        firstName: user?.firstName ||
+          (rsvp.userName ? rsvp.userName.split(" ")[0] : ""),
+        lastName: user?.lastName ||
+          (rsvp.userName ? rsvp.userName.split(" ").slice(1).join(" ") : ""),
+        listKey:
+          (credential && "listKey" in credential ? credential.listKey : null) ||
+          rsvp.listKey ||
+          "", // Fallback to old field during migration
         credentialId: rsvp.credentialId,
         note: rsvp.note,
         status: rsvp.status,
@@ -1175,7 +1184,6 @@ export const backfillRsvpAggregate = migrations.define({
     // Insert existing record into aggregate
     await insertRsvpIntoAggregate(ctx, rsvpDoc);
   },
-  batchSize: 10_000,
 });
 
 // Bulk update approval status for multiple RSVPs

@@ -143,6 +143,8 @@ export const getByClerkUser = query({
 export const updateProfileMeta = mutation({
   args: {
     name: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
   },
   handler: async (ctx, args) => {
@@ -158,6 +160,8 @@ export const updateProfileMeta = mutation({
         clerkUserId: identity.subject,
         phone: identity.phoneNumber ?? undefined,
         name: args.name,
+        firstName: args.firstName,
+        lastName: args.lastName,
         imageUrl: identity.pictureUrl ?? undefined,
         metadata: args.metadata ?? undefined,
         createdAt: now,
@@ -168,6 +172,8 @@ export const updateProfileMeta = mutation({
     const mergedMeta = { ...(user.metadata ?? {}), ...(args.metadata ?? {}) };
     await ctx.db.patch(user._id, {
       name: args.name ?? user.name,
+      firstName: args.firstName ?? user.firstName,
+      lastName: args.lastName ?? user.lastName,
       metadata: mergedMeta,
       updatedAt: now,
     });

@@ -310,7 +310,12 @@ export default function RsvpPage({
         return;
       }
       setSubmitting(true);
-      await updateProfileMeta({ name: name.trim(), metadata: custom });
+      await updateProfileMeta({
+        name: name.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        metadata: custom
+      });
       await upsertContact({
         phone: phone || undefined,
       });
