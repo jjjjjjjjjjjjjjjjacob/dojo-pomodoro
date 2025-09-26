@@ -145,6 +145,122 @@ export const listForEvent = query({
   },
 });
 
+export const listForEventPaginated = query({
+  args: {
+    eventId: v.id("events"),
+    pageIndex: v.optional(v.number()),
+    pageSize: v.optional(v.number())
+  },
+  handler: async (ctx, { eventId, pageIndex = 0, pageSize = 10 }): Promise<{
+    page: any[];
+    totalCount: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    pageIndex: number;
+    pageSize: number;
+    isDone: boolean;
+    continueCursor: string | null;
+  }> => {
+    // Get the total count for the event
+    const totalCount = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .collect()
+      .then(rows => rows.length);
+
+    // Get paginated results
+    const paginationResults = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .paginate({
+        cursor: null, // For simplicity, we'll use offset-based pagination
+        numItems: pageSize,
+      });
+
+    // Since Convex doesn't support offset directly, we need to implement our own offset logic
+    // For now, we'll collect all and slice (not ideal for large datasets, but matches existing behavior)
+    const allRows = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .collect();
+
+    const startIndex = pageIndex * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedRows = allRows.slice(startIndex, endIndex);
+
+    const enrichedRsvps = await Promise.all(
+      paginatedRows.map(async (r) => {
+        // Look up user's display name
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_clerkUserId", (q) =>
+            q.eq("clerkUserId", r.clerkUserId),
+          )
+          .unique();
+        const name = user?.name;
+        const firstName = user?.firstName;
+        const lastName = user?.lastName;
+        // Redemption info for this user+event
+        const redemption = await ctx.db
+          .query("redemptions")
+          .withIndex("by_event_user", (q) =>
+            q.eq("eventId", eventId).eq("clerkUserId", r.clerkUserId),
+          )
+          .unique();
+        let redemptionStatus: "none" | "issued" | "redeemed" | "disabled" =
+          "none";
+        if (redemption) {
+          if (redemption.disabledAt) redemptionStatus = "disabled";
+          else if (redemption.redeemedAt) redemptionStatus = "redeemed";
+          else redemptionStatus = "issued";
+        }
+        let contact: { email?: string; phone?: string } | undefined;
+        if (r.shareContact) {
+          const prof = await ctx.runQuery(api.profiles.getForClerk, {
+            clerkUserId: r.clerkUserId,
+          });
+          if (prof) {
+            contact = {
+              email: prof.emailObfuscated,
+              phone: prof.phoneObfuscated,
+            };
+          }
+        }
+        return {
+          id: r._id,
+          clerkUserId: r.clerkUserId,
+          name,
+          firstName,
+          lastName,
+          listKey: r.listKey,
+          note: r.note,
+          status: r.status,
+          attendees: r.attendees,
+          contact,
+          metadata: user?.metadata,
+          redemptionStatus,
+          redemptionCode: redemption?.code,
+          createdAt: r.createdAt,
+        };
+      }),
+    );
+
+    const hasNextPage = endIndex < totalCount;
+    const hasPreviousPage = pageIndex > 0;
+
+    return {
+      page: enrichedRsvps,
+      totalCount,
+      hasNextPage,
+      hasPreviousPage,
+      pageIndex,
+      pageSize,
+      isDone: !hasNextPage,
+      continueCursor: hasNextPage ? `page_${pageIndex + 1}` : null,
+    };
+  },
+});
+
 export const statusForUserEvent = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, { eventId }) => {
@@ -517,5 +633,237 @@ export const updateRsvpListKey = mutation({
     }
 
     return { status: "ok" as const };
+  },
+});
+
+// Bulk update list key for multiple RSVPs
+export const bulkUpdateListKey = mutation({
+  args: {
+    updates: v.array(v.object({
+      rsvpId: v.id("rsvps"),
+      listKey: v.string(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const results = { success: 0, failed: 0, errors: [] as string[] };
+
+    // Process all updates in a single transaction
+    for (const update of args.updates) {
+      try {
+        const rsvp = await ctx.db.get(update.rsvpId);
+        if (!rsvp) {
+          results.failed++;
+          results.errors.push(`RSVP ${update.rsvpId} not found`);
+          continue;
+        }
+
+        // Update RSVP
+        await ctx.db.patch(update.rsvpId, { listKey: update.listKey });
+
+        // Update related redemption if exists
+        const redemption = await ctx.db
+          .query("redemptions")
+          .withIndex("by_event_user", (q) =>
+            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId)
+          )
+          .unique();
+        if (redemption) {
+          await ctx.db.patch(redemption._id, { listKey: update.listKey });
+        }
+
+        // Update approvals
+        const approvals = await ctx.db
+          .query("approvals")
+          .filter((q) => q.eq(q.field("rsvpId"), update.rsvpId))
+          .collect();
+        for (const approval of approvals) {
+          await ctx.db.patch(approval._id, { listKey: update.listKey });
+        }
+
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`Failed to update ${update.rsvpId}: ${error}`);
+      }
+    }
+
+    return results;
+  },
+});
+
+// Bulk update approval status for multiple RSVPs
+export const bulkUpdateApproval = mutation({
+  args: {
+    updates: v.array(v.object({
+      rsvpId: v.id("rsvps"),
+      approvalStatus: v.union(
+        v.literal("pending"),
+        v.literal("approved"),
+        v.literal("denied")
+      ),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const results = { success: 0, failed: 0, errors: [] as string[] };
+    const now = Date.now();
+
+    for (const update of args.updates) {
+      try {
+        const rsvp = await ctx.db.get(update.rsvpId);
+        if (!rsvp) {
+          results.failed++;
+          results.errors.push(`RSVP ${update.rsvpId} not found`);
+          continue;
+        }
+
+        // Update approval status
+        await ctx.db.patch(update.rsvpId, {
+          status: update.approvalStatus,
+          updatedAt: now,
+        });
+
+        // Handle redemption based on approval status
+        if (update.approvalStatus === "approved") {
+          await ctx.runMutation(api.redemptions.updateTicketStatus, {
+            rsvpId: update.rsvpId,
+            status: "issued",
+          });
+        } else if (update.approvalStatus === "denied") {
+          const redemption = await ctx.db
+            .query("redemptions")
+            .withIndex("by_event_user", (q) =>
+              q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId)
+            )
+            .unique();
+          if (redemption && !redemption.disabledAt) {
+            await ctx.db.patch(redemption._id, { disabledAt: now });
+          }
+        }
+
+        // Record approval audit
+        await ctx.db.insert("approvals", {
+          eventId: rsvp.eventId,
+          rsvpId: update.rsvpId,
+          clerkUserId: rsvp.clerkUserId,
+          listKey: rsvp.listKey,
+          decision: update.approvalStatus,
+          decidedBy: identity.subject,
+          decidedAt: now,
+        });
+
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`Failed to update ${update.rsvpId}: ${error}`);
+      }
+    }
+
+    return results;
+  },
+});
+
+// Bulk update ticket status for multiple RSVPs
+export const bulkUpdateTicketStatus = mutation({
+  args: {
+    updates: v.array(v.object({
+      rsvpId: v.id("rsvps"),
+      ticketStatus: v.union(
+        v.literal("issued"),
+        v.literal("not-issued"),
+        v.literal("disabled")
+      ),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const results = { success: 0, failed: 0, errors: [] as string[] };
+
+    for (const update of args.updates) {
+      try {
+        await ctx.runMutation(api.redemptions.updateTicketStatus, {
+          rsvpId: update.rsvpId,
+          status: update.ticketStatus,
+        });
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`Failed to update ${update.rsvpId}: ${error}`);
+      }
+    }
+
+    return results;
+  },
+});
+
+// Bulk delete multiple RSVPs
+export const bulkDeleteRsvps = mutation({
+  args: {
+    rsvpIds: v.array(v.id("rsvps")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const results = { success: 0, failed: 0, errors: [] as string[] };
+
+    for (const rsvpId of args.rsvpIds) {
+      try {
+        const rsvp = await ctx.db.get(rsvpId);
+        if (!rsvp) {
+          results.failed++;
+          results.errors.push(`RSVP ${rsvpId} not found`);
+          continue;
+        }
+
+        // Delete redemption
+        const redemption = await ctx.db
+          .query("redemptions")
+          .withIndex("by_event_user", (q) =>
+            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId)
+          )
+          .unique();
+        if (redemption) {
+          await ctx.db.delete(redemption._id);
+        }
+
+        // Delete approvals
+        const approvals = await ctx.db
+          .query("approvals")
+          .filter((q) => q.eq(q.field("rsvpId"), rsvpId))
+          .collect();
+        for (const approval of approvals) {
+          await ctx.db.delete(approval._id);
+        }
+
+        // Delete RSVP
+        await ctx.db.delete(rsvpId);
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`Failed to delete ${rsvpId}: ${error}`);
+      }
+    }
+
+    return results;
   },
 });

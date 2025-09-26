@@ -74,6 +74,8 @@ export const update = mutation({
           label: v.string(),
           placeholder: v.optional(v.string()),
           required: v.optional(v.boolean()),
+          copyEnabled: v.optional(v.boolean()),
+          prependUrl: v.optional(v.string()),
         }),
       ),
     ),

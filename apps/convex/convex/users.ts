@@ -398,6 +398,72 @@ export const updateUserRole = mutation({
   },
 });
 
+export const listOrganizationUsersPaginated = query({
+  args: {
+    pageIndex: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const pageIndex = args.pageIndex ?? 0;
+    const pageSize = Math.min(args.pageSize ?? 10, 100); // Limit max page size to 100
+
+    // Get all users and their org memberships
+    const users = await ctx.db.query("users").collect();
+    const orgMemberships = await ctx.db.query("orgMemberships").collect();
+
+    // Include ALL users, with role as "guest" if no membership
+    const usersWithRoles = users.map((user) => {
+      const membership = orgMemberships.find(
+        (m) => m.clerkUserId === user.clerkUserId,
+      );
+
+      return {
+        _id: user._id,
+        clerkUserId: user.clerkUserId,
+        name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        imageUrl: user.imageUrl,
+        createdAt: user.createdAt,
+        role: membership?.role || "guest",
+        organizationId: membership?.organizationId || null,
+        hasOrganizationMembership: !!membership,
+      };
+    });
+
+    // Sort by creation date (newest first) to match original behavior
+    const sortedUsers = usersWithRoles.sort((a, b) => b.createdAt - a.createdAt);
+
+    // Calculate pagination
+    const totalCount = sortedUsers.length;
+    const startIndex = pageIndex * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedUsers = sortedUsers.slice(startIndex, endIndex);
+
+    const hasNextPage = endIndex < totalCount;
+    const hasPreviousPage = pageIndex > 0;
+
+    return {
+      users: paginatedUsers,
+      pagination: {
+        pageIndex,
+        pageSize,
+        totalCount,
+        totalPages: Math.ceil(totalCount / pageSize),
+        hasNextPage,
+        hasPreviousPage,
+        startIndex: startIndex + 1,
+        endIndex: Math.min(endIndex, totalCount),
+      },
+    };
+  },
+});
+
 export const getUserStats = query({
   args: {},
   handler: async (ctx) => {
