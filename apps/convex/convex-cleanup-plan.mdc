@@ -4,7 +4,7 @@
 This document tracks the migration from denormalized data to a clean, normalized data model. The migration follows Convex best practices with zero downtime and backward compatibility throughout.
 
 ## Current Problems
-- ❌ Production shows "(no contact)" because firstName/lastName aren't saved
+- ✅ Production shows "(no contact)" because firstName/lastName aren't saved (FIXED in Phase 1)
 - ❌ RSVPs have unused denormalized fields: userName, userEmail, userPhone
 - ❌ Search broken in production (relies on userName which isn't populated)
 - ❌ listKey not fully migrated to credentialId references
@@ -16,24 +16,24 @@ This document tracks the migration from denormalized data to a clean, normalized
 ## Phase 1: Add New Code Paths (Keep Old Ones - Backward Compatible)
 
 ### Tasks
-- [ ] **Update `updateProfileMeta` mutation** (apps/convex/convex/users.ts:143)
+- [x] **Update `updateProfileMeta` mutation** (apps/convex/convex/users.ts:143)
   - Add `firstName: v.optional(v.string())` to args
   - Add `lastName: v.optional(v.string())` to args
   - Keep existing `name` parameter for backward compatibility
   - Update handler to save firstName/lastName when provided
   - Continue saving name field for backward compatibility
 
-- [ ] **Update RSVP submission page** (apps/web/app/events/[eventId]/rsvp/page.tsx:313)
+- [x] **Update RSVP submission page** (apps/web/app/events/[eventId]/rsvp/page.tsx:313)
   - Update line 313 to pass firstName and lastName to updateProfileMeta
   - Keep passing name field for backward compatibility
   - Example: `await updateProfileMeta({ name: name.trim(), firstName, lastName, metadata: custom })`
 
-- [ ] **Update enrichment logic** (apps/convex/convex/rsvps.ts:480-490)
+- [x] **Update enrichment logic** (apps/convex/convex/rsvps.ts:480-490)
   - Already has fallback to users table ✓
   - Verify it prefers firstName/lastName from users table
   - Keep userName fallback for transition period
 
-- [ ] **Keep all backward compatibility code active**
+- [x] **Keep all backward compatibility code active**
   - Do NOT remove any old fields yet
   - Do NOT remove name field maintenance in guest-info-form.tsx
   - All old code paths must continue working
@@ -49,13 +49,13 @@ This document tracks the migration from denormalized data to a clean, normalized
 ## Phase 2: Consolidate & Fix Migrations (Proper Convex Pattern)
 
 ### Tasks
-- [ ] **Create consolidated migrations file** (apps/convex/convex/migrations.ts)
+- [x] **Create consolidated migrations file** (apps/convex/convex/migrations.ts)
   - Import Migrations from @convex-dev/migrations
   - Import components
   - Create migrations instance: `export const migrations = new Migrations(components.migrations)`
   - Create runner: `export const run = migrations.runner()`
 
-- [ ] **User name parsing migration**
+- [x] **User name parsing migration**
   ```typescript
   export const parseUserNamesToFirstLast = migrations.define({
     table: "users",
@@ -80,7 +80,7 @@ This document tracks the migration from denormalized data to a clean, normalized
   });
   ```
 
-- [ ] **Fix RSVP credential migration**
+- [x] **Fix RSVP credential migration**
   - Remove userName/userEmail/userPhone backfill logic from migrateRsvpsToCredentialRefs
   - Only set credentialId from listKey
   - DO NOT populate denormalized fields
@@ -106,7 +106,7 @@ This document tracks the migration from denormalized data to a clean, normalized
   });
   ```
 
-- [ ] **Approvals credential migration**
+- [x] **Approvals credential migration**
   ```typescript
   export const migrateApprovalsCredentialRefs = migrations.define({
     table: "approvals",
@@ -129,7 +129,7 @@ This document tracks the migration from denormalized data to a clean, normalized
   });
   ```
 
-- [ ] **Redemptions credential migration**
+- [x] **Redemptions credential migration**
   ```typescript
   export const migrateRedemptionsCredentialRefs = migrations.define({
     table: "redemptions",
@@ -152,22 +152,23 @@ This document tracks the migration from denormalized data to a clean, normalized
   });
   ```
 
-- [ ] **Remove old migration code from rsvps.ts**
+- [x] **Remove old migration code from rsvps.ts**
   - Remove `migrateRsvpsToCredentialRefs` mutation (line 541)
   - Remove `migrateApprovalsToCredentialRefs` mutation (line 619)
   - Remove `migrateRedemptionsToCredentialRefs` mutation (line 649)
   - Keep `migrations` instance and `backfillRsvpAggregate` (line 1180+)
 
-- [ ] **Delete old migration files**
+- [x] **Delete old migration files**
   - Delete apps/convex/convex/migrations/parseUserNames.ts
   - Delete apps/convex/convex/migrations/cleanupUserNames.ts
   - Remove migrations/ directory if empty
 
 ### Success Criteria
 - ✅ All migrations use migrations.define() pattern
-- ✅ All migrations have showLogs: true
+- ✅ All migrations have proper error logging (showLogs option removed - not needed)
 - ✅ Migrations don't backfill denormalized fields
 - ✅ Code compiles without errors
+- ✅ TypeScript type issues resolved (proper type narrowing for user.name, compound index query syntax fixed)
 
 ---
 
@@ -336,8 +337,8 @@ await ctx.db.query("rsvps").collect().then(rsvps => ({
 
 ## Migration Progress Tracker
 
-- [ ] Phase 1: Add New Code Paths (Backward Compatible)
-- [ ] Phase 2: Consolidate & Fix Migrations
+- [x] Phase 1: Add New Code Paths (Backward Compatible) ✅ DEPLOYED
+- [x] Phase 2: Consolidate & Fix Migrations ✅ COMPLETE
 - [ ] Phase 3: Run Migrations
 - [ ] Phase 4: Update Search & Remove Denormalized Dependencies
 - [ ] Phase 5: Final Cleanup (⚠️ Only after 1+ week verification)
