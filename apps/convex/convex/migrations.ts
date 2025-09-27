@@ -296,8 +296,8 @@ export const removeNameFromUsersWithFirstLastName = migrations.define({
   migrateOne: async (ctx, user, { showLogs = false } = {}) => {
     // Only remove name if user has firstName OR lastName populated
     if (
-      (user.firstName && user.firstName.trim()) ||
-      (user.lastName && user.lastName.trim())
+      (user.firstName && typeof user.firstName === "string" && user.firstName.trim()) ||
+      (user.lastName && typeof user.lastName === "string" && user.lastName.trim())
     ) {
       // Only remove if name field actually exists
       if (user.name !== undefined) {

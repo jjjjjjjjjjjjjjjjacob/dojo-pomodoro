@@ -319,28 +319,11 @@ export const countForEventFiltered = query({
         );
       }
       if (listFilter !== "all") {
-        const credential = await ctx.db
-          .query("listCredentials")
-          .withIndex("by_event_key", (q: any) =>
-            q.eq("eventId", eventId).eq("listKey", listFilter)
-          )
-          .unique();
-
-        if (credential) {
-          baseQuery = baseQuery.filter((q: any) => {
-            return q.or(
-              q.eq(q.field("credentialId"), credential._id),
-              q.and(
-                q.eq(q.field("listKey"), listFilter),
-                q.eq(q.field("credentialId"), undefined)
-              )
-            );
-          });
-        } else {
-          baseQuery = baseQuery.filter((q: any) =>
-            q.eq(q.field("listKey"), listFilter),
-          );
-        }
+        // credentialId field has been removed from schema
+        // Filter by listKey only
+        baseQuery = baseQuery.filter((q: any) =>
+          q.eq(q.field("listKey"), listFilter),
+        );
       }
 
       const rsvps = await baseQuery.collect();
@@ -387,7 +370,7 @@ type EnrichedRsvp = {
   firstName: string;
   lastName: string;
   listKey: string;
-  credentialId?: Id<"listCredentials">;
+  // credentialId field has been removed from schema
   note?: string;
   status: string;
   attendees?: number;
@@ -457,31 +440,11 @@ export const listForEventPaginated = query({
 
       // Apply listKey filter after index filtering
       if (listFilter !== "all") {
-        // First try to get the credentialId for this listKey to enable efficient filtering
-        const credential = await ctx.db
-          .query("listCredentials")
-          .withIndex("by_event_key", (q: any) =>
-            q.eq("eventId", eventId).eq("listKey", listFilter)
-          )
-          .unique();
-
-        if (credential) {
-          // Filter by credentialId when possible (more efficient for migrated records)
-          baseQuery = baseQuery.filter((q: any) => {
-            return q.or(
-              q.eq(q.field("credentialId"), credential._id),
-              q.and(
-                q.eq(q.field("listKey"), listFilter),
-                q.eq(q.field("credentialId"), undefined)
-              )
-            );
-          });
-        } else {
-          // Fallback to listKey filter for unmigrated data
-          baseQuery = baseQuery.filter((q: any) =>
-            q.eq(q.field("listKey"), listFilter),
-          );
-        }
+        // credentialId field has been removed from schema
+        // Filter by listKey only
+        baseQuery = baseQuery.filter((q: any) =>
+          q.eq(q.field("listKey"), listFilter),
+        );
       }
     }
 
@@ -502,19 +465,8 @@ export const listForEventPaginated = query({
     }
 
     // Batch fetch related data to avoid N+1 queries
-    const credentialIds = [
-      ...new Set(
-        paginatedResult.page
-          .map((r: Doc<"rsvps">) => r.credentialId)
-          .filter((id: any): id is Id<"listCredentials"> => id !== undefined),
-      ),
-    ] as Id<"listCredentials">[];
-    const credentials = await Promise.all(
-      credentialIds.map(async (id) => ctx.db.get(id)),
-    );
-    const credentialMap = Object.fromEntries(
-      credentials.filter((c) => c).map((c) => [c!._id, c]),
-    );
+    // Note: credentialId field has been removed from schema
+    // We'll handle credential lookups via listKey when needed
 
     // Batch fetch user data for metadata (custom fields)
     const userClerkIds = [
@@ -560,9 +512,8 @@ export const listForEventPaginated = query({
         else redemptionStatus = "issued";
       }
 
-      const credential = rsvp.credentialId
-        ? credentialMap[rsvp.credentialId]
-        : null;
+      // credentialId field has been removed from schema
+      // Credential lookups now use listKey only
       const user = userMap[rsvp.clerkUserId];
 
       return {
@@ -577,18 +528,18 @@ export const listForEventPaginated = query({
           (rsvp.userName ? rsvp.userName.split(" ")[0] : ""),
         lastName: user?.lastName ||
           (rsvp.userName ? rsvp.userName.split(" ").slice(1).join(" ") : ""),
-        listKey:
-          (credential && "listKey" in credential ? credential.listKey : null) ||
-          rsvp.listKey ||
-          "", // Fallback to old field during migration
-        credentialId: rsvp.credentialId,
+        listKey: rsvp.listKey || "",
         note: rsvp.note,
         status: rsvp.status,
         attendees: rsvp.attendees,
         contact: rsvp.shareContact
           ? {
-              email: rsvp.userEmail,
-              phone: rsvp.userPhone,
+              // userEmail and userPhone fields have been removed from schema
+              // Contact info now comes from profiles table via API call
+              // For paginated results, we skip contact fetching for performance
+              // Use listForEvent query for contact information when needed
+              email: undefined,
+              phone: undefined,
             }
           : undefined,
         metadata: user?.metadata, // Include user metadata for custom fields
@@ -654,10 +605,7 @@ export const statusForUserEvent = query({
 
     // Get list credential info to check generateQR setting
     let listCredential = null;
-    if (chosen.credentialId) {
-      // Use credentialId for direct lookup when available
-      listCredential = await ctx.db.get(chosen.credentialId);
-    } else if (chosen.listKey) {
+    if (chosen.listKey) {
       // Fallback to listKey lookup for backward compatibility
       listCredential = await ctx.db
         .query("listCredentials")

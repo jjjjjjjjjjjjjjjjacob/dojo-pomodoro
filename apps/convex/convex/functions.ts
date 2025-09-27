@@ -12,7 +12,7 @@ import {
 import { DataModel } from "./_generated/dataModel";
 import { Triggers } from "convex-helpers/server/triggers";
 import { customCtx, customMutation } from "convex-helpers/server/customFunctions";
-import { cascadeListKeyUpdate, shouldBatchCascade, nullifyCredentialReferences } from "./lib/cascadeHelpers";
+import { cascadeListKeyUpdate, shouldBatchCascade } from "./lib/cascadeHelpers";
 import { internal } from "./_generated/api";
 
 // Initialize triggers with our data model types
@@ -31,19 +31,16 @@ triggers.register("listCredentials", async (ctx, change) => {
       await cascadeListKeyUpdate(
         ctx,
         change.newDoc.eventId,
-        change.newDoc._id,
         change.oldDoc.listKey,
         change.newDoc.listKey
       );
     }
   }
 
-  // Handle credential deletes - cascade to dependent records
+  // Handle credential deletes - no cascade needed since credentialId no longer exists
   if (change.operation === "delete" && change.oldDoc) {
     console.log(`[TRIGGER] listCredentials deleted: ${change.oldDoc.listKey} for event ${change.oldDoc.eventId}`);
-
-    // Nullify references in dependent tables (preserve listKey for data integrity)
-    await nullifyCredentialReferences(ctx, change.oldDoc._id, change.oldDoc.eventId);
+    // Note: No cascade operation needed since dependent tables only reference listKey now
   }
 });
 

@@ -10,8 +10,8 @@ describe('Database Triggers', () => {
 
   it('should validate cascade function parameters', () => {
     // Test that cascade functions have the expected parameter structure
-    expect(cascadeListKeyUpdate.length).toBe(5); // ctx, eventId, credentialId, oldListKey, newListKey
-    expect(nullifyCredentialReferences.length).toBe(3); // ctx, credentialId, eventId
+    expect(cascadeListKeyUpdate.length).toBe(4); // ctx, eventId, oldListKey, newListKey
+    expect(nullifyCredentialReferences.length).toBe(3); // ctx, credentialId, eventId (deprecated)
   });
 
   it('should validate trigger system file structure', () => {
@@ -79,28 +79,27 @@ describe('Database Triggers', () => {
     expect(noChange).toBe(false);
   });
 
-  it('should validate credential reference nullification logic', () => {
-    // Test the logic for nullifying credential references
+  it('should validate credential reference logic (legacy)', () => {
+    // Test legacy logic - credentialId no longer exists in schema
     const mockCredential = {
       _id: 'cred_123',
       eventId: 'event_456',
       listKey: 'vip'
     };
 
-    // Should preserve listKey when nullifying credentialId
-    const updatedRecord = {
-      credentialId: undefined, // nullified
-      listKey: mockCredential.listKey, // preserved
+    // Only listKey is used now - no credentialId field exists
+    const record = {
+      listKey: mockCredential.listKey, // only field that exists
     };
 
-    expect(updatedRecord.credentialId).toBeUndefined();
-    expect(updatedRecord.listKey).toBe('vip');
+    expect(record.listKey).toBe('vip');
+    expect(record).not.toHaveProperty('credentialId');
   });
 
   it('should validate trigger system exports', () => {
     // Verify that our key exports are available through imports
     expect(typeof cascadeListKeyUpdate).toBe('function');
-    expect(typeof nullifyCredentialReferences).toBe('function');
+    expect(typeof nullifyCredentialReferences).toBe('function'); // deprecated but still exported
 
     // Test that function names are correct
     expect(cascadeListKeyUpdate.name).toBe('cascadeListKeyUpdate');

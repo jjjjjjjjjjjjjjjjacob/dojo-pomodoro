@@ -154,15 +154,7 @@ export const batchUpdateListKey = internalMutation({
       const rsvpsToUpdate = await ctx.db
         .query("rsvps")
         .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-        .filter((q) =>
-          q.or(
-            q.eq(q.field("credentialId"), args.credentialId),
-            q.and(
-              q.eq(q.field("credentialId"), undefined),
-              q.eq(q.field("listKey"), args.oldListKey)
-            )
-          )
-        )
+        .filter((q) => q.eq(q.field("listKey"), args.oldListKey))
         .collect();
 
       let updatedCount = 0;
@@ -203,15 +195,7 @@ export const batchUpdateListKey = internalMutation({
       const approvalsToUpdate = await ctx.db
         .query("approvals")
         .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-        .filter((q) =>
-          q.or(
-            q.eq(q.field("credentialId"), args.credentialId),
-            q.and(
-              q.eq(q.field("credentialId"), undefined),
-              q.eq(q.field("listKey"), args.oldListKey)
-            )
-          )
-        )
+        .filter((q) => q.eq(q.field("listKey"), args.oldListKey))
         .collect();
 
       for (const approval of approvalsToUpdate) {
@@ -231,15 +215,7 @@ export const batchUpdateListKey = internalMutation({
       const redemptionsToUpdate = await ctx.db
         .query("redemptions")
         .withIndex("by_event_user", (q) => q.eq("eventId", args.eventId))
-        .filter((q) =>
-          q.or(
-            q.eq(q.field("credentialId"), args.credentialId),
-            q.and(
-              q.eq(q.field("credentialId"), undefined),
-              q.eq(q.field("listKey"), args.oldListKey)
-            )
-          )
-        )
+        .filter((q) => q.eq(q.field("listKey"), args.oldListKey))
         .collect();
 
       for (const redemption of redemptionsToUpdate) {

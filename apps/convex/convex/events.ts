@@ -231,41 +231,17 @@ export const updateListCredentialWithCascade = mutation({
       const [rsvpCount, approvalCount, redemptionCount] = await Promise.all([
         ctx.db.query("rsvps")
           .withIndex("by_event", (q) => q.eq("eventId", credential.eventId))
-          .filter((q) =>
-            q.or(
-              q.eq(q.field("credentialId"), id),
-              q.and(
-                q.eq(q.field("credentialId"), undefined),
-                q.eq(q.field("listKey"), credential.listKey)
-              )
-            )
-          )
+          .filter((q) => q.eq(q.field("listKey"), credential.listKey))
           .collect()
           .then(results => results.length),
         ctx.db.query("approvals")
           .withIndex("by_event", (q) => q.eq("eventId", credential.eventId))
-          .filter((q) =>
-            q.or(
-              q.eq(q.field("credentialId"), id),
-              q.and(
-                q.eq(q.field("credentialId"), undefined),
-                q.eq(q.field("listKey"), credential.listKey)
-              )
-            )
-          )
+          .filter((q) => q.eq(q.field("listKey"), credential.listKey))
           .collect()
           .then(results => results.length),
         ctx.db.query("redemptions")
           .withIndex("by_event_user", (q) => q.eq("eventId", credential.eventId))
-          .filter((q) =>
-            q.or(
-              q.eq(q.field("credentialId"), id),
-              q.and(
-                q.eq(q.field("credentialId"), undefined),
-                q.eq(q.field("listKey"), credential.listKey)
-              )
-            )
-          )
+          .filter((q) => q.eq(q.field("listKey"), credential.listKey))
           .collect()
           .then(results => results.length)
       ]);

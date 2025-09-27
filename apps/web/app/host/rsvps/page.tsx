@@ -339,39 +339,42 @@ export default function RsvpsPage() {
           const fullUrl = `${field.prependUrl}${sanitizedValue}`;
 
           return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
                 <div
                   className="flex items-center gap-1 cursor-pointer group hover:bg-muted/50 rounded px-2 py-1 -mx-2 -my-1"
-                  onClick={(e) => e.stopPropagation()} // Prevent row selection
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent row selection
+                    window.open(fullUrl, "_blank", "noopener,noreferrer");
+                  }}
                 >
                   <span className="truncate max-w-32 group-hover:underline">
                     {rawValue}
                   </span>
                   <ExternalLink className="h-3 w-3 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </div>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
                   onClick={() =>
                     window.open(fullUrl, "_blank", "noopener,noreferrer")
                   }
                 >
                   <ExternalLink className="h-4 w-4 mr-2" />
                   Open in new tab
-                </DropdownMenuItem>
+                </ContextMenuItem>
                 {isCopyEnabled && (
-                  <DropdownMenuItem onClick={handleCopyClick}>
+                  <ContextMenuItem onClick={handleCopyClick}>
                     <Copy className="h-4 w-4 mr-2" />
                     Copy value
-                  </DropdownMenuItem>
+                  </ContextMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => handleCopyFullUrl(fullUrl)}>
+                <ContextMenuItem onClick={() => handleCopyFullUrl(fullUrl)}>
                   <Link className="h-4 w-4 mr-2" />
                   Copy full URL
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           );
         }
 

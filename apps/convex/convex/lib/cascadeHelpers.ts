@@ -16,13 +16,11 @@ export interface CascadeStats {
 
 /**
  * Cascades listKey changes to all dependent tables
- * Handles both credentialId-based and listKey-based relationships (for migration compatibility)
  * Runs atomically within the trigger transaction
  */
 export async function cascadeListKeyUpdate(
   ctx: MutationCtx,
   eventId: Id<"events">,
-  credentialId: Id<"listCredentials">,
   oldListKey: string,
   newListKey: string
 ): Promise<CascadeStats> {
@@ -37,19 +35,10 @@ export async function cascadeListKeyUpdate(
 
   try {
     // Update RSVPs
-    // Find records that match either credentialId OR (no credentialId AND listKey matches old value)
     const rsvpsToUpdate = await ctx.db
       .query("rsvps")
       .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .filter((q) =>
-        q.or(
-          q.eq(q.field("credentialId"), credentialId),
-          q.and(
-            q.eq(q.field("credentialId"), undefined),
-            q.eq(q.field("listKey"), oldListKey)
-          )
-        )
-      )
+      .filter((q) => q.eq(q.field("listKey"), oldListKey))
       .collect();
 
     for (const rsvp of rsvpsToUpdate) {
@@ -72,15 +61,7 @@ export async function cascadeListKeyUpdate(
     const approvalsToUpdate = await ctx.db
       .query("approvals")
       .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .filter((q) =>
-        q.or(
-          q.eq(q.field("credentialId"), credentialId),
-          q.and(
-            q.eq(q.field("credentialId"), undefined),
-            q.eq(q.field("listKey"), oldListKey)
-          )
-        )
-      )
+      .filter((q) => q.eq(q.field("listKey"), oldListKey))
       .collect();
 
     for (const approval of approvalsToUpdate) {
@@ -92,15 +73,7 @@ export async function cascadeListKeyUpdate(
     const redemptionsToUpdate = await ctx.db
       .query("redemptions")
       .withIndex("by_event_user", (q) => q.eq("eventId", eventId))
-      .filter((q) =>
-        q.or(
-          q.eq(q.field("credentialId"), credentialId),
-          q.and(
-            q.eq(q.field("credentialId"), undefined),
-            q.eq(q.field("listKey"), oldListKey)
-          )
-        )
-      )
+      .filter((q) => q.eq(q.field("listKey"), oldListKey))
       .collect();
 
     for (const redemption of redemptionsToUpdate) {
@@ -121,82 +94,23 @@ export async function cascadeListKeyUpdate(
 }
 
 /**
- * Nullifies credentialId references when a listCredential is deleted
- * Preserves listKey for data integrity during migration period
+ * Legacy function - no longer needed since credentialId has been removed from schema
+ * This function is kept for backwards compatibility but does nothing
+ * @deprecated Use cascadeListKeyUpdate instead
  */
 export async function nullifyCredentialReferences(
   ctx: MutationCtx,
   credentialId: Id<"listCredentials">,
   eventId: Id<"events">
 ): Promise<CascadeStats> {
-  const stats: CascadeStats = {
+  console.log(`[CASCADE] nullifyCredentialReferences is deprecated - credentialId no longer exists in schema`);
+
+  return {
     rsvpsUpdated: 0,
     approvalsUpdated: 0,
     redemptionsUpdated: 0,
     errors: []
   };
-
-  console.log(`[CASCADE] Nullifying credentialId references for credential ${credentialId} in event ${eventId}`);
-
-  try {
-    // Update RSVPs - nullify credentialId but keep listKey
-    const rsvpsToUpdate = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_credential", (q) =>
-        q.eq("eventId", eventId).eq("credentialId", credentialId)
-      )
-      .collect();
-
-    for (const rsvp of rsvpsToUpdate) {
-      const oldRsvp = { ...rsvp };
-      await ctx.db.patch(rsvp._id, {
-        credentialId: undefined,
-        updatedAt: Date.now()
-      });
-
-      // Update RSVP aggregate
-      const newRsvp = await ctx.db.get(rsvp._id);
-      if (newRsvp) {
-        await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
-      }
-
-      stats.rsvpsUpdated++;
-    }
-
-    // Update Approvals - nullify credentialId but keep listKey
-    const approvalsToUpdate = await ctx.db
-      .query("approvals")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .filter((q) => q.eq(q.field("credentialId"), credentialId))
-      .collect();
-
-    for (const approval of approvalsToUpdate) {
-      await ctx.db.patch(approval._id, { credentialId: undefined });
-      stats.approvalsUpdated++;
-    }
-
-    // Update Redemptions - nullify credentialId but keep listKey
-    const redemptionsToUpdate = await ctx.db
-      .query("redemptions")
-      .withIndex("by_event_user", (q) => q.eq("eventId", eventId))
-      .filter((q) => q.eq(q.field("credentialId"), credentialId))
-      .collect();
-
-    for (const redemption of redemptionsToUpdate) {
-      await ctx.db.patch(redemption._id, { credentialId: undefined });
-      stats.redemptionsUpdated++;
-    }
-
-    console.log(`[CASCADE] Completed credentialId nullification: ${stats.rsvpsUpdated} RSVPs, ${stats.approvalsUpdated} approvals, ${stats.redemptionsUpdated} redemptions updated`);
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    stats.errors.push(`Nullify credential references failed: ${errorMessage}`);
-    console.error(`[CASCADE ERROR] ${errorMessage}`);
-    throw error; // Re-throw to fail the entire transaction
-  }
-
-  return stats;
 }
 
 /**
