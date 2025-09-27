@@ -6,9 +6,9 @@ export default defineSchema({
     // Temporarily optional to run migration; switch back to v.string() after.
     clerkUserId: v.optional(v.string()),
     phone: v.optional(v.string()),
-    name: v.optional(v.string()), // Keep during migration phase
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
+    name: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
     createdAt: v.number(),
@@ -82,11 +82,7 @@ export default defineSchema({
     eventId: v.id("events"),
     clerkUserId: v.string(),
     listKey: v.string(), // Primary reference to list credentials
-    credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
-    // Denormalized fields for efficient search and display
     userName: v.optional(v.string()), // Denormalized from users table
-    userEmail: v.optional(v.string()), // Denormalized from profile
-    userPhone: v.optional(v.string()), // Denormalized from profile
     shareContact: v.boolean(),
     note: v.optional(v.string()),
     attendees: v.optional(v.number()), // total number of attendees including RSVP person (default 1)
@@ -99,11 +95,9 @@ export default defineSchema({
     .index("by_event_user", ["eventId", "clerkUserId"])
     // NEW indexes for efficient filtering
     .index("by_event_status", ["eventId", "status"])
-    .index("by_event_credential", ["eventId", "credentialId"])
-    .index("by_event_status_credential", ["eventId", "status", "credentialId"])
     .searchIndex("search_text", {
       searchField: "userName",
-      filterFields: ["eventId", "status", "credentialId"]
+      filterFields: ["eventId", "status", "listKey"],
     }),
 
   approvals: defineTable({
@@ -111,7 +105,6 @@ export default defineSchema({
     rsvpId: v.id("rsvps"),
     clerkUserId: v.string(),
     listKey: v.string(), // Primary reference to list credentials
-    credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
     decision: v.string(), // 'approved' | 'denied'
     decidedBy: v.string(), // clerkUserId of host
     decidedAt: v.number(),
@@ -122,7 +115,6 @@ export default defineSchema({
     eventId: v.id("events"),
     clerkUserId: v.string(),
     listKey: v.string(), // Primary reference to list credentials
-    credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
     code: v.string(), // url-safe token
     createdAt: v.number(),
     disabledAt: v.optional(v.number()),

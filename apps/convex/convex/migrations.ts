@@ -11,10 +11,14 @@ export const parseUserNamesToFirstLast = migrations.define({
   table: "users",
   migrateOne: async (ctx, user) => {
     // Only migrate if has name but missing firstName/lastName
-    if (!user.name || typeof user.name !== "string" || user.name.trim() === "") return;
+    if (!user.name || typeof user.name !== "string" || user.name.trim() === "")
+      return;
     if (user.firstName && user.lastName) return; // Already migrated
 
-    const parts = user.name.trim().split(" ").filter((p: string) => p.trim());
+    const parts = user.name
+      .trim()
+      .split(" ")
+      .filter((p: string) => p.trim());
     if (parts.length === 0) return;
 
     if (parts.length === 1) {
@@ -24,7 +28,7 @@ export const parseUserNamesToFirstLast = migrations.define({
       // Last part is lastName, everything else is firstName
       return {
         firstName: parts.slice(0, -1).join(" "),
-        lastName: parts[parts.length - 1]
+        lastName: parts[parts.length - 1],
       };
     }
   },
@@ -40,7 +44,7 @@ export const migrateRsvpsCredentialRefs = migrations.define({
     const credential = await ctx.db
       .query("listCredentials")
       .withIndex("by_event_key", (q: any) =>
-        q.eq("eventId", rsvp.eventId).eq("listKey", rsvp.listKey)
+        q.eq("eventId", rsvp.eventId).eq("listKey", rsvp.listKey),
       )
       .unique();
 
@@ -48,7 +52,9 @@ export const migrateRsvpsCredentialRefs = migrations.define({
       return { credentialId: credential._id };
     }
     // If no credential found, log it but don't fail
-    console.warn(`No credential found for RSVP ${rsvp._id} with listKey: ${rsvp.listKey}`);
+    console.warn(
+      `No credential found for RSVP ${rsvp._id} with listKey: ${rsvp.listKey}`,
+    );
   },
 });
 
@@ -62,7 +68,7 @@ export const migrateApprovalsCredentialRefs = migrations.define({
     const credential = await ctx.db
       .query("listCredentials")
       .withIndex("by_event_key", (q: any) =>
-        q.eq("eventId", approval.eventId).eq("listKey", approval.listKey)
+        q.eq("eventId", approval.eventId).eq("listKey", approval.listKey),
       )
       .unique();
 
@@ -70,7 +76,9 @@ export const migrateApprovalsCredentialRefs = migrations.define({
       return { credentialId: credential._id };
     }
     // If no credential found, log it but don't fail
-    console.warn(`No credential found for approval ${approval._id} with listKey: ${approval.listKey}`);
+    console.warn(
+      `No credential found for approval ${approval._id} with listKey: ${approval.listKey}`,
+    );
   },
 });
 
@@ -84,7 +92,7 @@ export const migrateRedemptionsCredentialRefs = migrations.define({
     const credential = await ctx.db
       .query("listCredentials")
       .withIndex("by_event_key", (q: any) =>
-        q.eq("eventId", redemption.eventId).eq("listKey", redemption.listKey)
+        q.eq("eventId", redemption.eventId).eq("listKey", redemption.listKey),
       )
       .unique();
 
@@ -92,7 +100,9 @@ export const migrateRedemptionsCredentialRefs = migrations.define({
       return { credentialId: credential._id };
     }
     // If no credential found, log it but don't fail
-    console.warn(`No credential found for redemption ${redemption._id} with listKey: ${redemption.listKey}`);
+    console.warn(
+      `No credential found for redemption ${redemption._id} with listKey: ${redemption.listKey}`,
+    );
   },
 });
 
@@ -101,20 +111,30 @@ export const backfillUserNameInRsvps = migrations.define({
   table: "rsvps",
   migrateOne: async (ctx, rsvp) => {
     // Skip if userName is already populated
-    if (rsvp.userName && typeof rsvp.userName === "string" && rsvp.userName.trim() !== "") return;
+    if (
+      rsvp.userName &&
+      typeof rsvp.userName === "string" &&
+      rsvp.userName.trim() !== ""
+    )
+      return;
 
     // Get user data via clerkUserId
     const user = await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q: any) =>
-        q.eq("clerkUserId", rsvp.clerkUserId)
+        q.eq("clerkUserId", rsvp.clerkUserId),
       )
       .unique();
 
     if (user) {
       // Construct display name from users table
       let displayName = "";
-      if (user.firstName && user.lastName && typeof user.firstName === "string" && typeof user.lastName === "string") {
+      if (
+        user.firstName &&
+        user.lastName &&
+        typeof user.firstName === "string" &&
+        typeof user.lastName === "string"
+      ) {
         displayName = `${user.firstName} ${user.lastName}`;
       } else if (user.firstName && typeof user.firstName === "string") {
         displayName = user.firstName;
@@ -136,20 +156,30 @@ export const validateDataIntegrityBeforeCredentialIdSunset = migrations.define({
   table: "rsvps",
   migrateOne: async (ctx, rsvp, { showLogs = false } = {}) => {
     // Ensure every RSVP has a listKey
-    if (!rsvp.listKey || typeof rsvp.listKey !== "string" || rsvp.listKey.trim() === "") {
+    if (
+      !rsvp.listKey ||
+      typeof rsvp.listKey !== "string" ||
+      rsvp.listKey.trim() === ""
+    ) {
       // Try to recover from credentialId if available
       if (rsvp.credentialId) {
-        const credential = await ctx.db.get(rsvp.credentialId as Id<"listCredentials">);
+        const credential = await ctx.db.get(
+          rsvp.credentialId as Id<"listCredentials">,
+        );
         if (credential && credential.listKey) {
           if (showLogs) {
-            console.log(`[VALIDATION] Recovering listKey for RSVP ${rsvp._id}: ${credential.listKey}`);
+            console.log(
+              `[VALIDATION] Recovering listKey for RSVP ${rsvp._id}: ${credential.listKey}`,
+            );
           }
           return { listKey: credential.listKey };
         }
       }
 
       // If we can't recover, this is a data integrity issue
-      throw new Error(`RSVP ${rsvp._id} missing listKey and cannot recover from credentialId`);
+      throw new Error(
+        `RSVP ${rsvp._id} missing listKey and cannot recover from credentialId`,
+      );
     }
 
     // Validation passed
@@ -160,17 +190,27 @@ export const validateDataIntegrityBeforeCredentialIdSunset = migrations.define({
 export const validateApprovalsDataIntegrity = migrations.define({
   table: "approvals",
   migrateOne: async (ctx, approval, { showLogs = false } = {}) => {
-    if (!approval.listKey || typeof approval.listKey !== "string" || approval.listKey.trim() === "") {
+    if (
+      !approval.listKey ||
+      typeof approval.listKey !== "string" ||
+      approval.listKey.trim() === ""
+    ) {
       if (approval.credentialId) {
-        const credential = await ctx.db.get(approval.credentialId as Id<"listCredentials">);
+        const credential = await ctx.db.get(
+          approval.credentialId as Id<"listCredentials">,
+        );
         if (credential && credential.listKey) {
           if (showLogs) {
-            console.log(`[VALIDATION] Recovering listKey for approval ${approval._id}: ${credential.listKey}`);
+            console.log(
+              `[VALIDATION] Recovering listKey for approval ${approval._id}: ${credential.listKey}`,
+            );
           }
           return { listKey: credential.listKey };
         }
       }
-      throw new Error(`Approval ${approval._id} missing listKey and cannot recover from credentialId`);
+      throw new Error(
+        `Approval ${approval._id} missing listKey and cannot recover from credentialId`,
+      );
     }
     return;
   },
@@ -179,17 +219,27 @@ export const validateApprovalsDataIntegrity = migrations.define({
 export const validateRedemptionsDataIntegrity = migrations.define({
   table: "redemptions",
   migrateOne: async (ctx, redemption, { showLogs = false } = {}) => {
-    if (!redemption.listKey || typeof redemption.listKey !== "string" || redemption.listKey.trim() === "") {
+    if (
+      !redemption.listKey ||
+      typeof redemption.listKey !== "string" ||
+      redemption.listKey.trim() === ""
+    ) {
       if (redemption.credentialId) {
-        const credential = await ctx.db.get(redemption.credentialId as Id<"listCredentials">);
+        const credential = await ctx.db.get(
+          redemption.credentialId as Id<"listCredentials">,
+        );
         if (credential && credential.listKey) {
           if (showLogs) {
-            console.log(`[VALIDATION] Recovering listKey for redemption ${redemption._id}: ${credential.listKey}`);
+            console.log(
+              `[VALIDATION] Recovering listKey for redemption ${redemption._id}: ${credential.listKey}`,
+            );
           }
           return { listKey: credential.listKey };
         }
       }
-      throw new Error(`Redemption ${redemption._id} missing listKey and cannot recover from credentialId`);
+      throw new Error(
+        `Redemption ${redemption._id} missing listKey and cannot recover from credentialId`,
+      );
     }
     return;
   },
@@ -215,7 +265,9 @@ export const sunsetCredentialIdFromApprovals = migrations.define({
   migrateOne: async (ctx, approval, { showLogs = false } = {}) => {
     if (approval.credentialId !== undefined) {
       if (showLogs) {
-        console.log(`[SUNSET] Removing credentialId from approval ${approval._id}`);
+        console.log(
+          `[SUNSET] Removing credentialId from approval ${approval._id}`,
+        );
       }
       return { credentialId: undefined };
     }
@@ -228,10 +280,36 @@ export const sunsetCredentialIdFromRedemptions = migrations.define({
   migrateOne: async (ctx, redemption, { showLogs = false } = {}) => {
     if (redemption.credentialId !== undefined) {
       if (showLogs) {
-        console.log(`[SUNSET] Removing credentialId from redemption ${redemption._id}`);
+        console.log(
+          `[SUNSET] Removing credentialId from redemption ${redemption._id}`,
+        );
       }
       return { credentialId: undefined };
     }
     return;
   },
 });
+
+// Remove legacy name field from users when firstName/lastName are present
+export const removeNameFromUsersWithFirstLastName = migrations.define({
+  table: "users",
+  migrateOne: async (ctx, user, { showLogs = false } = {}) => {
+    // Only remove name if user has firstName OR lastName populated
+    if (
+      (user.firstName && user.firstName.trim()) ||
+      (user.lastName && user.lastName.trim())
+    ) {
+      // Only remove if name field actually exists
+      if (user.name !== undefined) {
+        if (showLogs) {
+          console.log(
+            `[CLEANUP] Removing legacy name field from user ${user._id} (has firstName: ${!!user.firstName}, lastName: ${!!user.lastName})`,
+          );
+        }
+        return { name: undefined };
+      }
+    }
+    return;
+  },
+});
+
