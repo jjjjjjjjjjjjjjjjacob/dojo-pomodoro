@@ -118,7 +118,7 @@ triggers.register("users", async (ctx, change) => {
     // Construct userName from users table data
     const userName = [user.firstName, user.lastName]
       .filter(Boolean)
-      .join(" ") || user.name || "";
+      .join(" ") || "";
 
     console.log(`[TRIGGER] User name changed for ${user.clerkUserId}: updating RSVPs with userName: ${userName}`);
 

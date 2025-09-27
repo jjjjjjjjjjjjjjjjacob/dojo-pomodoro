@@ -101,14 +101,12 @@ export default function UsersPage() {
     const searchTerm = debouncedSearch.trim().toLowerCase();
     if (searchTerm) {
       result = result.filter((user) => {
-        const name = (user.name || "").toLowerCase();
         const firstName = (user.firstName || "").toLowerCase();
         const lastName = (user.lastName || "").toLowerCase();
         const fullName = `${firstName} ${lastName}`.trim().toLowerCase();
         const role = (user.role || "").toLowerCase();
 
         return (
-          name.includes(searchTerm) ||
           firstName.includes(searchTerm) ||
           lastName.includes(searchTerm) ||
           fullName.includes(searchTerm) ||
@@ -236,7 +234,7 @@ export default function UsersPage() {
         accessorFn: (row) => {
           const displayName =
             `${row.firstName || ""} ${row.lastName || ""}`.trim();
-          return displayName || row.name || "Unknown User";
+          return displayName || "Unknown User";
         },
         cell: ({ row }) => {
           const user = row.original;
@@ -247,12 +245,12 @@ export default function UsersPage() {
               <Avatar className="h-8 w-8">
                 <AvatarImage src={user.imageUrl || undefined} />
                 <AvatarFallback>
-                  {(user.firstName || user.name || "U").charAt(0).toUpperCase()}
+                  {(user.firstName || "U").charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               <div>
                 <div className="font-medium">
-                  {displayName || user.name || "Unknown User"}
+                  {displayName || "Unknown User"}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   ID: {user.clerkUserId?.slice(-8) || "Unknown"}

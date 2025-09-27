@@ -58,9 +58,11 @@ export const getAll = query({
         return false;
 
       if (!search) return true;
-      const name = (u.name ?? "").toLowerCase();
+      const firstName = (u.firstName ?? "").toLowerCase();
+      const lastName = (u.lastName ?? "").toLowerCase();
+      const fullName = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim().toLowerCase();
       const phone = (u.phone ?? "").toLowerCase();
-      return name.includes(search) || phone.includes(search);
+      return firstName.includes(search) || lastName.includes(search) || fullName.includes(search) || phone.includes(search);
     });
 
     // Sorting
@@ -105,7 +107,6 @@ export const upsertFromClerk = mutation({
     clerkUserId: v.optional(v.string()),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
-    name: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -119,7 +120,6 @@ export const upsertFromClerk = mutation({
       await ctx.db.insert("users", {
         clerkUserId: args.clerkUserId,
         phone: args.phone,
-        name: args.name,
         imageUrl: args.imageUrl,
         createdAt: now,
         updatedAt: now,
@@ -128,7 +128,6 @@ export const upsertFromClerk = mutation({
     } else {
       await ctx.db.patch(existing._id, {
         phone: args.phone ?? existing.phone,
-        name: args.name ?? existing.name,
         imageUrl: args.imageUrl ?? existing.imageUrl,
         updatedAt: now,
       });
@@ -149,7 +148,6 @@ export const getByClerkUser = query({
 
 export const updateProfileMeta = mutation({
   args: {
-    name: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
@@ -166,7 +164,6 @@ export const updateProfileMeta = mutation({
       await ctx.db.insert("users", {
         clerkUserId: identity.subject,
         phone: identity.phoneNumber ?? undefined,
-        name: args.name,
         firstName: args.firstName,
         lastName: args.lastName,
         imageUrl: identity.pictureUrl ?? undefined,
@@ -178,7 +175,6 @@ export const updateProfileMeta = mutation({
     }
     const mergedMeta = { ...(user.metadata ?? {}), ...(args.metadata ?? {}) };
     await ctx.db.patch(user._id, {
-      name: args.name ?? user.name,
       firstName: args.firstName ?? user.firstName,
       lastName: args.lastName ?? user.lastName,
       metadata: mergedMeta,
@@ -192,7 +188,6 @@ export const updateProfileMeta = mutation({
 export const create = mutation({
   args: {
     clerkUserId: v.string(),
-    name: v.optional(v.string()),
     phone: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
@@ -202,7 +197,6 @@ export const create = mutation({
     const userId = await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
       phone: args.phone,
-      name: args.name,
       imageUrl: args.imageUrl,
       metadata: args.metadata,
       createdAt: now,
@@ -252,7 +246,6 @@ export const listOrganizationUsers = query({
       return {
         _id: user._id,
         clerkUserId: user.clerkUserId,
-        name: user.name,
         firstName: user.firstName,
         lastName: user.lastName,
         imageUrl: user.imageUrl,
@@ -438,7 +431,6 @@ export const listOrganizationUsersPaginated = query({
       return {
         _id: user._id,
         clerkUserId: user.clerkUserId,
-        name: user.name,
         firstName: user.firstName,
         lastName: user.lastName,
         imageUrl: user.imageUrl,

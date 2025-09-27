@@ -21,7 +21,9 @@ export const byCode = query({
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", rec.clerkUserId))
       .unique();
-    const name = user?.name ?? undefined;
+    const name = user?.firstName && user?.lastName
+      ? `${user.firstName} ${user.lastName}`.trim()
+      : user?.firstName || user?.lastName || undefined;
 
     if (rec.disabledAt) return { status: "invalid" as const };
     if (rec.redeemedAt)
@@ -44,7 +46,9 @@ export const validate = query({
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", rec.clerkUserId))
       .unique();
-    const name = user?.name ?? undefined;
+    const name = user?.firstName && user?.lastName
+      ? `${user.firstName} ${user.lastName}`.trim()
+      : user?.firstName || user?.lastName || undefined;
 
     if (rec.disabledAt) return { status: "invalid" as const };
     if (rec.redeemedAt)

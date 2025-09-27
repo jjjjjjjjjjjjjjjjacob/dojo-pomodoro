@@ -8,7 +8,6 @@ export default defineSchema({
     phone: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    name: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
     createdAt: v.number(),

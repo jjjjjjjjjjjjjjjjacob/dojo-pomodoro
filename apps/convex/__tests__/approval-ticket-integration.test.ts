@@ -58,8 +58,8 @@ describe("Approval and Ticket Integration", () => {
     });
 
     it("should allow ticket toggle for approved RSVP", () => {
-      const rsvpStatus = "approved" as const;
-      const redemptionStatus = "disabled" as const;
+      const rsvpStatus: string = "approved";
+      const redemptionStatus: string = "disabled";
       const canToggleTicket =
         rsvpStatus !== "denied" && redemptionStatus !== "redeemed";
 
@@ -67,8 +67,8 @@ describe("Approval and Ticket Integration", () => {
     });
 
     it("should prevent ticket toggle for redeemed codes", () => {
-      const rsvpStatus = "approved";
-      const redemptionStatus = "redeemed";
+      const rsvpStatus: string = "approved";
+      const redemptionStatus: string = "redeemed";
       const canToggleTicket =
         rsvpStatus !== "denied" && redemptionStatus !== "redeemed";
 

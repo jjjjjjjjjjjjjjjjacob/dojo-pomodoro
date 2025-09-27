@@ -183,17 +183,6 @@ export default function RsvpPage({
         first = userDoc.firstName || "";
         last = userDoc.lastName || "";
         fullName = `${first} ${last}`.trim();
-      } else if (userDoc?.name) {
-        // Parse existing name
-        const parts = userDoc.name.trim().split(" ");
-        if (parts.length === 1) {
-          first = parts[0];
-          last = "";
-        } else if (parts.length >= 2) {
-          last = parts[parts.length - 1];
-          first = parts.slice(0, -1).join(" ");
-        }
-        fullName = userDoc.name;
       } else if (user?.firstName || user?.lastName) {
         // Fallback to Clerk user data
         first = user.firstName || "";
@@ -311,7 +300,6 @@ export default function RsvpPage({
       }
       setSubmitting(true);
       await updateProfileMeta({
-        name: name.trim(),
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         metadata: custom

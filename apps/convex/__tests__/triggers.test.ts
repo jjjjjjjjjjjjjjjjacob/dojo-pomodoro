@@ -69,8 +69,8 @@ describe('Database Triggers', () => {
 
   it('should validate listKey change detection logic', () => {
     // Test logic for detecting listKey changes
-    const oldListKey = 'vip';
-    const newListKey = 'premium';
+    const oldListKey: string = 'vip';
+    const newListKey: string = 'premium';
 
     const hasChanged = oldListKey !== newListKey;
     expect(hasChanged).toBe(true);

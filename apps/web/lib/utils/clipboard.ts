@@ -60,13 +60,15 @@ export async function copyQRCodeData(data: string): Promise<boolean> {
  * Copies formatted guest information to clipboard
  */
 export async function copyGuestInfo(guest: {
-  name: string;
+  firstName?: string;
+  lastName?: string;
   email?: string;
   phone?: string;
   responses?: Record<string, string>;
 }): Promise<boolean> {
+  const guestName = `${guest.firstName || ""} ${guest.lastName || ""}`.trim() || "Unknown";
   const guestInfo = [
-    `Name: ${guest.name}`,
+    `Name: ${guestName}`,
     guest.email ? `Email: ${guest.email}` : null,
     guest.phone ? `Phone: ${guest.phone}` : null,
     guest.responses ? Object.entries(guest.responses)

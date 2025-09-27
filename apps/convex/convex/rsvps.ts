@@ -40,7 +40,6 @@ export const submitRequest = mutation({
 
     const userName = user
       ? [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-        user.name ||
         ""
       : "";
 
@@ -165,9 +164,10 @@ export const listForEvent = query({
             q.eq("clerkUserId", r.clerkUserId),
           )
           .unique();
-        const name = user?.name;
+        // User name constructed from firstName/lastName in display logic
         const firstName = user?.firstName;
         const lastName = user?.lastName;
+        const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
         // Redemption info for this user+event
         const redemption = await ctx.db
           .query("redemptions")

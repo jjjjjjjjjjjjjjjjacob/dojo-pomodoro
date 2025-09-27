@@ -420,7 +420,6 @@ export default function RsvpsPage() {
           const displayName = `${r.firstName || ""} ${r.lastName || ""}`.trim();
           return (
             displayName ||
-            r.name ||
             r.contact?.email ||
             r.contact?.phone ||
             "(no contact)"
@@ -452,7 +451,6 @@ export default function RsvpsPage() {
               `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
             const guestName =
               displayName ||
-              rsvp.name ||
               rsvp.contact?.email ||
               rsvp.contact?.phone ||
               "Guest";
@@ -581,7 +579,6 @@ export default function RsvpsPage() {
               `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
             const guestName =
               displayName ||
-              rsvp.name ||
               rsvp.contact?.email ||
               rsvp.contact?.phone ||
               "Guest";
@@ -699,7 +696,6 @@ export default function RsvpsPage() {
               `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
             const guestName =
               displayName ||
-              rsvp.name ||
               rsvp.contact?.email ||
               rsvp.contact?.phone ||
               "Guest";
