@@ -208,7 +208,7 @@ export default function RsvpsPage() {
 
   const exportData = useQuery(
     api.exports.exportRsvpsCsv,
-    eventId && selectedListsForExport.length > 0
+    eventId && selectedListsForExport.length > 0 && exportOptionsOpen
       ? {
           eventId: eventId as Id<"events">,
           listKeys: selectedListsForExport,

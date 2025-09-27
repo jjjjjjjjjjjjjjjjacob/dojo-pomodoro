@@ -97,6 +97,9 @@ export default function UsersPage() {
 
   const filteredUsers = users || [];
 
+  // Normalize role by stripping org: prefix
+  const normalizeRole = (role: string) => role?.replace(/^org:/, "") || role;
+
   // Clear all filters function
   const clearAllFilters = () => {
     setSearchQuery("");
@@ -122,7 +125,8 @@ export default function UsersPage() {
       (sorting[0].id !== "createdAt" || !sorting[0].desc));
 
   const getRoleIcon = (role: string) => {
-    switch (role) {
+    const normalized = normalizeRole(role);
+    switch (normalized) {
       case "admin":
         return <Crown className="h-4 w-4" />;
       case "member":
@@ -135,7 +139,8 @@ export default function UsersPage() {
   };
 
   const getRoleColor = (role: string) => {
-    switch (role) {
+    const normalized = normalizeRole(role);
+    switch (normalized) {
       case "admin":
         return "text-yellow-700 border-yellow-200 bg-yellow-50";
       case "member":
@@ -148,7 +153,8 @@ export default function UsersPage() {
   };
 
   const getRoleLabel = (role: string) => {
-    switch (role) {
+    const normalized = normalizeRole(role);
+    switch (normalized) {
       case "admin":
         return "Admin";
       case "member":
@@ -247,8 +253,9 @@ export default function UsersPage() {
           const user = row.original;
           const currentRole = pendingChanges[user._id] || user.role;
           const hasChanges = currentRole !== user.role;
+          const normalizedCurrentRole = normalizeRole(currentRole);
 
-          if (currentRole === "guest") {
+          if (normalizedCurrentRole === "guest") {
             return (
               <Badge
                 variant="outline"
@@ -268,11 +275,11 @@ export default function UsersPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className={cn(getRoleColor(currentRole))}
+                  className={cn(getRoleColor(normalizedCurrentRole))}
                 >
                   <div className="flex items-center gap-1">
-                    {getRoleIcon(currentRole)}
-                    {getRoleLabel(currentRole)}
+                    {getRoleIcon(normalizedCurrentRole)}
+                    {getRoleLabel(normalizedCurrentRole)}
                   </div>
                 </Button>
               </DropdownMenuTrigger>
@@ -325,8 +332,9 @@ export default function UsersPage() {
           const user = row.original;
           const currentRole = pendingChanges[user._id] || user.role;
           const hasChanges = currentRole !== user.role;
+          const normalizedUserRole = normalizeRole(user.role);
 
-          if (user.role === "guest" && !hasChanges) {
+          if (normalizedUserRole === "guest" && !hasChanges) {
             return (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -355,7 +363,7 @@ export default function UsersPage() {
               <Button
                 size="sm"
                 onClick={() =>
-                  handleRoleChange(user._id, currentRole, user.role === "guest")
+                  handleRoleChange(user._id, currentRole, normalizedUserRole === "guest")
                 }
                 className="text-xs"
               >
@@ -383,10 +391,6 @@ export default function UsersPage() {
     pageCount: usersData?.pagination?.totalPages || 1,
   });
 
-  if (!users || !userStats) {
-    return <TableSkeleton rows={10} columns={4} />;
-  }
-
   return (
     <div className="flex-1 space-y-4">
       {/* Header */}
@@ -400,66 +404,83 @@ export default function UsersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{userStats.total}</div>
-            <p className="text-xs text-muted-foreground">
-              All organization members
-            </p>
-          </CardContent>
-        </Card>
+      {!userStats ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {[...Array(5)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                <div className="h-4 w-4 bg-muted rounded animate-pulse" />
+              </CardHeader>
+              <CardContent>
+                <div className="h-8 w-16 bg-muted rounded animate-pulse mb-2" />
+                <div className="h-3 w-32 bg-muted rounded animate-pulse" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{userStats.total}</div>
+              <p className="text-xs text-muted-foreground">
+                All organization members
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Admins</CardTitle>
-            <Crown className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{userStats.admin}</div>
-            <p className="text-xs text-muted-foreground">Full access users</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Admins</CardTitle>
+              <Crown className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{userStats.admin}</div>
+              <p className="text-xs text-muted-foreground">Full access users</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Members</CardTitle>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{userStats.member}</div>
-            <p className="text-xs text-muted-foreground">Door staff</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Members</CardTitle>
+              <Shield className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{userStats.member}</div>
+              <p className="text-xs text-muted-foreground">Door staff</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Guests</CardTitle>
-            <User className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{userStats.guest}</div>
-            <p className="text-xs text-muted-foreground">Event attendees</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Guests</CardTitle>
+              <User className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{userStats.guest}</div>
+              <p className="text-xs text-muted-foreground">Event attendees</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Organization</CardTitle>
-            <User className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {userStats.organizationMembers}
-            </div>
-            <p className="text-xs text-muted-foreground">Total staff</p>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Organization</CardTitle>
+              <User className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {userStats.organizationMembers}
+              </div>
+              <p className="text-xs text-muted-foreground">Total staff</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Search */}
       <div className="flex items-center gap-4">
@@ -579,72 +600,78 @@ export default function UsersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr
-                    key={headerGroup.id}
-                    className="text-left text-foreground/70 border-b"
-                  >
-                    {headerGroup.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        className="px-2 py-3 cursor-pointer"
-                        onClick={header.column.getToggleSortingHandler()}
+          {!users ? (
+            <TableSkeleton rows={10} columns={4} />
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    {table.getHeaderGroups().map((headerGroup) => (
+                      <tr
+                        key={headerGroup.id}
+                        className="text-left text-foreground/70 border-b"
                       >
-                        {flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                        {{ asc: " ▲", desc: " ▼" }[
-                          header.column.getIsSorted() as string
-                        ] ?? null}
-                      </th>
+                        {headerGroup.headers.map((header) => (
+                          <th
+                            key={header.id}
+                            className="px-2 py-3 cursor-pointer"
+                            onClick={header.column.getToggleSortingHandler()}
+                          >
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                            {{ asc: " ▲", desc: " ▼" }[
+                              header.column.getIsSorted() as string
+                            ] ?? null}
+                          </th>
+                        ))}
+                      </tr>
                     ))}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {table.getRowModel().rows.map((row) => {
-                  const user = row.original;
-                  const currentRole = pendingChanges[user._id] || user.role;
-                  const hasChanges = currentRole !== user.role;
+                  </thead>
+                  <tbody>
+                    {table.getRowModel().rows.map((row) => {
+                      const user = row.original;
+                      const currentRole = pendingChanges[user._id] || user.role;
+                      const hasChanges = currentRole !== user.role;
 
-                  return (
-                    <tr
-                      key={row.id}
-                      className={cn(
-                        "border-b border-foreground/10",
-                        hasChanges ? "bg-yellow-50 border-yellow-200" : "",
-                      )}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="px-2 py-3">
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
+                      return (
+                        <tr
+                          key={row.id}
+                          className={cn(
+                            "border-b border-foreground/10",
+                            hasChanges ? "bg-yellow-50 border-yellow-200" : "",
                           )}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        >
+                          {row.getVisibleCells().map((cell) => (
+                            <td key={cell.id} className="px-2 py-3">
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-          {table.getRowModel().rows.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-lg text-muted-foreground mb-2">
-                No users found
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {searchQuery
-                  ? "Try adjusting your search query"
-                  : "No users found in the system"}
-              </p>
-            </div>
+              {table.getRowModel().rows.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-lg text-muted-foreground mb-2">
+                    No users found
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {searchQuery
+                      ? "Try adjusting your search query"
+                      : "No users found in the system"}
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

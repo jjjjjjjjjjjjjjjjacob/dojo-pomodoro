@@ -19,9 +19,9 @@ export const getDashboardStats = query({
     const totalEvents = events.length;
     const totalRsvps = rsvps.length;
 
-    // Approval rates
-    const approvedRsvps = rsvps.filter(
-      (rsvp) => rsvp.status === "approved",
+    // Approval rates (includes all positive statuses after approval)
+    const approvedRsvps = rsvps.filter((rsvp) =>
+      ["approved", "attending", "issued", "redeemed"].includes(rsvp.status),
     ).length;
     const pendingRsvps = rsvps.filter(
       (rsvp) => rsvp.status === "pending",
@@ -145,8 +145,8 @@ export const getEventPerformance = query({
     const eventPerformance = events
       .map((event) => {
         const eventRsvps = rsvps.filter((rsvp) => rsvp.eventId === event._id);
-        const approvedRsvps = eventRsvps.filter(
-          (rsvp) => rsvp.status === "approved",
+        const approvedRsvps = eventRsvps.filter((rsvp) =>
+          ["approved", "attending", "issued", "redeemed"].includes(rsvp.status),
         );
         const redeemedTickets = eventRsvps.filter(
           (rsvp) => rsvp.status === "redeemed",
