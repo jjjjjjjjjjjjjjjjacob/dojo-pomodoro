@@ -81,6 +81,7 @@ import {
   X,
   ExternalLink,
   Link,
+  Download,
 } from "lucide-react";
 import {
   ColumnDef,
@@ -183,6 +184,43 @@ export default function RsvpsPage() {
   const listCredentials = useQuery(
     api.credentials.getCredsForEvent,
     eventId ? { eventId: eventId as Id<"events"> } : "skip",
+  );
+
+  const [exportOptionsOpen, setExportOptionsOpen] = React.useState(false);
+  const [selectedListsForExport, setSelectedListsForExport] = React.useState<
+    string[]
+  >([]);
+  const [includeAttendees, setIncludeAttendees] = React.useState(true);
+  const [includeNote, setIncludeNote] = React.useState(true);
+  const [includeCustomFields, setIncludeCustomFields] = React.useState(true);
+
+  React.useEffect(() => {
+    if (listCredentials && selectedListsForExport.length === 0) {
+      setSelectedListsForExport(
+        listCredentials.map((cred) => cred.listKey) || [],
+      );
+    }
+  }, [listCredentials, selectedListsForExport.length]);
+
+  const exportData = useQuery(
+    api.exports.exportRsvpsCsv,
+    eventId && selectedListsForExport.length > 0
+      ? {
+          eventId: eventId as Id<"events">,
+          listKeys: selectedListsForExport,
+          includeAttendees,
+          includeNote,
+          includeCustomFields,
+          exportTimestamp: new Date().toLocaleString("en-US", {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          }),
+        }
+      : "skip",
   );
   // Convert mutations to TanStack Query
   const approveMutation = useMutation({
@@ -1416,6 +1454,24 @@ export default function RsvpsPage() {
     currentEvent === undefined ||
     totalCount === undefined;
 
+  const handleExportCsv = () => {
+    if (!exportData) {
+      toast.error("Export data not ready");
+      return;
+    }
+
+    const blob = new Blob([exportData.csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportData.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    toast.success("CSV exported successfully");
+  };
+
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between">
@@ -1425,6 +1481,127 @@ export default function RsvpsPage() {
             Manage guest responses and ticket status
           </p>
         </div>
+        <Popover open={exportOptionsOpen} onOpenChange={setExportOptionsOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium text-sm mb-2">Export Options</h4>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Select Lists
+                </label>
+                <div className="space-y-2">
+                  {(listCredentials || []).map((cred) => (
+                    <div key={cred.listKey} className="flex items-center">
+                      <Checkbox
+                        id={`list-${cred.listKey}`}
+                        checked={selectedListsForExport.includes(cred.listKey)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedListsForExport([
+                              ...selectedListsForExport,
+                              cred.listKey,
+                            ]);
+                          } else {
+                            setSelectedListsForExport(
+                              selectedListsForExport.filter(
+                                (k) => k !== cred.listKey,
+                              ),
+                            );
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor={`list-${cred.listKey}`}
+                        className="ml-2 text-sm cursor-pointer"
+                      >
+                        {cred.listKey.toUpperCase()}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Select Columns
+                </label>
+                <div className="space-y-2">
+                  <div className="flex items-center">
+                    <Checkbox
+                      id="col-attendees"
+                      checked={includeAttendees}
+                      onCheckedChange={(checked) =>
+                        setIncludeAttendees(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="col-attendees"
+                      className="ml-2 text-sm cursor-pointer"
+                    >
+                      Attendees
+                    </label>
+                  </div>
+                  <div className="flex items-center">
+                    <Checkbox
+                      id="col-note"
+                      checked={includeNote}
+                      onCheckedChange={(checked) =>
+                        setIncludeNote(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="col-note"
+                      className="ml-2 text-sm cursor-pointer"
+                    >
+                      Note
+                    </label>
+                  </div>
+                  <div className="flex items-center">
+                    <Checkbox
+                      id="col-custom"
+                      checked={includeCustomFields}
+                      onCheckedChange={(checked) =>
+                        setIncludeCustomFields(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="col-custom"
+                      className="ml-2 text-sm cursor-pointer"
+                    >
+                      Custom Fields
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                onClick={() => {
+                  handleExportCsv();
+                  setExportOptionsOpen(false);
+                }}
+                disabled={
+                  !exportData ||
+                  isLoading ||
+                  selectedListsForExport.length === 0
+                }
+                className="w-full"
+                size="sm"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
       {/* Event Selector */}
       <div className="flex gap-2 items-center flex-wrap">
