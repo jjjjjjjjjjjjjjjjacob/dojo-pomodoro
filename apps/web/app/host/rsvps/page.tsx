@@ -82,6 +82,8 @@ import {
   ExternalLink,
   Link,
   Download,
+  Share,
+  Eye,
 } from "lucide-react";
 import {
   ColumnDef,
@@ -125,7 +127,9 @@ export default function RsvpsPage() {
 
   // Cursor-based pagination state with history for Previous button
   const [cursor, setCursor] = React.useState<string | null>(null);
-  const [cursorHistory, setCursorHistory] = React.useState<(string | null)[]>([]);
+  const [cursorHistory, setCursorHistory] = React.useState<(string | null)[]>(
+    [],
+  );
   const pageSize = parseInt(searchParams.get("pageSize") || "20");
 
   // Filter state - moved before useQuery to avoid uninitialized variable error
@@ -1481,13 +1485,42 @@ export default function RsvpsPage() {
             Manage guest responses and ticket status
           </p>
         </div>
-        <Popover open={exportOptionsOpen} onOpenChange={setExportOptionsOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
-          </PopoverTrigger>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (eventId) {
+                window.open(`/events/${eventId}`, "_blank");
+              }
+            }}
+            disabled={!eventId}
+          >
+            <Eye className="h-4 w-4 mr-2" />
+            View Event
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              if (eventId) {
+                const url = `${window.location.origin}/events/${eventId}`;
+                await navigator.clipboard.writeText(url);
+                toast.success("Event link copied to clipboard");
+              }
+            }}
+            disabled={!eventId}
+          >
+            <Share className="h-4 w-4 mr-2" />
+            Share Event
+          </Button>
+          <Popover open={exportOptionsOpen} onOpenChange={setExportOptionsOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+            </PopoverTrigger>
           <PopoverContent className="w-80" align="end">
             <div className="space-y-4">
               <div>
@@ -1602,6 +1635,7 @@ export default function RsvpsPage() {
             </div>
           </PopoverContent>
         </Popover>
+        </div>
       </div>
       {/* Event Selector */}
       <div className="flex gap-2 items-center flex-wrap">
@@ -1955,8 +1989,6 @@ export default function RsvpsPage() {
                 </span>
               )}
             </div>
-          </div>
-          <div className="flex items-center gap-4">
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
@@ -1975,6 +2007,8 @@ export default function RsvpsPage() {
                 </SelectOption>
               ))}
             </Select>
+          </div>
+          <div className="flex items-center gap-4">
             <Pagination className="justify-end">
               <PaginationContent className="gap-1 sm:gap-2">
                 <PaginationItem>

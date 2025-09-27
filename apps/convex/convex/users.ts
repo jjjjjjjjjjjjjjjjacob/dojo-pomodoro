@@ -1,7 +1,9 @@
-import { mutation, query } from "./functions";
+import { mutation, query, action } from "./functions";
 import { v } from "convex/values";
 import type { UserIdentity } from "convex/server";
 import type { Doc } from "./_generated/dataModel";
+import { api } from "./_generated/api";
+import { createClerkClient } from "@clerk/backend";
 
 type UserIdentityWithRole = UserIdentity & {
   role?: string;
@@ -408,6 +410,8 @@ export const listOrganizationUsersPaginated = query({
   args: {
     pageIndex: v.optional(v.number()),
     pageSize: v.optional(v.number()),
+    search: v.optional(v.string()),
+    roleFilter: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -423,7 +427,7 @@ export const listOrganizationUsersPaginated = query({
     const orgMemberships = await ctx.db.query("orgMemberships").collect();
 
     // Include ALL users, with role as "guest" if no membership
-    const usersWithRoles = users.map((user) => {
+    let usersWithRoles = users.map((user) => {
       const membership = orgMemberships.find(
         (m) => m.clerkUserId === user.clerkUserId,
       );
@@ -440,6 +444,31 @@ export const listOrganizationUsersPaginated = query({
         hasOrganizationMembership: !!membership,
       };
     });
+
+    // Apply search filter
+    const searchTerm = args.search?.trim().toLowerCase();
+    if (searchTerm) {
+      usersWithRoles = usersWithRoles.filter((user) => {
+        const firstName = (user.firstName || "").toLowerCase();
+        const lastName = (user.lastName || "").toLowerCase();
+        const fullName = `${firstName} ${lastName}`.trim().toLowerCase();
+        const role = (user.role || "").toLowerCase();
+
+        return (
+          firstName.includes(searchTerm) ||
+          lastName.includes(searchTerm) ||
+          fullName.includes(searchTerm) ||
+          role.includes(searchTerm)
+        );
+      });
+    }
+
+    // Apply role filter
+    if (args.roleFilter && args.roleFilter !== "all") {
+      usersWithRoles = usersWithRoles.filter(
+        (user) => user.role === args.roleFilter,
+      );
+    }
 
     // Sort by creation date (newest first) to match original behavior
     const sortedUsers = usersWithRoles.sort((a, b) => b.createdAt - a.createdAt);
@@ -497,5 +526,139 @@ export const getUserStats = query({
     };
 
     return roleStats;
+  },
+});
+
+export const promoteUserToOrganizationWithClerk = action({
+  args: {
+    userId: v.id("users"),
+    role: v.string(),
+    organizationId: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, role, organizationId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const userRole = (identity as UserIdentityWithRole).role;
+    const hasAdminRole = userRole === "org:admin";
+    if (!hasAdminRole) {
+      throw new Error("Only admins can promote users");
+    }
+
+    const targetUser = await ctx.runQuery(api.users.getByClerkUser, {
+      clerkUserId: (
+        await ctx.runQuery(api.users.getById, { userId })
+      ).clerkUserId!,
+    });
+
+    if (!targetUser || !targetUser.clerkUserId) {
+      throw new Error("User not found or missing Clerk ID");
+    }
+
+    let clerkOrgId = organizationId;
+    if (!clerkOrgId) {
+      const currentUserMemberships = await ctx.runQuery(
+        api.orgMemberships.listForUser,
+        { clerkUserId: identity.subject },
+      );
+      if (currentUserMemberships.length === 0) {
+        throw new Error("Current user has no organization membership");
+      }
+      clerkOrgId = currentUserMemberships[0].organizationId;
+    }
+
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      throw new Error("CLERK_SECRET_KEY not configured");
+    }
+
+    const clerkRole = role === "admin" ? "org:admin" : "org:member";
+
+    const clerk = createClerkClient({ secretKey: clerkSecretKey });
+    await clerk.organizations.createOrganizationMembership({
+      organizationId: clerkOrgId,
+      userId: targetUser.clerkUserId,
+      role: clerkRole,
+    });
+
+    await ctx.runMutation(api.users.promoteUserToOrganization, {
+      userId,
+      role,
+      organizationId: clerkOrgId,
+    });
+
+    return { success: true };
+  },
+});
+
+export const updateUserRoleWithClerk = action({
+  args: {
+    userId: v.id("users"),
+    newRole: v.string(),
+  },
+  handler: async (ctx, { userId, newRole }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const userRole = (identity as UserIdentityWithRole).role;
+    const hasAdminRole = userRole === "org:admin";
+    if (!hasAdminRole) {
+      throw new Error("Only admins can change user roles");
+    }
+
+    const targetUser = await ctx.runQuery(api.users.getByClerkUser, {
+      clerkUserId: (
+        await ctx.runQuery(api.users.getById, { userId })
+      ).clerkUserId!,
+    });
+
+    if (!targetUser || !targetUser.clerkUserId) {
+      throw new Error("User not found or missing Clerk ID");
+    }
+
+    const currentUserMemberships = await ctx.runQuery(
+      api.orgMemberships.listForUser,
+      { clerkUserId: identity.subject },
+    );
+    if (currentUserMemberships.length === 0) {
+      throw new Error("Current user has no organization membership");
+    }
+    const clerkOrgId = currentUserMemberships[0].organizationId;
+
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      throw new Error("CLERK_SECRET_KEY not configured");
+    }
+
+    const clerkRole = newRole === "admin" ? "org:admin" : "org:member";
+
+    const clerk = createClerkClient({ secretKey: clerkSecretKey });
+    await clerk.organizations.updateOrganizationMembership({
+      organizationId: clerkOrgId,
+      userId: targetUser.clerkUserId,
+      role: clerkRole,
+    });
+
+    await ctx.runMutation(api.users.updateUserRole, {
+      userId,
+      newRole,
+    });
+
+    return { success: true };
+  },
+});
+
+export const getById = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    return user;
   },
 });

@@ -24,11 +24,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CalendarDays, Users, TrendingUp, TicketCheck } from "lucide-react";
+import { CalendarDays, Users, TrendingUp, TicketCheck, DoorOpen } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 
 export default function HostDashboard() {
   const { isSignedIn } = useAuth();
+  const router = useRouter();
   const dashboardStatsQuery = useQuery({
     ...convexQuery(api.dashboard.getDashboardStats, {}),
     enabled: !!isSignedIn,
@@ -89,6 +92,14 @@ export default function HostDashboard() {
             Overview of your events and RSVPs
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => router.push("/door")}
+        >
+          <DoorOpen className="h-4 w-4 mr-2" />
+          Door Portal
+        </Button>
       </div>
 
       {/* Stats Cards */}

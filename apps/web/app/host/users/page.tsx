@@ -39,7 +39,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useAuth } from "@clerk/nextjs";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { convexQuery, useConvexMutation, useConvexAction } from "@convex-dev/react-query";
 import {
   ColumnDef,
   flexRender,
@@ -60,10 +60,19 @@ export default function UsersPage() {
   const pageIndex = parseInt(searchParams.get("page") || "0");
   const pageSize = parseInt(searchParams.get("pageSize") || "10");
 
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: "createdAt", desc: true },
+  ]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 250);
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+
   const usersQuery = useQuery({
     ...convexQuery(api.users.listOrganizationUsersPaginated, {
       pageIndex,
       pageSize,
+      search: debouncedSearch,
+      roleFilter,
     }),
     enabled: !!isSignedIn,
   });
@@ -76,63 +85,33 @@ export default function UsersPage() {
   });
   const userStats = userStatsQuery.data;
   const updateUserRole = useMutation({
-    mutationFn: useConvexMutation(api.users.updateUserRole),
+    mutationFn: useConvexAction(api.users.updateUserRoleWithClerk),
   });
 
   const promoteUserToOrganization = useMutation({
-    mutationFn: useConvexMutation(api.users.promoteUserToOrganization),
+    mutationFn: useConvexAction(api.users.promoteUserToOrganizationWithClerk),
   });
-  const [sorting, setSorting] = React.useState<SortingState>([
-    { id: "createdAt", desc: true },
-  ]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const debouncedSearch = useDebounce(searchQuery, 250);
-  const [roleFilter, setRoleFilter] = useState<string>("all");
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>(
     {},
   );
 
-  const filteredUsers = React.useMemo(() => {
-    if (!users) return [];
-
-    let result = [...users];
-
-    // Apply search filter
-    const searchTerm = debouncedSearch.trim().toLowerCase();
-    if (searchTerm) {
-      result = result.filter((user) => {
-        const firstName = (user.firstName || "").toLowerCase();
-        const lastName = (user.lastName || "").toLowerCase();
-        const fullName = `${firstName} ${lastName}`.trim().toLowerCase();
-        const role = (user.role || "").toLowerCase();
-
-        return (
-          firstName.includes(searchTerm) ||
-          lastName.includes(searchTerm) ||
-          fullName.includes(searchTerm) ||
-          role.includes(searchTerm)
-        );
-      });
-    }
-
-    // Apply role filter
-    if (roleFilter !== "all") {
-      result = result.filter((user) => user.role === roleFilter);
-    }
-
-    return result;
-  }, [users, debouncedSearch, roleFilter]);
+  const filteredUsers = users || [];
 
   // Clear all filters function
   const clearAllFilters = () => {
     setSearchQuery("");
     setRoleFilter("all");
     setSorting([{ id: "createdAt", desc: true }]);
-    // Reset to first page when clearing filters
     const params = new URLSearchParams(searchParams as any);
     params.set("page", "0");
     router.replace(`/host/users?${params.toString()}`, { scroll: false });
   };
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(searchParams as any);
+    params.set("page", "0");
+    router.replace(`/host/users?${params.toString()}`, { scroll: false });
+  }, [debouncedSearch, roleFilter, router, searchParams]);
 
   // Check if any filters are active
   const hasActiveFilters =
