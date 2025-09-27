@@ -1,5 +1,7 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { v } from "convex/values";
+import type { QueryCtx } from "./_generated/server";
+
 type Enc = { ivB64: string; ctB64: string; tagB64: string };
 
 export const saveEncryptedContact = mutation({

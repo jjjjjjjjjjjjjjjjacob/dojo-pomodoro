@@ -81,7 +81,7 @@ export default defineSchema({
   rsvps: defineTable({
     eventId: v.id("events"),
     clerkUserId: v.string(),
-    listKey: v.optional(v.string()), // Made optional for migration - will be removed after migration
+    listKey: v.string(), // Primary reference to list credentials
     credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
     // Denormalized fields for efficient search and display
     userName: v.optional(v.string()), // Denormalized from users table
@@ -110,7 +110,7 @@ export default defineSchema({
     eventId: v.id("events"),
     rsvpId: v.id("rsvps"),
     clerkUserId: v.string(),
-    listKey: v.optional(v.string()), // Made optional for migration - will be removed after migration
+    listKey: v.string(), // Primary reference to list credentials
     credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
     decision: v.string(), // 'approved' | 'denied'
     decidedBy: v.string(), // clerkUserId of host
@@ -121,7 +121,7 @@ export default defineSchema({
   redemptions: defineTable({
     eventId: v.id("events"),
     clerkUserId: v.string(),
-    listKey: v.optional(v.string()), // Made optional for migration - will be removed after migration
+    listKey: v.string(), // Primary reference to list credentials
     credentialId: v.optional(v.id("listCredentials")), // NEW: Foreign key to list credentials
     code: v.string(), // url-safe token
     createdAt: v.number(),

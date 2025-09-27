@@ -1,7 +1,13 @@
-import { mutation, query, QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
+import { QueryCtx } from "./_generated/server";
 import { api, components } from "./_generated/api";
 import { v } from "convex/values";
 import { Id, Doc } from "./_generated/dataModel";
+import type { UserIdentity } from "convex/server";
+
+type UserIdentityWithRole = UserIdentity & {
+  role?: string;
+};
 import {
   insertRsvpIntoAggregate,
   updateRsvpInAggregate,
@@ -114,14 +120,44 @@ export const submitRequest = mutation({
 
 export const listForEvent = query({
   args: { eventId: v.id("events") },
-  handler: async (ctx, { eventId }): Promise<any[]> => {
+  handler: async (ctx, { eventId }): Promise<Array<{
+    id: Id<"rsvps">;
+    clerkUserId: string;
+    name?: string;
+    firstName?: string;
+    lastName?: string;
+    listKey: string;
+    note?: string;
+    status: string;
+    attendees?: number;
+    contact?: { email?: string; phone?: string };
+    metadata?: Record<string, unknown>;
+    redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
+    redemptionCode?: string;
+    createdAt: number;
+  }>> => {
     const rows = await ctx.db
       .query("rsvps")
       .withIndex("by_event", (q) => q.eq("eventId", eventId))
       .collect();
 
     const enriched = await Promise.all(
-      rows.map(async (r) => {
+      rows.map(async (r): Promise<{
+        id: Id<"rsvps">;
+        clerkUserId: string;
+        name?: string;
+        firstName?: string;
+        lastName?: string;
+        listKey: string;
+        note?: string;
+        status: string;
+        attendees?: number;
+        contact?: { email?: string; phone?: string };
+        metadata?: Record<string, unknown>;
+        redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
+        redemptionCode?: string;
+        createdAt: number;
+      }> => {
         // Look up user's display name
         const user = await ctx.db
           .query("users")
@@ -148,7 +184,7 @@ export const listForEvent = query({
         }
         let contact: { email?: string; phone?: string } | undefined;
         if (r.shareContact) {
-          const prof = await ctx.runQuery(api.profiles.getForClerk, {
+          const prof: { hasEmail: boolean; hasPhone: boolean; emailObfuscated?: string; phoneObfuscated?: string } | null = await ctx.runQuery(api.profiles.getForClerk, {
             clerkUserId: r.clerkUserId,
           });
           if (prof) {
@@ -359,7 +395,7 @@ type EnrichedRsvp = {
     email?: string;
     phone?: string;
   };
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
   redemptionCode?: string;
   createdAt: number;

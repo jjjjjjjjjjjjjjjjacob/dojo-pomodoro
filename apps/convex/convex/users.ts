@@ -1,5 +1,12 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { v } from "convex/values";
+import type { UserIdentity } from "convex/server";
+import type { Doc } from "./_generated/dataModel";
+
+type UserIdentityWithRole = UserIdentity & {
+  role?: string;
+  orgId?: string;
+};
 
 export const getAll = query({
   args: {
@@ -59,9 +66,9 @@ export const getAll = query({
     // Sorting
     const sortBy = args.sortBy ?? "createdAt";
     const sortOrder = args.sortOrder ?? "desc";
-    filtered.sort((a: any, b: any) => {
-      const av = (a as any)[sortBy];
-      const bv = (b as any)[sortBy];
+    filtered.sort((a: Doc<"users">, b: Doc<"users">) => {
+      const av = a[sortBy as keyof Doc<"users">];
+      const bv = b[sortBy as keyof Doc<"users">];
       // Normalize undefined to empty/zero for stable sort
       const aNorm = av ?? (typeof bv === "string" ? "" : 0);
       const bNorm = bv ?? (typeof av === "string" ? "" : 0);
@@ -273,7 +280,7 @@ export const promoteUserToOrganization = mutation({
     }
 
     // Check if current user is admin using Clerk role
-    const userRole = (identity as any).role;
+    const userRole = (identity as UserIdentityWithRole).role;
     const hasAdminRole = userRole === "org:admin";
     if (!hasAdminRole) {
       throw new Error("Only admins can promote users");
@@ -311,7 +318,7 @@ export const promoteUserToOrganization = mutation({
     const orgId =
       organizationId ||
       currentUserMembership?.organizationId ||
-      (identity as any).orgId ||
+      (identity as UserIdentityWithRole).orgId ||
       "default-org";
 
     // Validate clerkUserId exists
@@ -344,7 +351,7 @@ export const updateUserRole = mutation({
     }
 
     // Check if current user is admin using Clerk role
-    const role = (identity as any).role;
+    const role = (identity as UserIdentityWithRole).role;
     const hasAdminRole = role === "org:admin";
     if (!hasAdminRole) {
       throw new Error("Only admins can change user roles");
@@ -383,7 +390,7 @@ export const updateUserRole = mutation({
       // User doesn't have membership yet, create one (promote from guest)
       const orgId =
         currentUserMembership?.organizationId ||
-        (identity as any).orgId ||
+        (identity as UserIdentityWithRole).orgId ||
         "default-org";
       await ctx.db.insert("orgMemberships", {
         clerkUserId: targetUser.clerkUserId,

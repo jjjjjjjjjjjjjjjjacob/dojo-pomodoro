@@ -9,6 +9,7 @@
  */
 
 import type * as approvals from "../approvals.js";
+import type * as cascades from "../cascades.js";
 import type * as credentials from "../credentials.js";
 import type * as credentialsNode from "../credentialsNode.js";
 import type * as dashboard from "../dashboard.js";
@@ -16,7 +17,9 @@ import type * as devUtils from "../devUtils.js";
 import type * as events from "../events.js";
 import type * as eventsNode from "../eventsNode.js";
 import type * as files from "../files.js";
+import type * as functions from "../functions.js";
 import type * as http from "../http.js";
+import type * as lib_cascadeHelpers from "../lib/cascadeHelpers.js";
 import type * as lib_passwordUtils from "../lib/passwordUtils.js";
 import type * as lib_rsvpAggregate from "../lib/rsvpAggregate.js";
 import type * as lib_types from "../lib/types.js";
@@ -28,7 +31,6 @@ import type * as profilesNode from "../profilesNode.js";
 import type * as redemptions from "../redemptions.js";
 import type * as rsvps from "../rsvps.js";
 import type * as seed from "../seed.js";
-import type * as triggers from "../triggers.js";
 import type * as users from "../users.js";
 
 import type {
@@ -47,6 +49,7 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   approvals: typeof approvals;
+  cascades: typeof cascades;
   credentials: typeof credentials;
   credentialsNode: typeof credentialsNode;
   dashboard: typeof dashboard;
@@ -54,7 +57,9 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   eventsNode: typeof eventsNode;
   files: typeof files;
+  functions: typeof functions;
   http: typeof http;
+  "lib/cascadeHelpers": typeof lib_cascadeHelpers;
   "lib/passwordUtils": typeof lib_passwordUtils;
   "lib/rsvpAggregate": typeof lib_rsvpAggregate;
   "lib/types": typeof lib_types;
@@ -66,7 +71,6 @@ declare const fullApi: ApiFromModules<{
   redemptions: typeof redemptions;
   rsvps: typeof rsvps;
   seed: typeof seed;
-  triggers: typeof triggers;
   users: typeof users;
 }>;
 declare const fullApiWithMounts: typeof fullApi;

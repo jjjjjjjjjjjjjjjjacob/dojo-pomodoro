@@ -1,7 +1,8 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { v } from "convex/values";
+import type { UserIdentity } from "convex/server";
 
-function hasJwtDoorOrHost(identity: any) {
+function hasJwtDoorOrHost(identity: UserIdentity) {
   const role = identity?.role as string | null | undefined;
   return role === "org:member" || role === "org:admin";
 }
