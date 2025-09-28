@@ -9,6 +9,7 @@ import {
   Home,
   Plus,
   User,
+  DoorOpen,
 } from "lucide-react";
 
 import {
@@ -57,6 +58,12 @@ const navigationItems = [
     title: "Analytics",
     url: "/host/analytics",
     icon: BarChart3,
+    isActive: false,
+  },
+  {
+    title: "Door Portal",
+    url: "/door",
+    icon: DoorOpen,
     isActive: false,
   },
 ];

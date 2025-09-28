@@ -64,6 +64,8 @@ export const exportRsvpsCsv = query({
       }),
     );
 
+    enrichedRsvps.sort((a, b) => a.name.localeCompare(b.name));
+
     const listCredentials = await ctx.db
       .query("listCredentials")
       .withIndex("by_event", (q) => q.eq("eventId", eventId))
