@@ -43,10 +43,10 @@ export const submitRequest = mutation({
         ""
       : "";
 
-    // Ensure event exists and is upcoming
+    // Ensure event exists and is active
     const event = await ctx.db.get(args.eventId);
     const now = Date.now();
-    if (!event || event.eventDate <= now)
+    if (!event || (event.status && event.status !== "active"))
       throw new Error("Event not available");
 
     // Validate attendees against event's maxAttendees setting
