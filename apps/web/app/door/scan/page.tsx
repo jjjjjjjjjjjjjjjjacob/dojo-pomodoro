@@ -5,14 +5,24 @@ import { Button } from "@/components/ui/button";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@convex/_generated/api";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Camera } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 export default function ScanPage() {
+  const searchParams = useSearchParams();
+  const codeFromUrl = searchParams.get("code");
   const [code, setCode] = useState("");
   const [lastAction, setLastAction] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (codeFromUrl) {
+      setCode(codeFromUrl.toUpperCase());
+      setLastAction("checked");
+    }
+  }, [codeFromUrl]);
 
   const statusQuery = useQuery(
     convexQuery(api.redemptions.validate, code ? { code } : "skip"),
