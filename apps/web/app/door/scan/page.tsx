@@ -62,6 +62,7 @@ export default function ScanPage() {
           await redeem.mutateAsync({ code });
           setLastAction("redeemed");
           setAutoRedeemed(true);
+          await statusQuery.refetch();
           toast.success("Redeemed");
         } catch (error) {
           toast.error("Failed to redeem");
@@ -69,12 +70,12 @@ export default function ScanPage() {
       }
     };
     autoRedeem();
-  }, [status, code, autoRedeemed, lastAction, redeem, isLoading]);
+  }, [status, code, autoRedeemed, lastAction, redeem, isLoading, statusQuery]);
 
   const startScanner = async () => {
     setIsScannerOpen(true);
 
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     try {
       const html5QrCode = new Html5Qrcode(scannerElementId);
@@ -91,7 +92,7 @@ export default function ScanPage() {
 
           try {
             const url = new URL(decodedText);
-            const pathParts = url.pathname.split('/');
+            const pathParts = url.pathname.split("/");
             const lastPart = pathParts[pathParts.length - 1];
             if (lastPart) {
               extractedCode = lastPart;
@@ -152,8 +153,8 @@ export default function ScanPage() {
   return (
     <section className="space-y-3">
       <p className="text-sm">
-        Scan a QR code or enter the redemption code manually. Valid tickets
-        will be automatically redeemed.
+        Scan a QR code or enter the redemption code manually. Valid tickets will
+        be automatically redeemed.
       </p>
 
       <div className="flex gap-2">
@@ -207,7 +208,7 @@ export default function ScanPage() {
           {isLoading && code ? (
             <span className="text-foreground/50">Loading...</span>
           ) : status?.status === "valid" ? (
-            <span className="text-green-600">Valid (Redeeming...)</span>
+            <span className="text-green-600">Valid</span>
           ) : status?.status === "redeemed" ? (
             <span className="text-blue-600">Redeemed ✓</span>
           ) : status?.status === "invalid" ? (
@@ -231,6 +232,7 @@ export default function ScanPage() {
               await unredeem.mutateAsync({ code });
               setLastAction("unredeemed");
               setAutoRedeemed(false);
+              await statusQuery.refetch();
               toast("Un-redeemed");
             }}
           >
@@ -244,3 +246,4 @@ export default function ScanPage() {
     </section>
   );
 }
+
