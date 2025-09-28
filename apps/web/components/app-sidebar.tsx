@@ -29,7 +29,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 
-const navigationItems = [
+export const navigationItems = [
   {
     title: "Overview",
     url: "/host",
@@ -68,7 +68,7 @@ const navigationItems = [
   },
 ];
 
-const quickActions = [
+export const quickActions = [
   {
     title: "New Event",
     url: "/host/new",

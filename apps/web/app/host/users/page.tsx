@@ -114,7 +114,7 @@ export default function UsersPage() {
     const params = new URLSearchParams(searchParams as any);
     params.set("page", "0");
     router.replace(`/host/users?${params.toString()}`, { scroll: false });
-  }, [debouncedSearch, roleFilter, router, searchParams]);
+  }, [debouncedSearch, roleFilter]);
 
   // Check if any filters are active
   const hasActiveFilters =

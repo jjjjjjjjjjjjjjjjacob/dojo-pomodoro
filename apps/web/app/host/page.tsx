@@ -28,6 +28,8 @@ import { CalendarDays, Users, TrendingUp, TicketCheck, DoorOpen } from "lucide-r
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { navigationItems, quickActions } from "@/components/app-sidebar";
+import Link from "next/link";
 
 export default function HostDashboard() {
   const { isSignedIn } = useAuth();
@@ -82,6 +84,10 @@ export default function HostDashboard() {
     },
   };
 
+  const allQuickLinks = [...navigationItems, ...quickActions].filter(
+    (item) => item.url !== "/host"
+  );
+
   return (
     <div className="flex-1 space-y-4">
       {/* Header */}
@@ -92,14 +98,20 @@ export default function HostDashboard() {
             Overview of your events and RSVPs
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.push("/door")}
-        >
-          <DoorOpen className="h-4 w-4 mr-2" />
-          Door Portal
-        </Button>
+      </div>
+
+      {/* Quick Links Section */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        {allQuickLinks.map((item) => (
+          <Link key={item.url} href={item.url}>
+            <Card className="cursor-pointer transition-all hover:shadow-md hover:border-primary/50">
+              <CardContent className="flex flex-col items-center justify-center p-4 text-center gap-2">
+                <item.icon className="h-6 w-6 text-primary" />
+                <span className="text-sm font-medium">{item.title}</span>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
       </div>
 
       {/* Stats Cards */}
