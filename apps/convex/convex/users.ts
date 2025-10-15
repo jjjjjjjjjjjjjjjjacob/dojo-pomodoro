@@ -1,5 +1,14 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, action } from "./functions";
 import { v } from "convex/values";
+import type { UserIdentity } from "convex/server";
+import type { Doc } from "./_generated/dataModel";
+import { api } from "./_generated/api";
+import { createClerkClient } from "@clerk/backend";
+
+type UserIdentityWithRole = UserIdentity & {
+  role?: string;
+  orgId?: string;
+};
 
 export const getAll = query({
   args: {
@@ -51,17 +60,19 @@ export const getAll = query({
         return false;
 
       if (!search) return true;
-      const name = (u.name ?? "").toLowerCase();
+      const firstName = (u.firstName ?? "").toLowerCase();
+      const lastName = (u.lastName ?? "").toLowerCase();
+      const fullName = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim().toLowerCase();
       const phone = (u.phone ?? "").toLowerCase();
-      return name.includes(search) || phone.includes(search);
+      return firstName.includes(search) || lastName.includes(search) || fullName.includes(search) || phone.includes(search);
     });
 
     // Sorting
     const sortBy = args.sortBy ?? "createdAt";
     const sortOrder = args.sortOrder ?? "desc";
-    filtered.sort((a: any, b: any) => {
-      const av = (a as any)[sortBy];
-      const bv = (b as any)[sortBy];
+    filtered.sort((a: Doc<"users">, b: Doc<"users">) => {
+      const av = a[sortBy as keyof Doc<"users">];
+      const bv = b[sortBy as keyof Doc<"users">];
       // Normalize undefined to empty/zero for stable sort
       const aNorm = av ?? (typeof bv === "string" ? "" : 0);
       const bNorm = bv ?? (typeof av === "string" ? "" : 0);
@@ -98,7 +109,6 @@ export const upsertFromClerk = mutation({
     clerkUserId: v.optional(v.string()),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
-    name: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -112,7 +122,6 @@ export const upsertFromClerk = mutation({
       await ctx.db.insert("users", {
         clerkUserId: args.clerkUserId,
         phone: args.phone,
-        name: args.name,
         imageUrl: args.imageUrl,
         createdAt: now,
         updatedAt: now,
@@ -121,7 +130,6 @@ export const upsertFromClerk = mutation({
     } else {
       await ctx.db.patch(existing._id, {
         phone: args.phone ?? existing.phone,
-        name: args.name ?? existing.name,
         imageUrl: args.imageUrl ?? existing.imageUrl,
         updatedAt: now,
       });
@@ -142,7 +150,8 @@ export const getByClerkUser = query({
 
 export const updateProfileMeta = mutation({
   args: {
-    name: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
   },
   handler: async (ctx, args) => {
@@ -157,7 +166,8 @@ export const updateProfileMeta = mutation({
       await ctx.db.insert("users", {
         clerkUserId: identity.subject,
         phone: identity.phoneNumber ?? undefined,
-        name: args.name,
+        firstName: args.firstName,
+        lastName: args.lastName,
         imageUrl: identity.pictureUrl ?? undefined,
         metadata: args.metadata ?? undefined,
         createdAt: now,
@@ -167,7 +177,8 @@ export const updateProfileMeta = mutation({
     }
     const mergedMeta = { ...(user.metadata ?? {}), ...(args.metadata ?? {}) };
     await ctx.db.patch(user._id, {
-      name: args.name ?? user.name,
+      firstName: args.firstName ?? user.firstName,
+      lastName: args.lastName ?? user.lastName,
       metadata: mergedMeta,
       updatedAt: now,
     });
@@ -179,7 +190,6 @@ export const updateProfileMeta = mutation({
 export const create = mutation({
   args: {
     clerkUserId: v.string(),
-    name: v.optional(v.string()),
     phone: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.string())),
@@ -189,7 +199,6 @@ export const create = mutation({
     const userId = await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
       phone: args.phone,
-      name: args.name,
       imageUrl: args.imageUrl,
       metadata: args.metadata,
       createdAt: now,
@@ -239,7 +248,6 @@ export const listOrganizationUsers = query({
       return {
         _id: user._id,
         clerkUserId: user.clerkUserId,
-        name: user.name,
         firstName: user.firstName,
         lastName: user.lastName,
         imageUrl: user.imageUrl,
@@ -267,7 +275,7 @@ export const promoteUserToOrganization = mutation({
     }
 
     // Check if current user is admin using Clerk role
-    const userRole = (identity as any).role;
+    const userRole = (identity as UserIdentityWithRole).role;
     const hasAdminRole = userRole === "org:admin";
     if (!hasAdminRole) {
       throw new Error("Only admins can promote users");
@@ -305,7 +313,7 @@ export const promoteUserToOrganization = mutation({
     const orgId =
       organizationId ||
       currentUserMembership?.organizationId ||
-      (identity as any).orgId ||
+      (identity as UserIdentityWithRole).orgId ||
       "default-org";
 
     // Validate clerkUserId exists
@@ -338,7 +346,7 @@ export const updateUserRole = mutation({
     }
 
     // Check if current user is admin using Clerk role
-    const role = (identity as any).role;
+    const role = (identity as UserIdentityWithRole).role;
     const hasAdminRole = role === "org:admin";
     if (!hasAdminRole) {
       throw new Error("Only admins can change user roles");
@@ -377,7 +385,7 @@ export const updateUserRole = mutation({
       // User doesn't have membership yet, create one (promote from guest)
       const orgId =
         currentUserMembership?.organizationId ||
-        (identity as any).orgId ||
+        (identity as UserIdentityWithRole).orgId ||
         "default-org";
       await ctx.db.insert("orgMemberships", {
         clerkUserId: targetUser.clerkUserId,
@@ -395,6 +403,98 @@ export const updateUserRole = mutation({
     }
 
     return { success: true };
+  },
+});
+
+export const listOrganizationUsersPaginated = query({
+  args: {
+    pageIndex: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+    search: v.optional(v.string()),
+    roleFilter: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const pageIndex = args.pageIndex ?? 0;
+    const pageSize = Math.min(args.pageSize ?? 10, 100); // Limit max page size to 100
+
+    // Get all users and their org memberships
+    const users = await ctx.db.query("users").collect();
+    const orgMemberships = await ctx.db.query("orgMemberships").collect();
+
+    // Include ALL users, with role as "guest" if no membership
+    let usersWithRoles = users.map((user) => {
+      const membership = orgMemberships.find(
+        (m) => m.clerkUserId === user.clerkUserId,
+      );
+
+      return {
+        _id: user._id,
+        clerkUserId: user.clerkUserId,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        imageUrl: user.imageUrl,
+        createdAt: user.createdAt,
+        role: membership?.role || "guest",
+        organizationId: membership?.organizationId || null,
+        hasOrganizationMembership: !!membership,
+      };
+    });
+
+    // Apply search filter
+    const searchTerm = args.search?.trim().toLowerCase();
+    if (searchTerm) {
+      usersWithRoles = usersWithRoles.filter((user) => {
+        const firstName = (user.firstName || "").toLowerCase();
+        const lastName = (user.lastName || "").toLowerCase();
+        const fullName = `${firstName} ${lastName}`.trim().toLowerCase();
+        const role = (user.role || "").toLowerCase();
+
+        return (
+          firstName.includes(searchTerm) ||
+          lastName.includes(searchTerm) ||
+          fullName.includes(searchTerm) ||
+          role.includes(searchTerm)
+        );
+      });
+    }
+
+    // Apply role filter
+    if (args.roleFilter && args.roleFilter !== "all") {
+      usersWithRoles = usersWithRoles.filter(
+        (user) => user.role === args.roleFilter,
+      );
+    }
+
+    // Sort by creation date (newest first) to match original behavior
+    const sortedUsers = usersWithRoles.sort((a, b) => b.createdAt - a.createdAt);
+
+    // Calculate pagination
+    const totalCount = sortedUsers.length;
+    const startIndex = pageIndex * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedUsers = sortedUsers.slice(startIndex, endIndex);
+
+    const hasNextPage = endIndex < totalCount;
+    const hasPreviousPage = pageIndex > 0;
+
+    return {
+      users: paginatedUsers,
+      pagination: {
+        pageIndex,
+        pageSize,
+        totalCount,
+        totalPages: Math.ceil(totalCount / pageSize),
+        hasNextPage,
+        hasPreviousPage,
+        startIndex: startIndex + 1,
+        endIndex: Math.min(endIndex, totalCount),
+      },
+    };
   },
 });
 
@@ -426,5 +526,139 @@ export const getUserStats = query({
     };
 
     return roleStats;
+  },
+});
+
+export const promoteUserToOrganizationWithClerk = action({
+  args: {
+    userId: v.id("users"),
+    role: v.string(),
+    organizationId: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, role, organizationId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const userRole = (identity as UserIdentityWithRole).role;
+    const hasAdminRole = userRole === "org:admin";
+    if (!hasAdminRole) {
+      throw new Error("Only admins can promote users");
+    }
+
+    const targetUser = await ctx.runQuery(api.users.getByClerkUser, {
+      clerkUserId: (
+        await ctx.runQuery(api.users.getById, { userId })
+      ).clerkUserId!,
+    });
+
+    if (!targetUser || !targetUser.clerkUserId) {
+      throw new Error("User not found or missing Clerk ID");
+    }
+
+    let clerkOrgId = organizationId;
+    if (!clerkOrgId) {
+      const currentUserMemberships = await ctx.runQuery(
+        api.orgMemberships.listForUser,
+        { clerkUserId: identity.subject },
+      );
+      if (currentUserMemberships.length === 0) {
+        throw new Error("Current user has no organization membership");
+      }
+      clerkOrgId = currentUserMemberships[0].organizationId;
+    }
+
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      throw new Error("CLERK_SECRET_KEY not configured");
+    }
+
+    const clerkRole = role === "admin" ? "org:admin" : "org:member";
+
+    const clerk = createClerkClient({ secretKey: clerkSecretKey });
+    await clerk.organizations.createOrganizationMembership({
+      organizationId: clerkOrgId,
+      userId: targetUser.clerkUserId,
+      role: clerkRole,
+    });
+
+    await ctx.runMutation(api.users.promoteUserToOrganization, {
+      userId,
+      role,
+      organizationId: clerkOrgId,
+    });
+
+    return { success: true };
+  },
+});
+
+export const updateUserRoleWithClerk = action({
+  args: {
+    userId: v.id("users"),
+    newRole: v.string(),
+  },
+  handler: async (ctx, { userId, newRole }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const userRole = (identity as UserIdentityWithRole).role;
+    const hasAdminRole = userRole === "org:admin";
+    if (!hasAdminRole) {
+      throw new Error("Only admins can change user roles");
+    }
+
+    const targetUser = await ctx.runQuery(api.users.getByClerkUser, {
+      clerkUserId: (
+        await ctx.runQuery(api.users.getById, { userId })
+      ).clerkUserId!,
+    });
+
+    if (!targetUser || !targetUser.clerkUserId) {
+      throw new Error("User not found or missing Clerk ID");
+    }
+
+    const currentUserMemberships = await ctx.runQuery(
+      api.orgMemberships.listForUser,
+      { clerkUserId: identity.subject },
+    );
+    if (currentUserMemberships.length === 0) {
+      throw new Error("Current user has no organization membership");
+    }
+    const clerkOrgId = currentUserMemberships[0].organizationId;
+
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      throw new Error("CLERK_SECRET_KEY not configured");
+    }
+
+    const clerkRole = newRole === "admin" ? "org:admin" : "org:member";
+
+    const clerk = createClerkClient({ secretKey: clerkSecretKey });
+    await clerk.organizations.updateOrganizationMembership({
+      organizationId: clerkOrgId,
+      userId: targetUser.clerkUserId,
+      role: clerkRole,
+    });
+
+    await ctx.runMutation(api.users.updateUserRole, {
+      userId,
+      newRole,
+    });
+
+    return { success: true };
+  },
+});
+
+export const getById = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    return user;
   },
 });

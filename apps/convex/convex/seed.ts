@@ -170,7 +170,6 @@ export const seedTestRSVPs = action({
         // Insert user record
         await ctx.runMutation(api.users.create, {
           clerkUserId,
-          name,
           phone,
           metadata,
         });
@@ -236,7 +235,7 @@ export const clearTestData = action({
     for (const rsvp of rsvps) {
       try {
         // Delete related redemptions
-        await ctx.runMutation(api.redemptions.deleteForRSVP, { rsvpId: rsvp._id });
+        await ctx.runMutation(api.redemptions.deleteForRSVP, { rsvpId: rsvp.id });
 
         // Delete the RSVP
         await ctx.runMutation(api.rsvps.deleteRSVP, { rsvpId: rsvp.id });
@@ -248,7 +247,7 @@ export const clearTestData = action({
 
         deletedCount++;
       } catch (error) {
-        console.error(`Error deleting RSVP ${rsvp._id}:`, error);
+        console.error(`Error deleting RSVP ${rsvp.id}:`, error);
       }
     }
 

@@ -1,14 +1,25 @@
 "use client";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useConvexMutation } from "@convex-dev/react-query";
+import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +29,16 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+} from "@/components/ui/context-menu";
 import QRCode from "react-qr-code";
 import {
   Dialog,
@@ -25,7 +46,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -59,6 +79,11 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
+  ExternalLink,
+  Link,
+  Download,
+  Share,
+  Eye,
 } from "lucide-react";
 import {
   ColumnDef,
@@ -69,17 +94,14 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { cn } from "@/lib/utils";
+import { cn, sanitizeFieldValue } from "@/lib/utils";
 
 export default function RsvpsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Convert to TanStack Query
-  const eventsQuery = useQuery({
-    ...convexQuery(api.events.listAll, {}),
-  });
-  const events = eventsQuery.data;
+  // Use Convex queries
+  const events = useQuery(api.events.listAll, {});
   const eventsSorted = (events ?? [])
     .slice()
     .sort((a: any, b: any) => (b.eventDate ?? 0) - (a.eventDate ?? 0));
@@ -90,37 +112,120 @@ export default function RsvpsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsSorted.map((event: any) => event._id).join(","), eventId]);
 
+  /*
   React.useEffect(() => {
     if (!eventId) return;
-    const params = new URLSearchParams(searchParams as any);
-    params.set("eventId", eventId);
-    router.replace(`/host/rsvps?${params.toString()}`);
+    const currentEventId = searchParams.get("eventId");
+    if (currentEventId !== eventId) {
+      const params = new URLSearchParams(searchParams as any);
+      params.set("eventId", eventId);
+      router.replace(`/host/rsvps?${params.toString()}`, { scroll: false });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
+  */
 
-  const rsvpsQuery = useQuery({
-    ...convexQuery(
-      api.rsvps.listForEvent,
-      eventId ? { eventId: eventId as Id<"events"> } : "skip"
-    ),
-  });
-  const rsvps = rsvpsQuery.data;
+  // Cursor-based pagination state with history for Previous button
+  const [cursor, setCursor] = React.useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = React.useState<(string | null)[]>(
+    [],
+  );
+  const pageSize = parseInt(searchParams.get("pageSize") || "20");
 
-  const currentEventQuery = useQuery({
-    ...convexQuery(
-      api.events.get,
-      eventId ? { eventId: eventId as Id<"events"> } : "skip"
-    ),
-  });
-  const currentEvent = currentEventQuery.data;
+  // Filter state - moved before useQuery to avoid uninitialized variable error
+  const [guestSearch, setGuestSearch] = React.useState("");
+  const debouncedGuest = useDebounce(guestSearch, 250);
+  const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [listFilter, setListFilter] = React.useState<string>("all");
+  const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
 
-  const listCredentialsQuery = useQuery({
-    ...convexQuery(
-      api.credentials.getCredsForEvent,
-      eventId ? { eventId: eventId as Id<"events"> } : "skip"
-    ),
-  });
-  const listCredentials = listCredentialsQuery.data;
+  // Reset cursor and history when filters change
+  React.useEffect(() => {
+    setCursor(null);
+    setCursorHistory([]);
+  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter]);
+
+  const rsvpsPaginated = useQuery(
+    api.rsvps.listForEventPaginated,
+    eventId
+      ? {
+          eventId: eventId as Id<"events">,
+          ...(cursor && { cursor }),
+          pageSize,
+          guestSearch: debouncedGuest,
+          statusFilter,
+          listFilter,
+          redemptionFilter,
+        }
+      : "skip",
+  );
+
+  // Get total count using the aggregate-based count query
+  const totalCount = useQuery(
+    api.rsvps.countForEventFiltered,
+    eventId
+      ? {
+          eventId: eventId as Id<"events">,
+          guestSearch: debouncedGuest,
+          statusFilter,
+          listFilter,
+          redemptionFilter,
+        }
+      : "skip",
+  );
+
+  // Extract the page data
+  const rsvps = React.useMemo(
+    () => rsvpsPaginated?.page || [],
+    [rsvpsPaginated?.page],
+  );
+
+  const currentEvent = useQuery(
+    api.events.get,
+    eventId ? { eventId: eventId as Id<"events"> } : "skip",
+  );
+
+  const listCredentials = useQuery(
+    api.credentials.getCredsForEvent,
+    eventId ? { eventId: eventId as Id<"events"> } : "skip",
+  );
+
+  const [exportOptionsOpen, setExportOptionsOpen] = React.useState(false);
+  const [selectedListsForExport, setSelectedListsForExport] = React.useState<
+    string[]
+  >([]);
+  const [includeAttendees, setIncludeAttendees] = React.useState(true);
+  const [includeNote, setIncludeNote] = React.useState(true);
+  const [includeCustomFields, setIncludeCustomFields] = React.useState(true);
+
+  React.useEffect(() => {
+    if (listCredentials && selectedListsForExport.length === 0) {
+      setSelectedListsForExport(
+        listCredentials.map((cred) => cred.listKey) || [],
+      );
+    }
+  }, [listCredentials, selectedListsForExport.length]);
+
+  const exportData = useQuery(
+    api.exports.exportRsvpsCsv,
+    eventId && selectedListsForExport.length > 0 && exportOptionsOpen
+      ? {
+          eventId: eventId as Id<"events">,
+          listKeys: selectedListsForExport,
+          includeAttendees,
+          includeNote,
+          includeCustomFields,
+          exportTimestamp: new Date().toLocaleString("en-US", {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          }),
+        }
+      : "skip",
+  );
   // Convert mutations to TanStack Query
   const approveMutation = useMutation({
     mutationFn: useConvexMutation(api.approvals.approve),
@@ -143,14 +248,23 @@ export default function RsvpsPage() {
   const deleteRsvpCompleteMutation = useMutation({
     mutationFn: useConvexMutation(api.rsvps.deleteRsvpComplete),
   });
+
+  // Bulk mutations
+  const bulkUpdateListKeyMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkUpdateListKey),
+  });
+  const bulkUpdateApprovalMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkUpdateApproval),
+  });
+  const bulkUpdateTicketStatusMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkUpdateTicketStatus),
+  });
+  const bulkDeleteRsvpsMutation = useMutation({
+    mutationFn: useConvexMutation(api.rsvps.bulkDeleteRsvps),
+  });
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
   ]);
-  const [guestSearch, setGuestSearch] = React.useState("");
-  const debouncedGuest = useDebounce(guestSearch, 250);
-  const [statusFilter, setStatusFilter] = React.useState<string>("all");
-  const [listFilter, setListFilter] = React.useState<string>("all");
-  const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
   const [pendingChanges, setPendingChanges] = React.useState<
     Record<
       string,
@@ -170,60 +284,176 @@ export default function RsvpsPage() {
     listKey?: string;
   } | null>(null);
 
+  // Selection state management (basic state only)
+  const [selectedRows, setSelectedRows] = React.useState<Set<string>>(
+    new Set(),
+  );
+  const [previousSelection, setPreviousSelection] =
+    React.useState<Set<string> | null>(null);
+
+  // Loading state tracking for individual row updates
+  const [loadingListUpdates, setLoadingListUpdates] = React.useState<
+    Set<string>
+  >(new Set());
+  const [loadingApprovalUpdates, setLoadingApprovalUpdates] = React.useState<
+    Set<string>
+  >(new Set());
+  const [loadingTicketUpdates, setLoadingTicketUpdates] = React.useState<
+    Set<string>
+  >(new Set());
+
+  // Monitor loading states for overall feedback
+  React.useEffect(() => {
+    const totalLoading =
+      loadingListUpdates.size +
+      loadingApprovalUpdates.size +
+      loadingTicketUpdates.size;
+
+    if (totalLoading > 0) {
+      // Could add a persistent loading indicator here if needed
+      // For now, the individual toasts and spinners provide sufficient feedback
+    }
+  }, [loadingListUpdates, loadingApprovalUpdates, loadingTicketUpdates]);
+
+  // Normalize a field key for metadata lookup
+  const normalizeFieldKey = (key: string): string => {
+    return key
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "") // Remove all non-alphanumeric characters
+      .trim();
+  };
+
   // Generate dynamic custom field columns
   const customFieldColumns = React.useMemo(() => {
     if (!currentEvent?.customFields) return [];
 
     return currentEvent.customFields.map((field) => ({
       id: `custom_${field.key}`,
-      header: field.label,
-      accessorFn: (r: any) => r.metadata?.[field.key] || "",
+      header: field.label.replace(/:\s*$/, "").trim(), // Remove trailing colon and spaces
+      accessorFn: (r: any) => {
+        if (!r.metadata) return "";
+
+        // Try exact match first
+        if (r.metadata[field.key]) {
+          return r.metadata[field.key];
+        }
+
+        // Try normalized key
+        const normalizedKey = normalizeFieldKey(field.key);
+
+        // Check all metadata keys for a normalized match
+        for (const [metaKey, metaValue] of Object.entries(r.metadata)) {
+          if (normalizeFieldKey(metaKey) === normalizedKey) {
+            return metaValue;
+          }
+        }
+
+        return "";
+      },
       cell: ({ getValue }: any) => {
-        const value = getValue() as string;
+        const rawValue = getValue() as string;
+        const hasPrependUrl = !!field.prependUrl;
         const isCopyEnabled = field.copyEnabled;
 
         const handleCopyClick = async () => {
-          if (!isCopyEnabled || !value || value === "-") return;
+          if (!rawValue || rawValue === "-") return;
 
           try {
-            await navigator.clipboard.writeText(value);
-            toast.success(`Copied: ${value}`);
+            await navigator.clipboard.writeText(rawValue);
+            toast.success(`Copied: ${rawValue}`);
           } catch (err) {
             toast.error("Failed to copy to clipboard");
           }
         };
 
-        if (!isCopyEnabled || !value || value === "-") {
-          return <span className="truncate max-w-32">{value || "-"}</span>;
+        const handleCopyFullUrl = async (fullUrl: string) => {
+          try {
+            await navigator.clipboard.writeText(fullUrl);
+            toast.success(`Copied URL: ${fullUrl}`);
+          } catch (err) {
+            toast.error("Failed to copy URL to clipboard");
+          }
+        };
+
+        // Handle fields with prependUrl
+        if (hasPrependUrl && rawValue && rawValue !== "-") {
+          const sanitizedValue = sanitizeFieldValue(rawValue, field.key);
+          const fullUrl = `${field.prependUrl}${sanitizedValue}`;
+
+          return (
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  className="flex items-center gap-1 cursor-pointer group hover:bg-muted/50 rounded px-2 py-1 -mx-2 -my-1"
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent row selection
+                    window.open(fullUrl, "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  <span className="truncate max-w-32 group-hover:underline">
+                    {rawValue}
+                  </span>
+                  <ExternalLink className="h-3 w-3 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  onClick={() =>
+                    window.open(fullUrl, "_blank", "noopener,noreferrer")
+                  }
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Open in new tab
+                </ContextMenuItem>
+                {isCopyEnabled && (
+                  <ContextMenuItem onClick={handleCopyClick}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy value
+                  </ContextMenuItem>
+                )}
+                <ContextMenuItem onClick={() => handleCopyFullUrl(fullUrl)}>
+                  <Link className="h-4 w-4 mr-2" />
+                  Copy full URL
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          );
         }
 
-        return (
-          <div
-            className={cn(
-              "flex items-center justify-between w-full group cursor-pointer transition-colors duration-150 rounded px-2 py-1 -mx-2 -my-1",
-            )}
-            onClick={handleCopyClick}
-          >
-            <span className="truncate max-w-32">{value}</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 bg-muted transition-opacity duration-150 ml-2 flex-shrink-0" />
-              </TooltipTrigger>
-              <TooltipContent
-                align="center"
-                variant="secondary"
-                className="py-1 px-2 z-10"
-              >
-                copy
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        );
+        // Handle regular copy-enabled fields
+        if (isCopyEnabled && rawValue && rawValue !== "-") {
+          return (
+            <div
+              className={cn(
+                "flex items-center justify-between w-full group cursor-pointer transition-colors duration-150 rounded px-2 py-1 -mx-2 -my-1",
+              )}
+              onClick={handleCopyClick}
+            >
+              <span className="truncate max-w-32">{rawValue}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 bg-muted transition-opacity duration-150 ml-2 flex-shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent
+                  align="center"
+                  variant="secondary"
+                  className="py-1 px-2 z-10"
+                >
+                  copy
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          );
+        }
+
+        // Handle regular fields without special functionality
+        return <span className="truncate max-w-32">{rawValue || "-"}</span>;
       },
     }));
   }, [currentEvent?.customFields]);
 
-  const cols = React.useMemo<ColumnDef<any>[]>(
+  // Create base columns without selection functionality first
+  const baseCols = React.useMemo<ColumnDef<any>[]>(
     () => [
       {
         id: "guest",
@@ -232,7 +462,6 @@ export default function RsvpsPage() {
           const displayName = `${r.firstName || ""} ${r.lastName || ""}`.trim();
           return (
             displayName ||
-            r.name ||
             r.contact?.email ||
             r.contact?.phone ||
             "(no contact)"
@@ -253,6 +482,9 @@ export default function RsvpsPage() {
           const availableListKeys =
             listCredentials?.map((cred) => cred.listKey) || [];
 
+          // Use shared loading state for this row
+          const isUpdatingList = loadingListUpdates.has(rsvp.id);
+
           const handleListKeyChange = async (newListKey: string) => {
             if (newListKey === currentListKey) return;
 
@@ -261,10 +493,15 @@ export default function RsvpsPage() {
               `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
             const guestName =
               displayName ||
-              rsvp.name ||
               rsvp.contact?.email ||
               rsvp.contact?.phone ||
               "Guest";
+
+            // Add to loading state
+            setLoadingListUpdates((prev) => new Set(prev).add(rsvp.id));
+
+            // Show updating toast for single update
+            toast.info(`Updating ${guestName}'s list...`);
 
             updateRsvpListKeyMutation.mutate(
               {
@@ -276,14 +513,26 @@ export default function RsvpsPage() {
                   toast.success(
                     `Changed ${guestName}'s list to '${newListKey.toUpperCase()}'`,
                   );
+                  // Remove from loading state
+                  setLoadingListUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
                 },
                 onError: (error) => {
                   toast.error(
                     `Failed to update ${guestName}'s list: ` +
                       (error as Error).message,
                   );
+                  // Remove from loading state
+                  setLoadingListUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
                 },
-              }
+              },
             );
           };
 
@@ -299,12 +548,10 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className="h-6 px-2 text-xs"
-                  disabled={updateRsvpListKeyMutation.isPending}
+                  disabled={isUpdatingList}
                 >
-                  {updateRsvpListKeyMutation.isPending && (
-                    <Spinner className="mr-1 h-3 w-3" />
-                  )}
-                  {currentListKey?.toUpperCase()}
+                  {isUpdatingList && <Spinner className="mr-1 h-3 w-3" />}
+                  {!isUpdatingList && currentListKey?.toUpperCase()}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
@@ -363,6 +610,9 @@ export default function RsvpsPage() {
           const originalApprovalStatus = rsvp.status || "pending";
           const currentApprovalStatus = originalApprovalStatus;
 
+          // Use shared loading state for this row
+          const isUpdatingApproval = loadingApprovalUpdates.has(rsvp.id);
+
           const handleStatusChange = async (newStatus: string) => {
             if (newStatus === originalApprovalStatus) return;
 
@@ -371,10 +621,15 @@ export default function RsvpsPage() {
               `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
             const guestName =
               displayName ||
-              rsvp.name ||
               rsvp.contact?.email ||
               rsvp.contact?.phone ||
               "Guest";
+
+            // Add to loading state
+            setLoadingApprovalUpdates((prev) => new Set(prev).add(rsvp.id));
+
+            // Show updating toast for single update
+            toast.info(`Updating ${guestName}'s approval status...`);
 
             updateRsvpCompleteMutation.mutate(
               {
@@ -385,27 +640,41 @@ export default function RsvpsPage() {
                 onSuccess: () => {
                   const statusText =
                     newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
-                  toast.success(`Changed ${guestName}'s RSVP to '${statusText}'`);
+                  toast.success(
+                    `Changed ${guestName}'s RSVP to '${statusText}'`,
+                  );
+                  // Remove from loading state
+                  setLoadingApprovalUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
                 },
                 onError: (error) => {
                   toast.error(
                     `Failed to update ${guestName}'s approval status: ` +
                       (error as Error).message,
                   );
+                  // Remove from loading state
+                  setLoadingApprovalUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
                 },
-              }
+              },
             );
           };
 
           const getStatusColor = (currentStatus: string) => {
             switch (currentStatus) {
               case "approved":
-                return "text-green-700 border-green-200 bg-green-50";
+                return "text-green-700 border-green-200 bg-green-50 hover:bg-green-10 hover:text-green-700";
               case "denied":
-                return "text-red-700 border-red-200 bg-red-50";
+                return "text-red-700 border-red-200 bg-red-50 hover:bg-red-10 hover:text-red-700";
               case "pending":
               default:
-                return "text-amber-700 border-amber-200 bg-amber-50";
+                return "text-amber-700 border-amber-200 bg-amber-50 hover:bg-amber-10 hover:text-amber-700";
             }
           };
 
@@ -416,13 +685,12 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className={cn(getStatusColor(currentApprovalStatus))}
-                  disabled={updateRsvpCompleteMutation.isPending}
+                  disabled={isUpdatingApproval}
                 >
-                  {updateRsvpCompleteMutation.isPending && (
-                    <Spinner className="mr-1 h-3 w-3" />
-                  )}
-                  {currentApprovalStatus.charAt(0).toUpperCase() +
-                    currentApprovalStatus.slice(1)}
+                  {isUpdatingApproval && <Spinner className="mr-1 h-3 w-3" />}
+                  {!isUpdatingApproval &&
+                    currentApprovalStatus.charAt(0).toUpperCase() +
+                      currentApprovalStatus.slice(1)}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
@@ -458,6 +726,9 @@ export default function RsvpsPage() {
           const currentTicketStatus = originalTicketStatus;
           const isRedeemed = originalTicketStatus === "redeemed";
 
+          // Use shared loading state for this row
+          const isUpdatingTicket = loadingTicketUpdates.has(rsvp.id);
+
           const handleTicketStatusChange = async (newStatus: string) => {
             if (isRedeemed) return; // Cannot change redeemed status
             if (newStatus === originalTicketStatus) return;
@@ -467,10 +738,15 @@ export default function RsvpsPage() {
               `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
             const guestName =
               displayName ||
-              rsvp.name ||
               rsvp.contact?.email ||
               rsvp.contact?.phone ||
               "Guest";
+
+            // Add to loading state
+            setLoadingTicketUpdates((prev) => new Set(prev).add(rsvp.id));
+
+            // Show updating toast for single update
+            toast.info(`Updating ${guestName}'s ticket status...`);
 
             updateRsvpCompleteMutation.mutate(
               {
@@ -480,26 +756,40 @@ export default function RsvpsPage() {
               {
                 onSuccess: () => {
                   const statusText = getTicketStatusLabel(newStatus);
-                  toast.success(`Changed ${guestName}'s ticket to '${statusText}'`);
+                  toast.success(
+                    `Changed ${guestName}'s ticket to '${statusText}'`,
+                  );
+                  // Remove from loading state
+                  setLoadingTicketUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
                 },
                 onError: (error) => {
                   toast.error(
                     `Failed to update ${guestName}'s ticket status: ` +
                       (error as Error).message,
                   );
+                  // Remove from loading state
+                  setLoadingTicketUpdates((prev) => {
+                    const next = new Set(prev);
+                    next.delete(rsvp.id);
+                    return next;
+                  });
                 },
-              }
+              },
             );
           };
 
           const getTicketStatusColor = (status: string) => {
             switch (status) {
               case "issued":
-                return "text-purple-700 border-purple-200 bg-purple-50";
+                return "text-purple-700 border-purple-200 bg-purple-50 hover:bg-purple-10 hover:text-purple-700";
               case "redeemed":
-                return "text-blue-700 border-blue-200 bg-blue-50";
+                return "text-blue-700 border-blue-200 bg-blue-50 hover:text-blue-700 hover:bg-blue-10";
               case "disabled":
-                return "text-red-700 border-red-200 bg-red-50";
+                return "text-red-700 border-red-200 bg-red-50 hover:bg-red-10 hover:text-red-700";
               case "not-issued":
               default:
                 return "text-gray-700 border-gray-200 bg-gray-50";
@@ -527,12 +817,11 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className={cn(getTicketStatusColor(currentTicketStatus))}
-                  disabled={isRedeemed || updateRsvpCompleteMutation.isPending}
+                  disabled={isRedeemed || isUpdatingTicket}
                 >
-                  {updateRsvpCompleteMutation.isPending && (
-                    <Spinner className="mr-1 h-3 w-3" />
-                  )}
-                  {getTicketStatusLabel(currentTicketStatus)}
+                  {isUpdatingTicket && <Spinner className="mr-1 h-3 w-3" />}
+                  {!isUpdatingTicket &&
+                    getTicketStatusLabel(currentTicketStatus)}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
@@ -620,7 +909,7 @@ export default function RsvpsPage() {
                     "Failed to save changes: " + (error as Error).message,
                   );
                 },
-              }
+              },
             );
           };
 
@@ -639,9 +928,11 @@ export default function RsvpsPage() {
                   toast.success("RSVP deleted successfully");
                 },
                 onError: (error) => {
-                  toast.error("Failed to delete RSVP: " + (error as Error).message);
+                  toast.error(
+                    "Failed to delete RSVP: " + (error as Error).message,
+                  );
                 },
-              }
+              },
             );
           };
 
@@ -694,59 +985,22 @@ export default function RsvpsPage() {
       deleteRsvpCompleteMutation,
       updateRsvpListKeyMutation,
       customFieldColumns,
+      loadingListUpdates,
+      loadingApprovalUpdates,
+      loadingTicketUpdates,
     ],
   );
 
-  const filtered = React.useMemo(() => {
-    let result = (rsvps ?? []) as any[];
+  // Filtering is now handled by the backend
 
-    // Apply guest search filter
-    const query = debouncedGuest.trim().toLowerCase();
-    if (query) {
-      result = result.filter((rsvp: any) => {
-        const name = (rsvp.name ?? "").toLowerCase();
-        const email = (rsvp.contact?.email ?? "").toLowerCase();
-        const phone = (rsvp.contact?.phone ?? "").toLowerCase();
-        return (
-          name.includes(query) || email.includes(query) || phone.includes(query)
-        );
-      });
-    }
-
-    // Apply status filter
-    if (statusFilter !== "all") {
-      result = result.filter((rsvp: any) => rsvp.status === statusFilter);
-    }
-
-    // Apply list filter
-    if (listFilter !== "all") {
-      result = result.filter((rsvp: any) => rsvp.listKey === listFilter);
-    }
-
-    // Apply redemption filter
-    if (redemptionFilter !== "all") {
-      if (redemptionFilter === "not-issued") {
-        result = result.filter((rsvp: any) => rsvp.redemptionStatus === "none");
-      } else {
-        result = result.filter(
-          (rsvp: any) => rsvp.redemptionStatus === redemptionFilter,
-        );
-      }
-    }
-
-    return result;
-  }, [rsvps, debouncedGuest, statusFilter, listFilter, redemptionFilter]);
-
-  // Get unique values for filter dropdowns
+  // Get unique values for filter dropdowns - use all available options, not just filtered results
   const uniqueListKeys = React.useMemo(() => {
-    const lists = new Set((rsvps ?? []).map((rsvp: any) => rsvp.listKey));
-    return Array.from(lists).sort();
-  }, [rsvps]);
+    return listCredentials?.map((cred) => cred.listKey).sort() || [];
+  }, [listCredentials]);
 
   const uniqueStatuses = React.useMemo(() => {
-    const statuses = new Set((rsvps ?? []).map((rsvp: any) => rsvp.status));
-    return Array.from(statuses).sort();
-  }, [rsvps]);
+    return ["pending", "approved", "denied", "attending"];
+  }, []);
 
   // Clear all filters function
   const clearAllFilters = () => {
@@ -763,24 +1017,464 @@ export default function RsvpsPage() {
     listFilter !== "all" ||
     redemptionFilter !== "all";
 
+  // Selection handlers (basic implementations, will be updated after table creation)
+  const toggleSelectRow = React.useCallback(
+    (rsvpId: string) => {
+      const newSelectedRows = new Set(selectedRows);
+      if (newSelectedRows.has(rsvpId)) {
+        newSelectedRows.delete(rsvpId);
+      } else {
+        newSelectedRows.add(rsvpId);
+      }
+      setSelectedRows(newSelectedRows);
+    },
+    [selectedRows],
+  );
+
+  // Clear selection when filters change or page changes
+  React.useEffect(() => {
+    setSelectedRows(new Set());
+  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter, cursor]);
+
+  // Calculate pagination info for cursor-based pagination
+  const currentPage = cursorHistory.length + 1;
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(
+    currentPage * pageSize,
+    startItem + (rsvps?.length || 0) - 1,
+  );
+
+  // Navigation handlers for cursor-based pagination
+  const goToNextPage = React.useCallback(() => {
+    if (rsvpsPaginated?.nextCursor && !rsvpsPaginated.isDone) {
+      // Always save current cursor to history before moving to next (even if null)
+      setCursorHistory((prev) => [...prev, cursor]);
+      setCursor(rsvpsPaginated.nextCursor);
+    }
+  }, [rsvpsPaginated?.nextCursor, rsvpsPaginated?.isDone, cursor]);
+
+  const goToPreviousPage = React.useCallback(() => {
+    if (cursorHistory.length > 0) {
+      // Get the previous cursor from history
+      const previousCursor = cursorHistory[cursorHistory.length - 1];
+      // Remove it from history
+      setCursorHistory((prev) => prev.slice(0, -1));
+      // Set as current cursor
+      setCursor(previousCursor);
+    } else {
+      // Go to first page if no history
+      setCursor(null);
+    }
+  }, [cursorHistory]);
+
+  // Bulk action handlers
+  const handleBulkListChange = async (newListKey: string) => {
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    const count = selectedRsvps.length;
+
+    if (count === 0) return;
+
+    // Add all selected IDs to loading state
+    setLoadingListUpdates((prev) => {
+      const next = new Set(prev);
+      selectedRsvps.forEach((rsvp) => next.add(rsvp.id));
+      return next;
+    });
+
+    // Show updating toast
+    toast.info(`Updating ${count} RSVPs...`);
+
+    // Execute bulk update in single mutation
+    const updates = selectedRsvps.map((rsvp: any) => ({
+      rsvpId: rsvp.id,
+      listKey: newListKey,
+    }));
+
+    try {
+      const result = await bulkUpdateListKeyMutation.mutateAsync({ updates });
+
+      if (result.failed > 0) {
+        toast.warning(
+          `Updated ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`,
+        );
+      } else {
+        toast.success(
+          `Changed list to '${newListKey.toUpperCase()}' for ${count} RSVPs`,
+        );
+      }
+
+      setSelectedRows(new Set());
+      // Clear loading state
+      setLoadingListUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    } catch (error) {
+      toast.error(`Failed to update list: ${(error as Error).message}`);
+      // Clear loading state on error
+      setLoadingListUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkApprovalChange = async (newStatus: string) => {
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    const count = selectedRsvps.length;
+
+    if (count === 0) return;
+
+    // Add all selected IDs to loading state
+    setLoadingApprovalUpdates((prev) => {
+      const next = new Set(prev);
+      selectedRsvps.forEach((rsvp) => next.add(rsvp.id));
+      return next;
+    });
+
+    // Show updating toast
+    toast.info(`Updating ${count} RSVPs...`);
+
+    // Execute bulk update in single mutation
+    const updates = selectedRsvps.map((rsvp: any) => ({
+      rsvpId: rsvp.id,
+      approvalStatus: newStatus as any,
+    }));
+
+    try {
+      const result = await bulkUpdateApprovalMutation.mutateAsync({ updates });
+
+      if (result.failed > 0) {
+        const statusText =
+          newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+        toast.warning(
+          `Updated ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`,
+        );
+      } else {
+        const statusText =
+          newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+        toast.success(`Changed approval to '${statusText}' for ${count} RSVPs`);
+      }
+
+      setSelectedRows(new Set());
+      // Clear loading state
+      setLoadingApprovalUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    } catch (error) {
+      toast.error(
+        `Failed to update approval status: ${(error as Error).message}`,
+      );
+      // Clear loading state on error
+      setLoadingApprovalUpdates((prev) => {
+        const next = new Set(prev);
+        selectedRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkTicketStatusChange = async (newStatus: string) => {
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    // Filter out redeemed tickets as they can't be changed
+    const changeableRsvps = selectedRsvps.filter(
+      (rsvp: any) => rsvp.redemptionStatus !== "redeemed",
+    );
+    const count = changeableRsvps.length;
+    const redeemedCount = selectedRsvps.length - changeableRsvps.length;
+
+    if (count === 0) {
+      if (redeemedCount > 0) {
+        toast.error("Cannot change ticket status for redeemed tickets");
+      }
+      return;
+    }
+
+    // Add all changeable IDs to loading state
+    setLoadingTicketUpdates((prev) => {
+      const next = new Set(prev);
+      changeableRsvps.forEach((rsvp) => next.add(rsvp.id));
+      return next;
+    });
+
+    // Show updating toast
+    toast.info(`Updating ${count} RSVPs...`);
+
+    // Execute bulk update in single mutation
+    const updates = changeableRsvps.map((rsvp: any) => ({
+      rsvpId: rsvp.id,
+      ticketStatus: newStatus as any,
+    }));
+
+    try {
+      const result = await bulkUpdateTicketStatusMutation.mutateAsync({
+        updates,
+      });
+
+      const statusLabel =
+        newStatus === "not-issued"
+          ? "None"
+          : newStatus === "issued"
+            ? "Issued"
+            : newStatus === "disabled"
+              ? "Disabled"
+              : newStatus;
+
+      if (result.failed > 0) {
+        let message = `Updated ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`;
+        if (redeemedCount > 0) {
+          message += ` (${redeemedCount} redeemed tickets skipped)`;
+        }
+        toast.warning(message);
+      } else {
+        let message = `Changed ticket status to '${statusLabel}' for ${count} RSVPs`;
+        if (redeemedCount > 0) {
+          message += ` (${redeemedCount} redeemed tickets skipped)`;
+        }
+        toast.success(message);
+      }
+
+      setSelectedRows(new Set());
+      // Clear loading state
+      setLoadingTicketUpdates((prev) => {
+        const next = new Set(prev);
+        changeableRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    } catch (error) {
+      toast.error(
+        `Failed to update ticket status: ${(error as Error).message}`,
+      );
+      // Clear loading state on error
+      setLoadingTicketUpdates((prev) => {
+        const next = new Set(prev);
+        changeableRsvps.forEach((rsvp) => next.delete(rsvp.id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedRsvps = rsvps.filter((rsvp: any) =>
+      selectedRows.has(rsvp.id),
+    );
+    const count = selectedRsvps.length;
+
+    if (count === 0) return;
+
+    // Execute bulk deletion in single mutation
+    const rsvpIds = selectedRsvps.map((rsvp: any) => rsvp.id);
+
+    try {
+      const result = await bulkDeleteRsvpsMutation.mutateAsync({ rsvpIds });
+
+      if (result.failed > 0) {
+        toast.warning(
+          `Deleted ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`,
+        );
+      } else {
+        toast.success(`Deleted ${count} RSVPs`);
+      }
+
+      setSelectedRows(new Set());
+    } catch (error) {
+      toast.error(`Failed to delete RSVPs: ${(error as Error).message}`);
+    }
+  };
+
+  // Create initial columns without selection functionality
+  const initialCols = React.useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        id: "select",
+        header: "Select",
+        cell: ({ row }) => (
+          <Checkbox
+            checked={selectedRows.has(row.original.id)}
+            onCheckedChange={() => toggleSelectRow(row.original.id)}
+            aria-label="Select row"
+            className="ml-2"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      },
+      ...baseCols,
+    ],
+    [baseCols, selectedRows, toggleSelectRow],
+  );
+
   const table = useReactTable({
-    data: filtered,
-    columns: cols,
+    data: rsvps,
+    columns: initialCols,
     state: { sorting },
+    manualPagination: true, // Enable manual pagination
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: {
-      pagination: {
-        pageIndex: 0,
-        pageSize: 20,
-      },
-    },
+    // Remove getPaginationRowModel() for manual pagination
   });
 
+  // Selection state management (computed values after table creation)
+  const currentPageRows = table.getRowModel().rows;
+  const currentPageIds = currentPageRows.map((row) => row.original.id);
+  const currentPageSelectedCount = currentPageIds.filter((id) =>
+    selectedRows.has(id),
+  ).length;
+
+  const allSelected = React.useMemo(() => {
+    return (
+      currentPageRows.length > 0 &&
+      currentPageSelectedCount === currentPageRows.length
+    );
+  }, [currentPageSelectedCount, currentPageRows.length]);
+
+  const someSelected = React.useMemo(() => {
+    return (
+      currentPageSelectedCount > 0 &&
+      currentPageSelectedCount < currentPageRows.length
+    );
+  }, [currentPageSelectedCount, currentPageRows.length]);
+
+  // Update the toggle select all function with proper logic
+  const toggleSelectAllCurrent = React.useCallback(() => {
+    if (allSelected) {
+      // If user had previous selections and we're unchecking, restore them
+      if (previousSelection && previousSelection.size > 0) {
+        setSelectedRows(new Set(previousSelection));
+        setPreviousSelection(null);
+      } else {
+        setSelectedRows(new Set());
+      }
+    } else {
+      // Save current selection as previous selection
+      if (selectedRows.size > 0) {
+        setPreviousSelection(new Set(selectedRows));
+      }
+      // Select all items on current page
+      const newSelection = new Set(selectedRows);
+      currentPageIds.forEach((id) => newSelection.add(id));
+      setSelectedRows(newSelection);
+    }
+  }, [
+    allSelected,
+    previousSelection,
+    selectedRows,
+    currentPageIds,
+    setPreviousSelection,
+  ]);
+
+  // Keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeydown = (e: KeyboardEvent) => {
+      // Cmd+A / Ctrl+A to select all
+      if ((e.metaKey || e.ctrlKey) && e.key === "a" && !e.shiftKey) {
+        // Only handle if we're not typing in an input field
+        const target = e.target as HTMLElement;
+        if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
+          e.preventDefault();
+          toggleSelectAllCurrent();
+        }
+      }
+      // Escape to clear selection
+      if (e.key === "Escape") {
+        setSelectedRows(new Set());
+      }
+    };
+
+    document.addEventListener("keydown", handleKeydown);
+    return () => document.removeEventListener("keydown", handleKeydown);
+  }, [toggleSelectAllCurrent]);
+
+  // Create the final columns with proper header checkbox
+  const finalCols = React.useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        id: "select",
+        header: ({ table }) => (
+          <Checkbox
+            checked={allSelected || someSelected ? true : false}
+            onCheckedChange={toggleSelectAllCurrent}
+            aria-label="Select all"
+            className="ml-2"
+            ref={(el: HTMLButtonElement | null) => {
+              if (el) {
+                // For button-based checkbox, we need to find the actual input element
+                const input = el.querySelector(
+                  'input[type="checkbox"]',
+                ) as HTMLInputElement;
+                if (input) {
+                  input.indeterminate = someSelected;
+                }
+              }
+            }}
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={selectedRows.has(row.original.id)}
+            onCheckedChange={() => toggleSelectRow(row.original.id)}
+            aria-label="Select row"
+            className="ml-2"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      },
+      ...baseCols,
+    ],
+    [
+      baseCols,
+      selectedRows,
+      allSelected,
+      someSelected,
+      toggleSelectAllCurrent,
+      toggleSelectRow,
+    ],
+  );
+
+  // Update table columns
+  React.useEffect(() => {
+    table.setOptions((prev) => ({
+      ...prev,
+      columns: finalCols,
+    }));
+  }, [finalCols, table]);
+
   // Check if any main queries are loading
-  const isLoading = eventsQuery.isLoading || rsvpsQuery.isLoading || currentEventQuery.isLoading;
+  const isLoading =
+    events === undefined ||
+    rsvpsPaginated === undefined ||
+    currentEvent === undefined ||
+    totalCount === undefined;
+
+  const handleExportCsv = () => {
+    if (!exportData) {
+      toast.error("Export data not ready");
+      return;
+    }
+
+    const blob = new Blob([exportData.csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportData.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    toast.success("CSV exported successfully");
+  };
 
   return (
     <div className="flex-1 space-y-4">
@@ -790,6 +1484,157 @@ export default function RsvpsPage() {
           <p className="text-muted-foreground">
             Manage guest responses and ticket status
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (eventId) {
+                window.open(`/events/${eventId}`, "_blank");
+              }
+            }}
+            disabled={!eventId}
+          >
+            <Eye className="h-4 w-4 mr-2" />
+            View Event
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              if (eventId) {
+                const url = `${window.location.origin}/events/${eventId}`;
+                await navigator.clipboard.writeText(url);
+                toast.success("Event link copied to clipboard");
+              }
+            }}
+            disabled={!eventId}
+          >
+            <Share className="h-4 w-4 mr-2" />
+            Share Event
+          </Button>
+          <Popover open={exportOptionsOpen} onOpenChange={setExportOptionsOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+            </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium text-sm mb-2">Export Options</h4>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Select Lists
+                </label>
+                <div className="space-y-2">
+                  {(listCredentials || []).map((cred) => (
+                    <div key={cred.listKey} className="flex items-center">
+                      <Checkbox
+                        id={`list-${cred.listKey}`}
+                        checked={selectedListsForExport.includes(cred.listKey)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedListsForExport([
+                              ...selectedListsForExport,
+                              cred.listKey,
+                            ]);
+                          } else {
+                            setSelectedListsForExport(
+                              selectedListsForExport.filter(
+                                (k) => k !== cred.listKey,
+                              ),
+                            );
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor={`list-${cred.listKey}`}
+                        className="ml-2 text-sm cursor-pointer"
+                      >
+                        {cred.listKey.toUpperCase()}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Select Columns
+                </label>
+                <div className="space-y-2">
+                  <div className="flex items-center">
+                    <Checkbox
+                      id="col-attendees"
+                      checked={includeAttendees}
+                      onCheckedChange={(checked) =>
+                        setIncludeAttendees(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="col-attendees"
+                      className="ml-2 text-sm cursor-pointer"
+                    >
+                      Attendees
+                    </label>
+                  </div>
+                  <div className="flex items-center">
+                    <Checkbox
+                      id="col-note"
+                      checked={includeNote}
+                      onCheckedChange={(checked) =>
+                        setIncludeNote(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="col-note"
+                      className="ml-2 text-sm cursor-pointer"
+                    >
+                      Note
+                    </label>
+                  </div>
+                  <div className="flex items-center">
+                    <Checkbox
+                      id="col-custom"
+                      checked={includeCustomFields}
+                      onCheckedChange={(checked) =>
+                        setIncludeCustomFields(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="col-custom"
+                      className="ml-2 text-sm cursor-pointer"
+                    >
+                      Custom Fields
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                onClick={() => {
+                  handleExportCsv();
+                  setExportOptionsOpen(false);
+                }}
+                disabled={
+                  !exportData ||
+                  isLoading ||
+                  selectedListsForExport.length === 0
+                }
+                className="w-full"
+                size="sm"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
         </div>
       </div>
       {/* Event Selector */}
@@ -914,8 +1759,138 @@ export default function RsvpsPage() {
             </Badge>
           )}
           <span className="text-xs text-foreground/60">
-            (Showing {filtered.length} of {(rsvps ?? []).length} total RSVPs)
+            (Showing {rsvps.length} RSVPs on this page)
           </span>
+        </div>
+      )}
+
+      {/* Bulk Actions Bar */}
+      {selectedRows.size > 0 && (
+        <div className="flex items-center justify-between bg-muted/50 border rounded-md p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">
+              {selectedRows.size} selected
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedRows(new Set())}
+            >
+              Clear selection
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="inline-block">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={(e) => {
+                      // Programmatically trigger context menu on left click
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const contextMenuEvent = new MouseEvent("contextmenu", {
+                        bubbles: true,
+                        clientX: rect.left,
+                        clientY: rect.bottom,
+                      });
+                      e.currentTarget.dispatchEvent(contextMenuEvent);
+                    }}
+                  >
+                    Bulk Actions
+                  </Button>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="w-56">
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>Change List</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-48">
+                    {(listCredentials?.map((cred) => cred.listKey) || []).map(
+                      (listKey) => (
+                        <ContextMenuItem
+                          key={listKey}
+                          onClick={() => handleBulkListChange(listKey)}
+                        >
+                          {listKey.toUpperCase()}
+                        </ContextMenuItem>
+                      ),
+                    )}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>Change Approval</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-48">
+                    <ContextMenuItem
+                      onClick={() => handleBulkApprovalChange("pending")}
+                    >
+                      <span className="text-amber-700">Pending</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkApprovalChange("approved")}
+                    >
+                      <span className="text-green-700">Approved</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkApprovalChange("denied")}
+                    >
+                      <span className="text-red-700">Denied</span>
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>Change Ticket</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-48">
+                    <ContextMenuItem
+                      onClick={() => handleBulkTicketStatusChange("not-issued")}
+                    >
+                      <span className="text-gray-700">None</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkTicketStatusChange("issued")}
+                    >
+                      <span className="text-purple-700">Issued</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => handleBulkTicketStatusChange("disabled")}
+                    >
+                      <span className="text-red-700">Disabled</span>
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSeparator />
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <ContextMenuItem
+                      variant="destructive"
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      Delete Selected
+                    </ContextMenuItem>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Selected RSVPs</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to delete {selectedRows.size}{" "}
+                        selected RSVPs? This will permanently remove the RSVPs,
+                        any associated ticket/redemption codes, and approval
+                        history. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleBulkDelete}
+                        className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                      >
+                        Delete {selectedRows.size} RSVPs
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </ContextMenuContent>
+            </ContextMenu>
+          </div>
         </div>
       )}
 
@@ -950,17 +1925,43 @@ export default function RsvpsPage() {
                   changes &&
                   (changes.currentApprovalStatus !==
                     changes.originalApprovalStatus ||
-                    changes.currentTicketStatus !== changes.originalTicketStatus);
+                    changes.currentTicketStatus !==
+                      changes.originalTicketStatus);
+
+                const isSelected = selectedRows.has(rsvp.id);
 
                 return (
                   <tr
                     key={row.id}
-                    className={`border-t border-foreground/10 ${
-                      hasChanges ? "bg-yellow-50 border-yellow-200" : ""
-                    }`}
+                    className={cn(
+                      "border-t border-foreground/10 transition-colors hover:bg-muted/50",
+                      hasChanges && "bg-yellow-50 border-yellow-200",
+                      isSelected &&
+                        "bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800",
+                    )}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-2 py-1">
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          "px-2 py-1",
+                          cell.column.id !== "select" &&
+                            cell.column.id !== "listKey" &&
+                            cell.column.id !== "approvalStatus" &&
+                            cell.column.id !== "ticketStatus" &&
+                            cell.column.id !== "actions" &&
+                            "cursor-pointer",
+                        )}
+                        onClick={
+                          cell.column.id !== "select" &&
+                          cell.column.id !== "listKey" &&
+                          cell.column.id !== "approvalStatus" &&
+                          cell.column.id !== "ticketStatus" &&
+                          cell.column.id !== "actions"
+                            ? () => toggleSelectRow(rsvp.id)
+                            : undefined
+                        }
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
@@ -975,41 +1976,72 @@ export default function RsvpsPage() {
         </div>
       )}
 
-      {!isLoading && (
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-foreground/70">
-            Page {table.getState().pagination.pageIndex + 1} of{" "}
-            {table.getPageCount() || 1}
-          </div>
-          <div className="flex items-center gap-2">
+      {!isLoading && rsvpsPaginated && (
+        <div className="flex items-center justify-between gap-3 pt-4 border-t">
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-foreground/70">
+              {!rsvps || rsvps.length === 0 ? (
+                <span>No RSVPs found{hasActiveFilters && " (filtered)"}</span>
+              ) : (
+                <span>
+                  Showing {startItem}-{endItem} of {totalCount || "?"} RSVPs
+                  {hasActiveFilters && " (filtered)"}
+                </span>
+              )}
+            </div>
             <Select
-              value={String(table.getState().pagination.pageSize)}
+              value={String(pageSize)}
               onValueChange={(value) => {
-                table.setPageSize(Number(value));
+                const params = new URLSearchParams(searchParams as any);
+                params.set("pageSize", value);
+                router.replace(`/host/rsvps?${params.toString()}`, {
+                  scroll: false,
+                });
+                setCursor(null);
+                setCursorHistory([]);
               }}
             >
               {[10, 20, 50, 100].map((number) => (
                 <SelectOption key={number} value={String(number)}>
-                  {number} / page
+                  {number} per page
                 </SelectOption>
               ))}
             </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              Next
-            </Button>
+          </div>
+          <div className="flex items-center gap-4">
+            <Pagination className="justify-end">
+              <PaginationContent className="gap-1 sm:gap-2">
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={goToPreviousPage}
+                    className={cn(
+                      "h-8 w-8 sm:h-9 sm:w-auto sm:px-3",
+                      cursor === null && cursorHistory.length === 0
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer",
+                    )}
+                  />
+                </PaginationItem>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    Page {currentPage}
+                  </span>
+                </div>
+
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={goToNextPage}
+                    className={cn(
+                      "h-8 w-8 sm:h-9 sm:w-auto sm:px-3",
+                      rsvpsPaginated?.isDone || !rsvpsPaginated?.nextCursor
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer",
+                    )}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </div>
         </div>
       )}

@@ -9,6 +9,9 @@
     "test:run": "bun test"
   },
   "dependencies": {
+    "@clerk/backend": "^2.16.0",
+    "@convex-dev/aggregate": "^0.1.24",
+    "@convex-dev/migrations": "^0.2.9",
     "convex": "^1.27.0",
     "convex-helpers": "^0.1.104",
     "twilio": "^5.9.0"

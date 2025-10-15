@@ -1,11 +1,16 @@
-import { mutation, query, internalQuery } from "./_generated/server";
+import { internalQuery } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { v } from "convex/values";
+import type { QueryCtx } from "./_generated/server";
+
 type Enc = { ivB64: string; ctB64: string; tagB64: string };
 
 export const saveEncryptedContact = mutation({
   args: {
     clerkUserId: v.string(),
-    phoneEnc: v.optional(v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() })),
+    phoneEnc: v.optional(
+      v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
+    ),
     phoneObfuscated: v.optional(v.string()),
   },
   handler: async (ctx, { clerkUserId, phoneEnc, phoneObfuscated }) => {

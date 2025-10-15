@@ -1,6 +1,7 @@
-import { mutation } from "./_generated/server";
+import { mutation } from "./functions";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
+import { updateRsvpInAggregate } from "./lib/rsvpAggregate";
 
 function isEmailHost(evHosts: string[], email?: string | null) {
   if (!email) return false;
@@ -37,8 +38,17 @@ export const applyApproval = mutation({
     if (!hasHostRole) throw new Error("Forbidden: host role required");
 
     const now = Date.now();
+    // Get old state before update for aggregate sync
+    const oldRsvp = await ctx.db.get(rsvpId);
+
     // Update RSVP status
     await ctx.db.patch(rsvpId, { status: "approved", updatedAt: now });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvpId);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+    }
 
     // Upsert redemption
     const existingRedemption = await ctx.db
@@ -86,14 +96,16 @@ export const applyApproval = mutation({
     const base = process.env.APP_BASE_URL;
     const redeemUrl = base ? `${base}/redeem/${outCode}` : undefined;
 
-    // Schedule SMS notification if contact sharing is allowed
-    await ctx.scheduler.runAfter(0, api.notifications.sendApprovalSms, {
-      eventId: rsvp.eventId,
-      clerkUserId: rsvp.clerkUserId,
-      listKey: rsvp.listKey,
-      code: outCode,
-      shareContact: rsvp.shareContact,
-    });
+    // Schedule SMS notification if contact sharing is allowed and listKey exists
+    if (rsvp.listKey) {
+      await ctx.scheduler.runAfter(0, api.notifications.sendApprovalSms, {
+        eventId: rsvp.eventId,
+        clerkUserId: rsvp.clerkUserId,
+        listKey: rsvp.listKey,
+        code: outCode,
+        shareContact: rsvp.shareContact,
+      });
+    }
     return { ok: true as const, code: outCode, redeemUrl, user: identity };
   },
 });
@@ -116,7 +128,17 @@ export const approve = mutation({
     if (!hasHostRole) throw new Error("Forbidden: admin role required");
 
     const now = Date.now();
+
+    // Get old state before update for aggregate sync
+    const oldRsvp = await ctx.db.get(rsvpId);
+
     await ctx.db.patch(rsvpId, { status: "approved", updatedAt: now });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvpId);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+    }
 
     // Create a redemption if one doesn't exist, or re-enable if disabled
     const existingRedemption = await ctx.db
@@ -185,7 +207,17 @@ export const deny = mutation({
     if (!hasHostRole) throw new Error("Forbidden: host role required");
 
     const now = Date.now();
+
+    // Get old state before update for aggregate sync
+    const oldRsvp = await ctx.db.get(rsvpId);
+
     await ctx.db.patch(rsvpId, { status: "denied", updatedAt: now });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvpId);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+    }
 
     // Disable redemption if exists
     const existingRedemption = await ctx.db

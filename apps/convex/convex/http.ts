@@ -66,7 +66,6 @@ export const clerkWebhook = httpAction(async (ctx, request) => {
         clerkUserId,
         email,
         phone,
-        name,
         imageUrl,
       });
     } else if (

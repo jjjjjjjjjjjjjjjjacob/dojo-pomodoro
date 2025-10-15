@@ -34,3 +34,32 @@ export function copyEventLink(eventId: string): void {
     toast.error("Failed to copy event link");
   });
 }
+
+export function sanitizeFieldValue(value: string, fieldKey?: string): string {
+  if (!value) return '';
+
+  // Remove leading/trailing whitespace
+  let sanitized = value.trim();
+
+  // Remove @ symbol commonly used for social media handles
+  if (sanitized.startsWith('@')) {
+    sanitized = sanitized.substring(1);
+  }
+
+  // Platform-specific sanitization
+  const lowerFieldKey = fieldKey?.toLowerCase() || '';
+  if (lowerFieldKey.includes('instagram') ||
+      lowerFieldKey.includes('twitter') ||
+      lowerFieldKey.includes('tiktok') ||
+      lowerFieldKey.includes('x.com') ||
+      lowerFieldKey.includes('github') ||
+      lowerFieldKey.includes('linkedin')) {
+    // Remove spaces and special characters except underscore, period, and hyphen for social media
+    sanitized = sanitized.replace(/[^a-zA-Z0-9._-]/g, '');
+  } else {
+    // Generic URL path sanitization - encode special characters
+    sanitized = encodeURIComponent(sanitized);
+  }
+
+  return sanitized;
+}

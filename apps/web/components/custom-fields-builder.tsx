@@ -14,6 +14,7 @@ export type CustomFieldDef = {
   placeholder?: string;
   required?: boolean;
   copyEnabled?: boolean;
+  prependUrl?: string;
 };
 
 function CustomFieldPreview({ field }: { field: CustomFieldDef }) {
@@ -63,6 +64,7 @@ export function CustomFieldsBuilderForm() {
         placeholder: "",
         required: false,
         copyEnabled: false,
+        prependUrl: "",
       },
     ]);
   const copy = (index: number) => {
@@ -126,6 +128,21 @@ export function CustomFieldsBuilderForm() {
                       set(index, "placeholder", e.target.value.trim())
                     }
                   />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Prepend URL (optional)
+                  </label>
+                  <Input
+                    placeholder="e.g. https://instagram.com/ or https://twitter.com/"
+                    value={field.prependUrl || ""}
+                    onChange={(e) =>
+                      set(index, "prependUrl", e.target.value.trim())
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    When provided, creates clickable links by prepending this URL to field values
+                  </p>
                 </div>
                 <div className="flex items-center justify-between ">
                   <div className="flex flex-wrap items-center gap-4">
@@ -250,6 +267,7 @@ export function CustomFieldsEditor({
         placeholder: "",
         required: false,
         copyEnabled: false,
+        prependUrl: "",
       },
     ]);
   const copy = (index: number) => {
@@ -313,6 +331,21 @@ export function CustomFieldsEditor({
                       set(index, "placeholder", e.target.value.trim())
                     }
                   />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Prepend URL (optional)
+                  </label>
+                  <Input
+                    placeholder="e.g. https://instagram.com/ or https://twitter.com/"
+                    value={field.prependUrl || ""}
+                    onChange={(e) =>
+                      set(index, "prependUrl", e.target.value.trim())
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    When provided, creates clickable links by prepending this URL to field values
+                  </p>
                 </div>
                 <div className="flex items-center justify-between w-full gap-2 ">
                   <div className="flex flex-wrap items-center gap-2">

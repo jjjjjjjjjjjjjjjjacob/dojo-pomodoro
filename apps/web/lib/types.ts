@@ -29,6 +29,7 @@ export interface CustomField {
   placeholder?: string;
   required?: boolean;
   copyEnabled?: boolean;
+  prependUrl?: string;
 }
 
 export interface Event {

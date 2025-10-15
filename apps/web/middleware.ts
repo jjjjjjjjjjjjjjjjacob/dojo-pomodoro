@@ -59,11 +59,21 @@ export default clerkMiddleware(async (auth, req) => {
     const authObj = (await auth()) as AuthObject;
     const { userId } = authObj;
 
-    // For unauthenticated users, only allow main event page
+    // For unauthenticated users, handle different subpaths
     if (!userId) {
       const isMainEventPage = pathname === `/events/${eventRoute.eventId}`;
+      const isStatusPage = pathname === `/events/${eventRoute.eventId}/status`;
+      const isTicketPage = pathname === `/events/${eventRoute.eventId}/ticket`;
+
+      // If trying to access status or ticket page, redirect to sign-in
+      if (isStatusPage || isTicketPage) {
+        const signInUrl = new URL("/sign-in", req.url);
+        signInUrl.searchParams.set("redirect_url", pathname);
+        return NextResponse.redirect(signInUrl);
+      }
+
+      // For other subpaths, redirect to main event page
       if (!isMainEventPage) {
-        // Redirect to main event page (preserve password param if exists)
         const redirectUrl = new URL(`/events/${eventRoute.eventId}`, req.url);
         const password = searchParams.get("password");
         if (password) {

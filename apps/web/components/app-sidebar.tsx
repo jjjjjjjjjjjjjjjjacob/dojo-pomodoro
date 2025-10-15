@@ -10,6 +10,7 @@ import {
   Plus,
   User,
   MessageSquare,
+  DoorOpen,
 } from "lucide-react";
 
 import {
@@ -29,7 +30,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 
-const navigationItems = [
+export const navigationItems = [
   {
     title: "Overview",
     url: "/host",
@@ -66,9 +67,15 @@ const navigationItems = [
     icon: BarChart3,
     isActive: false,
   },
+  {
+    title: "Door Portal",
+    url: "/door",
+    icon: DoorOpen,
+    isActive: false,
+  },
 ];
 
-const quickActions = [
+export const quickActions = [
   {
     title: "New Event",
     url: "/host/new",
@@ -173,4 +180,3 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     </Sidebar>
   );
 }
-

@@ -4,6 +4,8 @@ import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import React, { useEffect, useState, use } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 export default function RedeemPage({
   params,
@@ -17,6 +19,22 @@ export default function RedeemPage({
   const unredeem = useMutation(api.redemptions.unredeem);
   const doorApproved = true;
   const [autoDone, setAutoDone] = useState(false);
+  const { isLoaded, orgRole, has } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoaded) {
+      const isDoorStaff = !!(
+        (orgRole && ["admin", "host", "door"].includes(orgRole)) ||
+        (typeof has === "function" &&
+          (has({ role: "org:admin" }) || has({ role: "org:member" })))
+      );
+
+      if (isDoorStaff) {
+        router.replace(`/door/scan?code=${code}`);
+      }
+    }
+  }, [isLoaded, orgRole, has, code, router]);
 
   useEffect(() => {
     const go = async () => {
