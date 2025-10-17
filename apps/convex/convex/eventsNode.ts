@@ -13,6 +13,26 @@ import {
 } from "./lib/types";
 import type { Doc } from "./_generated/dataModel";
 
+const HEX_COLOR_PATTERN = /^#(?:[0-9A-Fa-f]{6})$/;
+
+function normalizeOptionalHexColor(
+  input: string | null | undefined,
+  validationLabel: string,
+): string | undefined {
+  if (!input) return undefined;
+  const trimmedInput = input.trim();
+  if (trimmedInput.length === 0) return undefined;
+  const prefixedInput = trimmedInput.startsWith("#")
+    ? trimmedInput
+    : `#${trimmedInput}`;
+  if (!HEX_COLOR_PATTERN.test(prefixedInput)) {
+    throw new ValidationError(
+      `${validationLabel} must be a 6-digit hex color (e.g. #FF0000)`,
+    );
+  }
+  return `#${prefixedInput.slice(1).toUpperCase()}`;
+}
+
 export const create = action({
   args: {
     name: v.string(),
@@ -41,6 +61,8 @@ export const create = action({
         }),
       ),
     ),
+    themeBackgroundColor: v.optional(v.string()),
+    themeTextColor: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     const now = Date.now();
@@ -103,6 +125,15 @@ export const create = action({
       },
     );
 
+    const normalizedThemeBackgroundColor = normalizeOptionalHexColor(
+      args.themeBackgroundColor,
+      "Background color",
+    );
+    const normalizedThemeTextColor = normalizeOptionalHexColor(
+      args.themeTextColor,
+      "Text color",
+    );
+
     const result = await ctx.runMutation(api.events.insertWithCreds, {
       name: args.name,
       hosts: args.hosts,
@@ -112,6 +143,8 @@ export const create = action({
       eventDate: args.eventDate,
       maxAttendees: args.maxAttendees ?? 1,
       customFields: args.customFields,
+      themeBackgroundColor: normalizedThemeBackgroundColor,
+      themeTextColor: normalizedThemeTextColor,
       creds: derivedCredentials,
     });
     return result;
@@ -142,6 +175,8 @@ export const update = action({
             }),
           ),
         ),
+        themeBackgroundColor: v.optional(v.string()),
+        themeTextColor: v.optional(v.string()),
       }),
     ),
     lists: v.optional(
@@ -159,7 +194,20 @@ export const update = action({
 
     // Update event base fields via mutation to keep server/runtime separation
     if (patch && Object.keys(patch).length > 0) {
-      await ctx.runMutation(api.events.update, { eventId, ...patch });
+      const sanitizedPatch: EventPatch = { ...patch };
+      if (patch.themeBackgroundColor !== undefined) {
+        sanitizedPatch.themeBackgroundColor = normalizeOptionalHexColor(
+          patch.themeBackgroundColor,
+          "Background color",
+        );
+      }
+      if (patch.themeTextColor !== undefined) {
+        sanitizedPatch.themeTextColor = normalizeOptionalHexColor(
+          patch.themeTextColor,
+          "Text color",
+        );
+      }
+      await ctx.runMutation(api.events.update, { eventId, ...sanitizedPatch });
     }
 
     if (!lists) return { ok: true as const };

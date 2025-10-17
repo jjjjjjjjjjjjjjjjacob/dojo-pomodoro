@@ -38,6 +38,7 @@ import {
   FormLabel,
   FormControl,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import {
   Event,
@@ -46,6 +47,11 @@ import {
   CredentialResponse,
   ApplicationError,
 } from "@/lib/types";
+import {
+  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+  EVENT_THEME_DEFAULT_TEXT_COLOR,
+  normalizeHexColorInput,
+} from "@/lib/event-theme";
 
 export default function EditEventDialog({
   steve,
@@ -63,6 +69,12 @@ export default function EditEventDialog({
   const [internalOpen, setInternalOpen] = React.useState(false);
   const open = externalOpen !== undefined ? externalOpen : internalOpen;
   const setOpen = externalOnOpenChange || setInternalOpen;
+  const normalizedEventBackgroundColor =
+    normalizeHexColorInput(event.themeBackgroundColor) ??
+    EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+  const normalizedEventTextColor =
+    normalizeHexColorInput(event.themeTextColor) ??
+    EVENT_THEME_DEFAULT_TEXT_COLOR;
   const form = useForm<EditEventFormData>({
     defaultValues: {
       name: event.name || "",
@@ -70,6 +82,8 @@ export default function EditEventDialog({
       location: event.location || "",
       flyerStorageId: event.flyerStorageId ?? null,
       maxAttendees: event.maxAttendees ?? 1,
+      themeBackgroundColor: normalizedEventBackgroundColor,
+      themeTextColor: normalizedEventTextColor,
     },
   });
   const [flyerStorageId, setFlyerStorageId] = React.useState<string | null>(
@@ -151,6 +165,18 @@ export default function EditEventDialog({
         values.maxAttendees !== (event.maxAttendees ?? 1)
       )
         patch.maxAttendees = values.maxAttendees;
+      const nextThemeBackgroundColor =
+        normalizeHexColorInput(values.themeBackgroundColor) ??
+        EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+      if (nextThemeBackgroundColor !== normalizedEventBackgroundColor) {
+        patch.themeBackgroundColor = nextThemeBackgroundColor;
+      }
+      const nextThemeTextColor =
+        normalizeHexColorInput(values.themeTextColor) ??
+        EVENT_THEME_DEFAULT_TEXT_COLOR;
+      if (nextThemeTextColor !== normalizedEventTextColor) {
+        patch.themeTextColor = nextThemeTextColor;
+      }
       // Compute local timestamp to avoid timezone skew; prefer RHF values
       const dateStr = form.getValues("eventDate") || eventDateOnly;
       const timeStr = form.getValues("eventTime") || eventTimeOnly;
@@ -254,6 +280,50 @@ export default function EditEventDialog({
                       <FormLabel>Location</FormLabel>
                       <FormControl>
                         <Input placeholder="Venue" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="themeBackgroundColor"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Background Color</FormLabel>
+                      <FormDescription>
+                        Applied to public event surfaces.
+                      </FormDescription>
+                      <FormControl>
+                        <Input
+                          type="color"
+                          value={
+                            field.value ?? EVENT_THEME_DEFAULT_BACKGROUND_COLOR
+                          }
+                          onChange={(event) => field.onChange(event.target.value)}
+                          className="h-10 w-full cursor-pointer p-1"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="themeTextColor"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Primary Text Color</FormLabel>
+                      <FormDescription>
+                        Used for headings, buttons, and emphasis.
+                      </FormDescription>
+                      <FormControl>
+                        <Input
+                          type="color"
+                          value={field.value ?? EVENT_THEME_DEFAULT_TEXT_COLOR}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          className="h-10 w-full cursor-pointer p-1"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -15,8 +15,18 @@ import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Download } from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
+import {
+  getEventThemeColors,
+  getAccessibleTextColor,
+  getColorContrastRatio,
+  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+} from "@/lib/event-theme";
 
-function downloadQRCodeAsImage(qrCodeValue: string, fileName: string) {
+function downloadQRCodeAsImage(
+  qrCodeValue: string,
+  fileName: string,
+  colors: { foregroundColor: string; backgroundColor: string },
+) {
   const temporaryContainer = document.createElement("div");
   temporaryContainer.style.position = "absolute";
   temporaryContainer.style.left = "-9999px";
@@ -36,8 +46,8 @@ function downloadQRCodeAsImage(qrCodeValue: string, fileName: string) {
             React.createElement(QRCode, {
               value: qrCodeValue,
               size: 300,
-              fgColor: "#EF4444",
-              bgColor: "#FFFFFF",
+              fgColor: colors.foregroundColor,
+              bgColor: colors.backgroundColor,
               style: { height: "auto", maxWidth: "100%", width: "100%" },
             }),
           );
@@ -70,13 +80,14 @@ function downloadQRCodeAsImage(qrCodeValue: string, fileName: string) {
 
             const image = new Image();
             image.onload = () => {
-              context.fillStyle = "white";
+              context.fillStyle = colors.backgroundColor;
               context.fillRect(0, 0, qrCodeSize, qrCodeSize);
               context.drawImage(image, 0, 0, qrCodeSize, qrCodeSize);
 
               canvas.toBlob((blob) => {
                 if (!blob) {
                   toast.error("Failed to create download file");
+                  URL.revokeObjectURL(svgUrl);
                   return;
                 }
 
@@ -142,6 +153,20 @@ export default function TicketClientPage({
     mutationFn: useConvexMutation(api.rsvps.acceptRsvp),
   });
   const [celebrate, setCelebrate] = useState(false);
+  const { backgroundColor: eventBackgroundColor, textColor: eventTextColor } =
+    getEventThemeColors(event ?? null);
+  const contrastRatio = getColorContrastRatio(
+    eventTextColor,
+    eventBackgroundColor,
+  );
+  const hasAccessibleContrast = contrastRatio >= 4.5;
+  const fallbackQrForeground = getAccessibleTextColor(eventBackgroundColor);
+  const qrForegroundColor = hasAccessibleContrast
+    ? eventTextColor
+    : fallbackQrForeground;
+  const qrBackgroundColor = hasAccessibleContrast
+    ? eventBackgroundColor
+    : EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
 
   useEffect(() => {
     if (
@@ -237,7 +262,8 @@ export default function TicketClientPage({
         <QRCode
           value={`${window.location.origin}/redeem/${myRedemption?.code}`}
           size={200}
-          fgColor="var(--primary)"
+          fgColor={qrForegroundColor}
+          bgColor={qrBackgroundColor}
         />
         <Button
           variant="outline"
@@ -246,6 +272,10 @@ export default function TicketClientPage({
             downloadQRCodeAsImage(
               `${window.location.origin}/redeem/${myRedemption?.code}`,
               event?.name?.toLowerCase().replace(/[^a-z0-9]/g, "-") || "ticket",
+              {
+                foregroundColor: qrForegroundColor,
+                backgroundColor: qrBackgroundColor,
+              },
             )
           }
           className="text-primary border-primary/20 hover:bg-primary/5"

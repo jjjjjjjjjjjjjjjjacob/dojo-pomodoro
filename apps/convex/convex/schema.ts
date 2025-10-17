@@ -47,6 +47,8 @@ export default defineSchema({
         }),
       ),
     ),
+    themeBackgroundColor: v.optional(v.string()),
+    themeTextColor: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

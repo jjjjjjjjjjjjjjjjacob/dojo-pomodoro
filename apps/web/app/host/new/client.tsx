@@ -11,6 +11,7 @@ import {
   FormLabel,
   FormControl,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -18,41 +19,52 @@ import { Select, SelectOption } from "@/components/ui/select";
 import { FlyerUpload } from "@/components/flyer-upload";
 import { CustomFieldsBuilderForm } from "@/components/custom-fields-builder";
 import { toast } from "sonner";
+import {
+  ApplicationError,
+  EventFormData,
+  ListCredentialInput,
+  CustomField,
+} from "@/lib/types";
+import {
+  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+  EVENT_THEME_DEFAULT_TEXT_COLOR,
+  isValidHexColor,
+  normalizeHexColorInput,
+} from "@/lib/event-theme";
 
-type ListRow = { listKey: string; password: string };
-type CustomField = {
-  key: string;
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-};
-
-function validateCreate(v: any): string[] {
-  const errs: string[] = [];
-  if (!v.name?.trim()) errs.push("Name is required");
-  if (!v.hosts?.trim()) errs.push("Hosts are required");
-  if (!v.location?.trim()) errs.push("Location is required");
-  if (!v.eventDate) errs.push("Event date is required");
-  const lists: ListRow[] = v.lists || [];
-  const filtered = lists.filter((l) => l.listKey?.trim() && l.password?.trim());
-  if (filtered.length === 0) errs.push("Add at least one list/password");
-  return errs;
+function validateCreate(values: EventFormData): string[] {
+  const validationErrors: string[] = [];
+  if (!values.name?.trim()) validationErrors.push("Name is required");
+  if (!values.hosts?.trim()) validationErrors.push("Hosts are required");
+  if (!values.location?.trim()) validationErrors.push("Location is required");
+  if (!values.eventDate) validationErrors.push("Event date is required");
+  const lists: ListCredentialInput[] = values.lists || [];
+  const filteredLists = lists.filter(
+    (list) => list.listKey?.trim() && list.password?.trim(),
+  );
+  if (filteredLists.length === 0) {
+    validationErrors.push("Add at least one list/password");
+  }
+  if (
+    values.themeBackgroundColor &&
+    !isValidHexColor(values.themeBackgroundColor)
+  ) {
+    validationErrors.push(
+      "Background color must be a valid hex color (e.g. #FFFFFF)",
+    );
+  }
+  if (values.themeTextColor && !isValidHexColor(values.themeTextColor)) {
+    validationErrors.push(
+      "Text color must be a valid hex color (e.g. #EF4444)",
+    );
+  }
+  return validationErrors;
 }
 
 export default function NewEventClient() {
   const router = useRouter();
   const create = useAction(api.eventsNode.create);
-  const form = useForm<{
-    name: string;
-    hosts: string;
-    location: string;
-    eventDate: string;
-    eventTime?: string;
-    flyerStorageId?: string | null;
-    maxAttendees: number;
-    lists: ListRow[];
-    customFieldsJson: string;
-  }>({
+  const form = useForm<EventFormData>({
     defaultValues: {
       name: "",
       hosts: "",
@@ -66,70 +78,93 @@ export default function NewEventClient() {
         { listKey: "ga", password: "" },
       ],
       customFieldsJson: "[]",
+      themeBackgroundColor: EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+      themeTextColor: EVENT_THEME_DEFAULT_TEXT_COLOR,
     },
   });
 
   const lists = form.watch("lists");
 
-  const addList = () =>
+  const addList = () => {
+    const existingLists = form.getValues("lists") || [];
     form.setValue("lists", [
-      ...(form.getValues("lists") || []),
+      ...existingLists,
       { listKey: "", password: "" },
     ]);
-  const setList = (i: number, key: keyof ListRow, val: string) => {
-    const copy = [...(form.getValues("lists") || [])];
-    copy[i][key] = val;
-    form.setValue("lists", copy);
-  };
-  const removeList = (i: number) => {
-    const copy = [...(form.getValues("lists") || [])];
-    copy.splice(i, 1);
-    form.setValue("lists", copy);
   };
 
-  const onSubmit = async (values: any) => {
-    const errs = validateCreate(values);
-    if (errs.length) {
-      errs.forEach((e) => toast.error(e));
+  const setList = (
+    listIndex: number,
+    key: "listKey" | "password",
+    value: string,
+  ) => {
+    const existingLists = form.getValues("lists") || [];
+    const updatedLists = existingLists.map((list, index) =>
+      index === listIndex ? { ...list, [key]: value } : list,
+    );
+    form.setValue("lists", updatedLists);
+  };
+
+  const removeList = (listIndex: number) => {
+    const existingLists = form.getValues("lists") || [];
+    const updatedLists = existingLists.filter(
+      (_list, index) => index !== listIndex,
+    );
+    form.setValue("lists", updatedLists);
+  };
+
+  const onSubmit = async (values: EventFormData) => {
+    const validationErrors = validateCreate(values);
+    if (validationErrors.length) {
+      validationErrors.forEach((errorMessage) => toast.error(errorMessage));
       return;
     }
     try {
-      const hostArr = values.hosts
+      const hostEmails = values.hosts
         .split(",")
-        .map((s: string) => s.trim())
+        .map((email) => email.trim())
         .filter(Boolean);
-      const [y, m, d] = (values.eventDate || "").split("-");
-      const [hh, mm] = (values.eventTime || "00:00").split(":");
+      const [yearString, monthString, dayString] = (values.eventDate || "").split("-");
+      const [hourString, minuteString] = (values.eventTime || "00:00").split(":");
       // Create date in UTC to avoid timezone issues during storage/display
-      const dt = new Date(
+      const eventTimestamp = new Date(
         Date.UTC(
-          Number(y),
-          Number(m) - 1,
-          Number(d),
-          Number(hh) || 0,
-          Number(mm) || 0,
+          Number(yearString),
+          Number(monthString) - 1,
+          Number(dayString),
+          Number(hourString) || 0,
+          Number(minuteString) || 0,
         ),
       ).getTime();
-      const listsFiltered = (values.lists as ListRow[]).filter(
-        (l) => l.listKey?.trim() && l.password?.trim(),
+      const filteredLists = (values.lists || []).filter(
+        (list) => list.listKey?.trim() && list.password?.trim(),
       );
       const customFields: CustomField[] = JSON.parse(
         values.customFieldsJson || "[]",
       );
+      const normalizedThemeBackgroundColor =
+        normalizeHexColorInput(values.themeBackgroundColor) ??
+        EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+      const normalizedThemeTextColor =
+        normalizeHexColorInput(values.themeTextColor) ??
+        EVENT_THEME_DEFAULT_TEXT_COLOR;
       await create({
         name: values.name.trim(),
-        hosts: hostArr,
+        hosts: hostEmails,
         location: values.location.trim(),
         flyerStorageId: values.flyerStorageId || undefined,
-        eventDate: dt,
+        eventDate: eventTimestamp,
         maxAttendees: values.maxAttendees,
-        lists: listsFiltered,
+        lists: filteredLists,
         customFields,
+        themeBackgroundColor: normalizedThemeBackgroundColor,
+        themeTextColor: normalizedThemeTextColor,
       });
       toast.success("Event created");
       router.replace("/host/events?created=1");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to create event");
+    } catch (error: unknown) {
+      const errorDetails = error as ApplicationError | Error;
+      toast.error(errorDetails?.message || "Failed to create event");
     }
   };
 
@@ -176,6 +211,50 @@ export default function NewEventClient() {
                     <FormLabel>Location</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter venue or location" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="themeBackgroundColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Background Color</FormLabel>
+                    <FormDescription>
+                      Applied to event, RSVP, and ticket pages.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        type="color"
+                        value={
+                          field.value ?? EVENT_THEME_DEFAULT_BACKGROUND_COLOR
+                        }
+                        onChange={(event) => field.onChange(event.target.value)}
+                        className="h-10 w-full cursor-pointer p-1"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="themeTextColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Primary Text Color</FormLabel>
+                    <FormDescription>
+                      Updates headings and buttons across guest pages.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        type="color"
+                        value={field.value ?? EVENT_THEME_DEFAULT_TEXT_COLOR}
+                        onChange={(event) => field.onChange(event.target.value)}
+                        className="h-10 w-full cursor-pointer p-1"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

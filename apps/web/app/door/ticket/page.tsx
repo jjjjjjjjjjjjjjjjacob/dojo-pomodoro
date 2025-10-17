@@ -6,6 +6,12 @@ import { api } from "@convex/_generated/api";
 import QRCode from "react-qr-code";
 import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  getEventThemeColors,
+  getColorContrastRatio,
+  getAccessibleTextColor,
+  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+} from "@/lib/event-theme";
 
 export default function TicketPage() {
   const featuredEventQuery = useQuery(
@@ -38,6 +44,19 @@ export default function TicketPage() {
 
   const ticketUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/events/${featuredEvent._id}/ticket`;
   const eventDate = new Date(featuredEvent.eventDate);
+  const { backgroundColor: eventBackgroundColor, textColor: eventTextColor } =
+    getEventThemeColors(featuredEvent);
+  const contrastRatio = getColorContrastRatio(
+    eventTextColor,
+    eventBackgroundColor,
+  );
+  const hasAdequateContrast = contrastRatio >= 4.5;
+  const qrForegroundColor = hasAdequateContrast
+    ? eventTextColor
+    : getAccessibleTextColor(eventBackgroundColor);
+  const qrBackgroundColor = hasAdequateContrast
+    ? eventBackgroundColor
+    : EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
 
   return (
     <section className="space-y-3">
@@ -54,12 +73,15 @@ export default function TicketPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-center space-y-4">
-          <div className="bg-white p-4 rounded-lg">
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: qrBackgroundColor }}
+          >
             <QRCode
               value={ticketUrl}
               size={256}
-              fgColor="#EF4444"
-              bgColor="#FFFFFF"
+              fgColor={qrForegroundColor}
+              bgColor={qrBackgroundColor}
               style={{ height: "auto", maxWidth: "100%", width: "100%" }}
             />
           </div>
