@@ -3,10 +3,10 @@ import React, { useEffect } from "react";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,11 @@ import {
   ApplicationError,
 } from "@/lib/types";
 import { createTimestamp } from "@/lib/date-utils";
+import {
+  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+  EVENT_THEME_DEFAULT_TEXT_COLOR,
+  normalizeHexColorInput,
+} from "@/lib/event-theme";
 
 export default function EditEventDialog({
   steve,
@@ -71,6 +76,12 @@ export default function EditEventDialog({
     () => event.eventTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
     [event.eventTimezone],
   );
+  const normalizedEventBackgroundColor =
+    normalizeHexColorInput(event.themeBackgroundColor) ??
+    EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+  const normalizedEventTextColor =
+    normalizeHexColorInput(event.themeTextColor) ??
+    EVENT_THEME_DEFAULT_TEXT_COLOR;
   const form = useForm<EditEventFormData>({
     defaultValues: {
       name: event.name || "",
@@ -82,6 +93,8 @@ export default function EditEventDialog({
       eventTime: defaultTime,
       eventTimezone: defaultTimezone,
       maxAttendees: event.maxAttendees ?? 1,
+      themeBackgroundColor: normalizedEventBackgroundColor,
+      themeTextColor: normalizedEventTextColor,
     },
   });
   const [flyerStorageId, setFlyerStorageId] = React.useState<string | null>(
@@ -101,9 +114,9 @@ export default function EditEventDialog({
   useEffect(() => {
     if (open && creds) {
       setLists(
-        creds.map((c) => ({
-          id: c._id,
-          listKey: c.listKey,
+        creds.map((credential) => ({
+          id: credential._id,
+          listKey: credential.listKey,
           password: "",
         })),
       );
@@ -114,10 +127,12 @@ export default function EditEventDialog({
     setLists((array) => [...array, { listKey: "", password: "" }]);
   const setList = (index: number, key: "listKey" | "password", value: string) =>
     setLists((array) =>
-      array.map((item, i) => (i === index ? { ...item, [key]: value } : item)),
+      array.map((item, position) =>
+        position === index ? { ...item, [key]: value } : item,
+      ),
     );
   const removeList = (index: number) =>
-    setLists((array) => array.filter((_, i) => i !== index));
+    setLists((array) => array.filter((_, position) => position !== index));
 
   const handleSubmit = async (values: EditEventFormData) => {
     try {
@@ -129,26 +144,41 @@ export default function EditEventDialog({
       }
       const trimmedSecondaryTitle = values.secondaryTitle?.trim() ?? "";
       if (trimmedSecondaryTitle !== (event.secondaryTitle ?? "")) {
-        patch.secondaryTitle = trimmedSecondaryTitle;
+        patch.secondaryTitle = trimmedSecondaryTitle || undefined;
       }
       const hostArray = values.hosts
         .split(",")
-        .map((s) => s.trim())
+        .map((host) => host.trim())
         .filter(Boolean);
-      if (JSON.stringify(hostArray) !== JSON.stringify(event.hosts))
+      if (JSON.stringify(hostArray) !== JSON.stringify(event.hosts)) {
         patch.hosts = hostArray;
+      }
       const trimmedLocation = values.location.trim();
-      if (trimmedLocation && trimmedLocation !== event.location)
+      if (trimmedLocation && trimmedLocation !== event.location) {
         patch.location = trimmedLocation;
-      if ((flyerStorageId ?? undefined) !== (event.flyerStorageId ?? undefined))
+      }
+      if ((flyerStorageId ?? undefined) !== (event.flyerStorageId ?? undefined)) {
         patch.flyerStorageId = (flyerStorageId as Id<"_storage">) ?? undefined;
+      }
       if (
         values.maxAttendees !== undefined &&
         values.maxAttendees !== (event.maxAttendees ?? 1)
-      )
+      ) {
         patch.maxAttendees = values.maxAttendees;
-      const timezoneValue =
-        values.eventTimezone || defaultTimezone;
+      }
+      const nextThemeBackgroundColor =
+        normalizeHexColorInput(values.themeBackgroundColor) ??
+        EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+      if (nextThemeBackgroundColor !== normalizedEventBackgroundColor) {
+        patch.themeBackgroundColor = nextThemeBackgroundColor;
+      }
+      const nextThemeTextColor =
+        normalizeHexColorInput(values.themeTextColor) ??
+        EVENT_THEME_DEFAULT_TEXT_COLOR;
+      if (nextThemeTextColor !== normalizedEventTextColor) {
+        patch.themeTextColor = nextThemeTextColor;
+      }
+      const timezoneValue = values.eventTimezone || defaultTimezone;
       const computedTimestamp =
         values.eventDate && (values.eventTime || defaultTime)
           ? createTimestamp(
@@ -167,10 +197,10 @@ export default function EditEventDialog({
       if (timezoneValue && timezoneValue !== event.eventTimezone) {
         patch.eventTimezone = timezoneValue;
       }
-      const outgoingLists = lists.map((l) => ({
-        id: l.id as Id<"listCredentials"> | undefined,
-        listKey: l.listKey,
-        password: l.password || undefined,
+      const outgoingLists = lists.map((list) => ({
+        id: list.id as Id<"listCredentials"> | undefined,
+        listKey: list.listKey,
+        password: list.password || undefined,
       }));
       patch.customFields = customFields.map((field) => ({
         key: field.key.trim(),
@@ -239,8 +269,8 @@ export default function EditEventDialog({
                       <Input
                         placeholder="e.g. vip, general, backstage"
                         value={listPassword.listKey}
-                        onChange={(e) =>
-                          setList(index, "listKey", e.target.value.trim())
+                        onChange={(event) =>
+                          setList(index, "listKey", event.target.value.trim())
                         }
                       />
                     </div>
@@ -251,8 +281,8 @@ export default function EditEventDialog({
                       <Input
                         placeholder="Leave blank to keep current"
                         value={listPassword.password}
-                        onChange={(e) =>
-                          setList(index, "password", e.target.value.trim())
+                        onChange={(event) =>
+                          setList(index, "password", event.target.value.trim())
                         }
                       />
                     </div>

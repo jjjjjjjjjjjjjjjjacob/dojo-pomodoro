@@ -13,21 +13,42 @@ import {
 } from "@/components/custom-fields-builder";
 import { createTimestamp } from "@/lib/date-utils";
 import { toast } from "sonner";
-import { EventFormData } from "@/lib/types";
+import { ApplicationError, EventFormData } from "@/lib/types";
+import {
+  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+  EVENT_THEME_DEFAULT_TEXT_COLOR,
+  isValidHexColor,
+  normalizeHexColorInput,
+} from "@/lib/event-theme";
 
 type ListRow = { listKey: string; password: string };
 
 function validateCreate(values: EventFormData, lists: ListRow[]): string[] {
-  const errs: string[] = [];
-  if (!values.name?.trim()) errs.push("Name is required");
-  if (!values.hosts?.trim()) errs.push("Hosts are required");
-  if (!values.location?.trim()) errs.push("Location is required");
-  if (!values.eventDate) errs.push("Event date is required");
-  const filtered = lists.filter(
+  const validationErrors: string[] = [];
+  if (!values.name?.trim()) validationErrors.push("Name is required");
+  if (!values.hosts?.trim()) validationErrors.push("Hosts are required");
+  if (!values.location?.trim()) validationErrors.push("Location is required");
+  if (!values.eventDate) validationErrors.push("Event date is required");
+  const filteredLists = lists.filter(
     (list) => list.listKey?.trim() && list.password?.trim(),
   );
-  if (filtered.length === 0) errs.push("Add at least one list/password");
-  return errs;
+  if (filteredLists.length === 0) {
+    validationErrors.push("Add at least one list/password");
+  }
+  if (
+    values.themeBackgroundColor &&
+    !isValidHexColor(values.themeBackgroundColor)
+  ) {
+    validationErrors.push(
+      "Background color must be a valid hex color (e.g. #FFFFFF)",
+    );
+  }
+  if (values.themeTextColor && !isValidHexColor(values.themeTextColor)) {
+    validationErrors.push(
+      "Text color must be a valid hex color (e.g. #EF4444)",
+    );
+  }
+  return validationErrors;
 }
 
 export default function NewEventClient() {
@@ -44,6 +65,8 @@ export default function NewEventClient() {
       eventTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       flyerStorageId: null,
       maxAttendees: 1,
+      themeBackgroundColor: EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+      themeTextColor: EVENT_THEME_DEFAULT_TEXT_COLOR,
     },
   });
 
@@ -67,17 +90,17 @@ export default function NewEventClient() {
     setLists((current) => current.filter((_, idx) => idx !== index));
 
   const onSubmit = async (values: EventFormData) => {
-    const errs = validateCreate(values, lists);
-    if (errs.length) {
-      errs.forEach((e) => toast.error(e));
+    const validationErrors = validateCreate(values, lists);
+    if (validationErrors.length) {
+      validationErrors.forEach((message) => toast.error(message));
       return;
     }
     try {
-      const hostArr = values.hosts
+      const hostEmails = values.hosts
         .split(",")
-        .map((s: string) => s.trim())
+        .map((email) => email.trim())
         .filter(Boolean);
-      const dt = createTimestamp(
+      const timestamp = createTimestamp(
         values.eventDate,
         values.eventTime,
         values.eventTimezone,
@@ -89,13 +112,19 @@ export default function NewEventClient() {
         }))
         .filter((list) => list.listKey && list.password);
       const trimmedSecondaryTitle = values.secondaryTitle?.trim() ?? "";
+      const normalizedThemeBackgroundColor =
+        normalizeHexColorInput(values.themeBackgroundColor) ??
+        EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+      const normalizedThemeTextColor =
+        normalizeHexColorInput(values.themeTextColor) ??
+        EVENT_THEME_DEFAULT_TEXT_COLOR;
       await create({
         name: values.name.trim(),
         secondaryTitle: trimmedSecondaryTitle || undefined,
-        hosts: hostArr,
+        hosts: hostEmails,
         location: values.location.trim(),
         flyerStorageId: values.flyerStorageId || undefined,
-        eventDate: dt,
+        eventDate: timestamp,
         eventTimezone: values.eventTimezone,
         maxAttendees: values.maxAttendees,
         lists: listsFiltered,
@@ -112,11 +141,14 @@ export default function NewEventClient() {
             : undefined,
           trimWhitespace: field.trimWhitespace !== false,
         })),
+        themeBackgroundColor: normalizedThemeBackgroundColor,
+        themeTextColor: normalizedThemeTextColor,
       });
       toast.success("Event created");
       router.replace("/host/events?created=1");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to create event");
+    } catch (error: unknown) {
+      const errorDetails = error as ApplicationError | Error;
+      toast.error(errorDetails?.message || "Failed to create event");
     }
   };
 
@@ -144,55 +176,59 @@ export default function NewEventClient() {
           }
           listsSection={
             <div className="rounded-lg border bg-card p-4 space-y-4">
-            <h3 className="font-medium text-sm text-muted-foreground">
-              ACCESS LISTS & PASSWORDS
-            </h3>
-            <div className="space-y-3">
-              {lists.map((list, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-3 items-end p-3 rounded-lg border bg-background"
-                >
-                  <div className="flex flex-col w-full">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      List Name
-                    </label>
-                    <Input
-                      placeholder="e.g. vip, general, backstage"
-                      value={list.listKey}
-                      onChange={(e) => setList(idx, "listKey", e.target.value)}
-                    />
-                  </div>
-                  <div className="flex w-full flex-col">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      Password
-                    </label>
-                    <Input
-                      placeholder="Enter secure password"
-                      value={list.password}
-                      onChange={(e) => setList(idx, "password", e.target.value)}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => removeList(idx)}
-                    className="h-10"
+              <h3 className="font-medium text-sm text-muted-foreground">
+                ACCESS LISTS & PASSWORDS
+              </h3>
+              <div className="space-y-3">
+                {lists.map((list, idx) => (
+                  <div
+                    key={idx}
+                    className="flex gap-3 items-end p-3 rounded-lg border bg-background"
                   >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addList}
-                className="w-full"
-              >
-                + Add Another List
-              </Button>
-            </div>
+                    <div className="flex flex-col w-full">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        List Name
+                      </label>
+                      <Input
+                        placeholder="e.g. vip, general, backstage"
+                        value={list.listKey}
+                        onChange={(event) =>
+                          setList(idx, "listKey", event.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="flex w-full flex-col">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Password
+                      </label>
+                      <Input
+                        placeholder="Enter secure password"
+                        value={list.password}
+                        onChange={(event) =>
+                          setList(idx, "password", event.target.value)
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => removeList(idx)}
+                      className="h-10"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addList}
+                  className="w-full"
+                >
+                  + Add Another List
+                </Button>
+              </div>
             </div>
           }
           customFieldsSection={

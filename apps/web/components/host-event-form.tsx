@@ -3,6 +3,7 @@ import React from "react";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -14,6 +15,10 @@ import { Select, SelectOption } from "@/components/ui/select";
 import { FlyerUpload } from "@/components/flyer-upload";
 import { DateTimePicker } from "@/components/date-time-picker";
 import { UseFormReturn, BaseEventFormValues } from "@/lib/types";
+import {
+  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
+  EVENT_THEME_DEFAULT_TEXT_COLOR,
+} from "@/lib/event-theme";
 
 export interface HostEventFormProps<FormValues extends BaseEventFormValues> {
   form: UseFormReturn<FormValues>;
@@ -86,6 +91,52 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
                     <Input
                       placeholder="After Party, Hosted by..."
                       {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="themeBackgroundColor"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Background Color</FormLabel>
+                  <FormDescription>
+                    Applied to guest RSVP and ticket pages.
+                  </FormDescription>
+                  <FormControl>
+                    <Input
+                      type="color"
+                      value={
+                        field.value ?? EVENT_THEME_DEFAULT_BACKGROUND_COLOR
+                      }
+                      onChange={(event) => field.onChange(event.target.value)}
+                      className="h-10 w-full cursor-pointer p-1"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="themeTextColor"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Primary Text Color</FormLabel>
+                  <FormDescription>
+                    Used for emphasis across guest experiences.
+                  </FormDescription>
+                  <FormControl>
+                    <Input
+                      type="color"
+                      value={
+                        field.value ?? EVENT_THEME_DEFAULT_TEXT_COLOR
+                      }
+                      onChange={(event) => field.onChange(event.target.value)}
+                      className="h-10 w-full cursor-pointer p-1"
                     />
                   </FormControl>
                   <FormMessage />

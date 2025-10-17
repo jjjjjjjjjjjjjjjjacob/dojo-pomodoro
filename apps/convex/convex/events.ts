@@ -34,6 +34,8 @@ export const insertWithCreds = mutation({
         }),
       ),
     ),
+    themeBackgroundColor: v.optional(v.string()),
+    themeTextColor: v.optional(v.string()),
     creds: v.array(
       v.object({
         listKey: v.string(),
@@ -60,6 +62,8 @@ export const insertWithCreds = mutation({
       eventTimezone: args.eventTimezone,
       maxAttendees: args.maxAttendees,
       customFields: args.customFields,
+      themeBackgroundColor: args.themeBackgroundColor,
+      themeTextColor: args.themeTextColor,
       createdAt: now,
       updatedAt: now,
     });
@@ -100,6 +104,8 @@ export const update = mutation({
         }),
       ),
     ),
+    themeBackgroundColor: v.optional(v.string()),
+    themeTextColor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
@@ -118,6 +124,8 @@ export const update = mutation({
       "maxAttendees",
       "isFeatured",
       "customFields",
+      "themeBackgroundColor",
+      "themeTextColor",
     ] as const;
 
     for (const fieldKey of updateableFields) {

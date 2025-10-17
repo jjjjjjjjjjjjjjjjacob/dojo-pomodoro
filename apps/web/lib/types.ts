@@ -46,6 +46,8 @@ export interface Event {
   maxAttendees?: number;
   status?: "active" | "past";
   customFields?: CustomField[];
+  themeBackgroundColor?: string;
+  themeTextColor?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -224,12 +226,14 @@ export interface BaseEventFormValues {
   eventTime?: string;
   eventTimezone?: string;
   maxAttendees?: number;
+  themeBackgroundColor?: string;
+  themeTextColor?: string;
 }
 
 export interface EventFormData extends BaseEventFormValues {
   lists?: ListCredentialInput[];
 }
-// Enhanced event form data for edit dialog
+
 export interface EditEventFormData extends BaseEventFormValues {}
 
 export interface RSVPFormData {
@@ -321,7 +325,6 @@ export interface ClerkOrganization {
 export type EventStatus = Event["status"];
 export type RSVPStatus = RSVP["status"];
 export type ApprovalDecision = Approval["decision"];
-
 export interface RSVPDashboardRow {
   listKey: string;
   name: string;

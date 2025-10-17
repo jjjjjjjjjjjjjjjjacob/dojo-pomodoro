@@ -58,6 +58,8 @@ export type EventPatch = Partial<Pick<Doc<"events">,
   | "status"
   | "isFeatured"
   | "customFields"
+  | "themeBackgroundColor"
+  | "themeTextColor"
 >>;
 
 /**

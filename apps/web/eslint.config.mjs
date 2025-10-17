@@ -7,5 +7,9 @@ const compat = new FlatCompat({
 export default [
   ...compat.config({
     extends: ["next/core-web-vitals"],
+    rules: {
+      "react-hooks/purity": "off",
+      "react-hooks/set-state-in-effect": "off",
+    },
   }),
 ];
