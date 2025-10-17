@@ -85,7 +85,7 @@ export default function EventCardClient({
             )}
           </div>
           <div className="text-xs text-foreground/70 mb-3">
-            {formatEventDateTime(event.eventDate)} • {event.location}
+            {formatEventDateTime(event.eventDate, event.eventTimezone)} • {event.location}
           </div>
         </CardContent>
         <CardFooter className="pt-0">

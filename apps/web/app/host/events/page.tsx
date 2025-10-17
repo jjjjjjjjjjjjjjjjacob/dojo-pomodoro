@@ -54,6 +54,7 @@ type SortOption = "date" | "name" | "rsvps";
 type FilterOption = "all" | "upcoming" | "past";
 
 export default function EventsPage() {
+  const router = useRouter();
   const events = useQuery(api.events.listAll, {});
   const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,6 +113,9 @@ export default function EventsPage() {
             Manage and view all your events
           </p>
         </div>
+        <Button onClick={() => router.push("/host/new")}>
+          + New Event
+        </Button>
       </div>
 
       {/* Controls */}
@@ -241,7 +245,7 @@ function EventListItem({ event }: { event: any }) {
               )}
             </div>
             <div className="text-sm text-muted-foreground">
-              {formatEventDateTime(event.eventDate)} • {event.location}
+              {formatEventDateTime(event.eventDate, event.eventTimezone)} • {event.location}
             </div>
           </div>
         </div>

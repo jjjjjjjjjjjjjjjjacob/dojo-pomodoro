@@ -18,7 +18,7 @@ import Link from "next/link";
 import { useTracking } from "@/app/hooks/use-tracking";
 import { useEffect } from "react";
 import DojoPomodoreIcon from "@/components/icons/dojo-pomodoro-icon";
-import { LogOut, LogIn, Settings, DoorOpen } from "lucide-react";
+import { LogOut, LogIn, Settings, DoorOpen, User, Cog } from "lucide-react";
 
 function useRoleFlags() {
   const { isSignedIn, user } = useUser();
@@ -46,13 +46,13 @@ export default function HeaderClient() {
   }, [isSignedIn, trackUserSignIn]);
 
   return (
-    <header className="fixed top-0 w-full flex items-center justify-end gap-2 p-3">
+    <header className="fixed top-0 z-50 w-full flex items-center justify-end gap-2 px-2 py-2 sm:px-3 sm:py-3 pointer-events-none">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="lg"
-            className="text-primary border-primary/30 aspect-square p-1 animate-in fade-in duration-600"
+            className="text-primary border-primary/30 aspect-square p-1 animate-in fade-in duration-600 pointer-events-auto"
           >
             <DojoPomodoreIcon size={32} />
           </Button>
@@ -76,14 +76,18 @@ export default function HeaderClient() {
               </DropdownMenuItem>
             )}
             {(isHost || isDoor) && <DropdownMenuSeparator />}
-            {/* TODO: Uncomment when profile page is implemented
             <DropdownMenuItem asChild>
               <Link href="/profile" className="flex items-center gap-2">
                 <User size={16} />
                 Profile
               </Link>
             </DropdownMenuItem>
-            */}
+            <DropdownMenuItem asChild>
+              <Link href="/account" className="flex items-center gap-2">
+                <Cog size={16} />
+                Account Settings
+              </Link>
+            </DropdownMenuItem>
             {/* TODO: Uncomment when tickets page is implemented
             <DropdownMenuItem asChild>
               <Link href="/tickets" className="flex items-center gap-2">

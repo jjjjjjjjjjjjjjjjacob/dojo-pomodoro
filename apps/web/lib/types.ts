@@ -9,7 +9,6 @@ export interface User {
   firstName?: string;
   lastName?: string;
   imageUrl?: string;
-  metadata?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
 }
@@ -30,17 +29,20 @@ export interface CustomField {
   required?: boolean;
   copyEnabled?: boolean;
   prependUrl?: string;
+  trimWhitespace?: boolean;
 }
 
 export interface Event {
   _id: Id<"events">;
   name: string;
+  secondaryTitle?: string;
   hosts: string[];
   location: string;
   flyerUrl?: string;
   flyerStorageId?: Id<"_storage">;
   isFeatured?: boolean;
   eventDate: number;
+  eventTimezone?: string;
   maxAttendees?: number;
   status?: "active" | "past";
   customFields?: CustomField[];
@@ -84,6 +86,7 @@ export interface RSVP {
   smsConsent?: boolean;
   smsConsentTimestamp?: number;
   smsConsentIpAddress?: string;
+  customFieldValues?: Record<string, string>;
   status: "pending" | "approved" | "denied" | "attending";
   createdAt: number;
   updatedAt: number;
@@ -116,6 +119,30 @@ export interface Redemption {
     byClerkUserId: string;
     reason?: string;
   }>;
+}
+
+export interface UserSharedEventField {
+  key: string;
+  label: string;
+  value?: string;
+  required?: boolean;
+  copyEnabled?: boolean;
+  prependUrl?: string;
+  trimWhitespace?: boolean;
+}
+
+export interface UserEventSharing {
+  rsvpId: string;
+  eventId: Id<"events">;
+  eventName: string;
+  eventSecondaryTitle?: string;
+  eventDate: number | null;
+  eventTimezone?: string;
+  listKey: string;
+  smsConsent: boolean;
+  shareContact: boolean;
+  updatedAt?: number;
+  customFields: UserSharedEventField[];
 }
 
 // React Hook Form types
@@ -178,35 +205,32 @@ export interface CredentialResponse {
 export interface DateTimePickerProps {
   date?: string;
   time?: string;
+  timezone?: string;
   onDateChange: (date: string) => void;
   onTimeChange: (time: string) => void;
+  onTimezoneChange?: (timezone: string) => void;
   className?: string;
   buttonClassName?: string;
 }
 
 // Form interfaces
-export interface EventFormData {
+export interface BaseEventFormValues {
   name: string;
+  secondaryTitle?: string;
   hosts: string;
   location: string;
   flyerStorageId?: string | null;
   eventDate?: string;
   eventTime?: string;
+  eventTimezone?: string;
   maxAttendees?: number;
-  lists?: ListCredentialInput[];
-  customFieldsJson?: string;
 }
 
-// Enhanced event form data for edit dialog
-export interface EditEventFormData {
-  name: string;
-  hosts: string;
-  location: string;
-  flyerStorageId?: string | null;
-  eventDate?: string;
-  eventTime?: string;
-  maxAttendees?: number;
+export interface EventFormData extends BaseEventFormValues {
+  lists?: ListCredentialInput[];
 }
+// Enhanced event form data for edit dialog
+export interface EditEventFormData extends BaseEventFormValues {}
 
 export interface RSVPFormData {
   name: string; // Keep during migration phase
@@ -246,6 +270,9 @@ export interface CustomFieldDef {
   label: string;
   placeholder?: string;
   required?: boolean;
+  copyEnabled?: boolean;
+  prependUrl?: string;
+  trimWhitespace?: boolean;
 }
 
 // Error types
@@ -259,12 +286,6 @@ export interface AuthObject {
   userId?: string;
   orgRole?: string;
   has?: (arg: { role: string }) => boolean;
-}
-
-// User metadata from Clerk and Convex
-export interface UserMetadata {
-  name?: string;
-  metadata?: Record<string, string>;
 }
 
 export interface ClerkUser {
@@ -301,3 +322,10 @@ export type EventStatus = Event["status"];
 export type RSVPStatus = RSVP["status"];
 export type ApprovalDecision = Approval["decision"];
 
+export interface RSVPDashboardRow {
+  listKey: string;
+  name: string;
+  attendees: number;
+  note: string;
+  customFieldValues: Record<string, string>;
+}

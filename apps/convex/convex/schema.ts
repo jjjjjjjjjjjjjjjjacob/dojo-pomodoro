@@ -27,11 +27,13 @@ export default defineSchema({
   // Events & guest list credentials
   events: defineTable({
     name: v.string(),
+    secondaryTitle: v.optional(v.string()),
     hosts: v.array(v.string()), // host emails (Clerk) or user IDs later
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(), // ms since epoch
+    eventTimezone: v.optional(v.string()),
     isFeatured: v.optional(v.boolean()), // one event can be featured for home page redirect
     status: v.optional(v.string()),
     maxAttendees: v.optional(v.number()), // maximum attendees allowed per RSVP (default 1)
@@ -44,6 +46,7 @@ export default defineSchema({
           required: v.optional(v.boolean()),
           copyEnabled: v.optional(v.boolean()),
           prependUrl: v.optional(v.string()),
+          trimWhitespace: v.optional(v.boolean()),
         }),
       ),
     ),
@@ -88,6 +91,7 @@ export default defineSchema({
     smsConsent: v.optional(v.boolean()), // whether user consented to SMS notifications
     smsConsentTimestamp: v.optional(v.number()), // when SMS consent was given/withdrawn
     smsConsentIpAddress: v.optional(v.string()), // IP address when consent was given for compliance
+    customFieldValues: v.optional(v.record(v.string(), v.string())),
     status: v.string(), // 'pending' | 'approved' | 'denied' | 'attending
     createdAt: v.number(),
     updatedAt: v.number(),

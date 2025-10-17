@@ -131,7 +131,7 @@ export const handleIncomingSms = httpAction(async (ctx, request) => {
 
     } else if (helpKeywords.includes(messageBody)) {
       // Send help response via Twilio action
-      await ctx.runAction(internal.twilioActions.sendHelpResponse, {
+      await ctx.runAction(internal.smsActions.sendHelpResponse, {
         to: from,
         from: to || "",
       });

@@ -169,7 +169,7 @@ export default function RsvpPage({
     };
   }, [password, eventId, resolve]);
 
-  // Prefill from user document metadata and Clerk profile
+  // Prefill from existing RSVP data and Clerk profile
   useEffect(() => {
     if (!event) return;
     // Name prefill - support both old and new field structure
@@ -203,14 +203,17 @@ export default function RsvpPage({
         for (const customField of event.customFields || []) {
           const key = customField.key;
           const existing = next[key];
-          const fromUser = userDoc?.metadata?.[key];
-          if (!existing && fromUser) next[key] = fromUser;
+          if (existing) continue;
+          const fromStatus = status?.customFieldValues?.[key];
+          if (fromStatus) {
+            next[key] = fromStatus;
+          }
         }
         return next;
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event?.customFields, userDoc?._id, user?.id]);
+  }, [event?.customFields, status?.customFieldValues, userDoc?._id, user?.id]);
 
   // Sync RHF form values from local state for name/custom
   useEffect(() => {
@@ -302,8 +305,19 @@ export default function RsvpPage({
       await updateProfileMeta({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        metadata: custom
       });
+      const filteredCustomFields = Object.fromEntries(
+        (event?.customFields || [])
+          .map((customField) => {
+            const value = custom[customField.key];
+            return value ? [customField.key, value] : null;
+          })
+          .filter(
+            (
+              entry,
+            ): entry is [string, string] => entry !== null,
+          ),
+      );
       await upsertContact({
         phone: phone || undefined,
       });
@@ -316,6 +330,7 @@ export default function RsvpPage({
         attendees: form.getValues("attendees") || 1,
         smsConsent: true, // Implicit consent through Terms of Service acceptance
         smsConsentIpAddress: undefined, // Not needed for implicit consent
+        customFields: filteredCustomFields,
       });
 
       trackRSVPSubmission({

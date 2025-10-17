@@ -8,20 +8,23 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatEventDateTime(timestamp: number): string {
+export function formatEventDateTime(timestamp: number, timezone?: string): string {
   const date = new Date(timestamp);
-  const day = date.toLocaleDateString(undefined, { weekday: "long", timeZone: "UTC" });
+  const day = date.toLocaleDateString(undefined, {
+    weekday: "long",
+    timeZone: timezone ?? "UTC",
+  });
   const formattedDate = date.toLocaleDateString("en-US", {
     month: "2-digit",
     day: "2-digit",
     year: "2-digit",
-    timeZone: "UTC",
+    timeZone: timezone ?? "UTC",
   });
   const time = date.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "UTC"
+    timeZone: timezone ?? "UTC",
   });
   return `${day} ${formattedDate.replace(/\//g, ".")} at ${time}`;
 }

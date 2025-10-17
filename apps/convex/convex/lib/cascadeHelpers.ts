@@ -11,6 +11,7 @@ export interface CascadeStats {
   rsvpsUpdated: number;
   approvalsUpdated: number;
   redemptionsUpdated: number;
+  customFieldsBackfilled?: number;
   errors: string[];
 }
 
@@ -28,6 +29,7 @@ export async function cascadeListKeyUpdate(
     rsvpsUpdated: 0,
     approvalsUpdated: 0,
     redemptionsUpdated: 0,
+    customFieldsBackfilled: 0,
     errors: []
   };
 

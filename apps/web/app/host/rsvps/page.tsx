@@ -74,6 +74,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import {
   Copy,
+  ChevronDown,
   MoreHorizontal,
   QrCode,
   ToggleLeft,
@@ -315,7 +316,7 @@ export default function RsvpsPage() {
     }
   }, [loadingListUpdates, loadingApprovalUpdates, loadingTicketUpdates]);
 
-  // Normalize a field key for metadata lookup
+  // Normalize a field key for shared field lookup
   const normalizeFieldKey = (key: string): string => {
     return key
       .toLowerCase()
@@ -331,18 +332,20 @@ export default function RsvpsPage() {
       id: `custom_${field.key}`,
       header: field.label.replace(/:\s*$/, "").trim(), // Remove trailing colon and spaces
       accessorFn: (r: any) => {
-        if (!r.metadata) return "";
+        if (!r.customFieldValues) return "";
 
         // Try exact match first
-        if (r.metadata[field.key]) {
-          return r.metadata[field.key];
+        if (r.customFieldValues[field.key]) {
+          return r.customFieldValues[field.key];
         }
 
         // Try normalized key
         const normalizedKey = normalizeFieldKey(field.key);
 
-        // Check all metadata keys for a normalized match
-        for (const [metaKey, metaValue] of Object.entries(r.metadata)) {
+        // Check all stored keys for a normalized match
+        for (const [metaKey, metaValue] of Object.entries(
+          r.customFieldValues,
+        )) {
           if (normalizeFieldKey(metaKey) === normalizedKey) {
             return metaValue;
           }
@@ -1478,14 +1481,63 @@ export default function RsvpsPage() {
 
   return (
     <div className="flex-1 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">RSVPs</h2>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 sm:gap-1">
+          <div className="flex items-start justify-between gap-3 sm:block">
+            <h2 className="text-3xl font-bold tracking-tight">RSVPs</h2>
+            <div className="flex sm:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="justify-center px-3"
+                    aria-label="Open actions"
+                  >
+                    <span className="text-lg leading-none">⋯</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      if (eventId) {
+                        window.open(`/events/${eventId}`, "_blank");
+                      }
+                    }}
+                    disabled={!eventId}
+                  >
+                    <Eye className="h-4 w-4 mr-2" />
+                    View Event
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={async () => {
+                      if (eventId) {
+                        const url = `${window.location.origin}/events/${eventId}`;
+                        await navigator.clipboard.writeText(url);
+                        toast.success("Event link copied to clipboard");
+                      }
+                    }}
+                    disabled={!eventId}
+                  >
+                    <Share className="h-4 w-4 mr-2" />
+                    Share Event
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setExportOptionsOpen(true)}
+                    disabled={!eventId}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
           <p className="text-muted-foreground">
             Manage guest responses and ticket status
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="hidden sm:flex sm:flex-row sm:items-center sm:justify-end sm:gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -1797,7 +1849,7 @@ export default function RsvpsPage() {
                       e.currentTarget.dispatchEvent(contextMenuEvent);
                     }}
                   >
-                    Bulk Actions
+                    <span className="text-lg leading-none">⋯</span>
                   </Button>
                 </div>
               </ContextMenuTrigger>

@@ -46,7 +46,18 @@ export type ApiResult<T> = {
  * Event patch type for better type safety
  */
 export type EventPatch = Partial<Pick<Doc<"events">,
-  "name" | "hosts" | "location" | "flyerUrl" | "flyerStorageId" | "eventDate" | "status" | "customFields"
+  | "name"
+  | "secondaryTitle"
+  | "hosts"
+  | "location"
+  | "flyerUrl"
+  | "flyerStorageId"
+  | "eventDate"
+  | "eventTimezone"
+  | "maxAttendees"
+  | "status"
+  | "isFeatured"
+  | "customFields"
 >>;
 
 /**

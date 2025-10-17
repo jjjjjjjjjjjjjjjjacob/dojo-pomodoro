@@ -5,45 +5,92 @@
 /**
  * Formats a timestamp to a readable date string
  */
-export function formatEventDate(timestamp: number): string {
+export function formatEventDate(timestamp: number, timezone?: string): string {
   const date = new Date(timestamp);
   return date.toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
-    timeZone: "UTC",
+    timeZone: timezone ?? "UTC",
   });
 }
 
 /**
  * Formats a timestamp to a readable time string
  */
-export function formatEventTime(timestamp: number): string {
+export function formatEventTime(timestamp: number, timezone?: string): string {
   const date = new Date(timestamp);
   return date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "UTC",
+    timeZone: timezone ?? "UTC",
   });
 }
 
 /**
- * Formats a timestamp to a readable date and time string
+ * Returns a list of timezone options for select components
  */
-export function formatEventDateTime(timestamp: number): string {
-  const date = new Date(timestamp);
-  return date.toLocaleString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "UTC",
-  });
+export function getTimeZoneOptions(): Array<{ value: string; label: string }> {
+  const baseTimeZones = [
+    "America/Los_Angeles",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "Europe/London",
+    "Europe/Paris",
+    "Europe/Berlin",
+    "Asia/Tokyo",
+    "Asia/Seoul",
+    "Australia/Sydney",
+    "UTC",
+  ];
+
+  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const supportedTimeZones =
+    typeof (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
+      .supportedValuesOf === "function"
+      ? (Intl as unknown as { supportedValuesOf: (key: string) => string[] })
+          .supportedValuesOf("timeZone")
+      : baseTimeZones;
+
+  const uniqueTimeZoneSet = new Set<string>();
+  const canonicalize = (value: string) => {
+    try {
+      return new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions()
+        .timeZone;
+    } catch {
+      return value;
+    }
+  };
+
+  if (resolved) uniqueTimeZoneSet.add(canonicalize(resolved));
+  baseTimeZones.forEach((zone) => uniqueTimeZoneSet.add(canonicalize(zone)));
+  supportedTimeZones.forEach((zone) => uniqueTimeZoneSet.add(canonicalize(zone)));
+
+  const sortedOptions = Array.from(uniqueTimeZoneSet)
+    .map((value) => ({
+      value,
+      label: value.replace(/_/g, " "),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  if (!resolved) {
+    return sortedOptions;
+  }
+
+  const resolvedOptionIndex = sortedOptions.findIndex(
+    (option) => option.value === resolved,
+  );
+
+  if (resolvedOptionIndex === -1) {
+    return sortedOptions;
+  }
+
+  const [resolvedOption] = sortedOptions.splice(resolvedOptionIndex, 1);
+  return [resolvedOption, ...sortedOptions];
 }
 
 /**
@@ -68,13 +115,68 @@ export function formatTimeForInput(date: Date): string {
 /**
  * Creates a timestamp from date and time strings
  */
-export function createTimestamp(dateString: string, timeString?: string): number {
+export function createTimestamp(dateString: string, timeString?: string, timezone?: string): number {
   const [year, month, day] = dateString.split("-").map(value => parseInt(value, 10));
 
   if (timeString) {
     const [hours, minutes] = timeString.split(":").map(value => parseInt(value, 10));
+    if (timezone) {
+      const zonedDate = new Date(Date.UTC(year, month - 1, day, hours || 0, minutes || 0));
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      const parts = formatter.formatToParts(zonedDate);
+      const yearPart = parts.find((part) => part.type === "year");
+      const monthPart = parts.find((part) => part.type === "month");
+      const dayPart = parts.find((part) => part.type === "day");
+      const hourPart = parts.find((part) => part.type === "hour");
+      const minutePart = parts.find((part) => part.type === "minute");
+      if (
+        yearPart &&
+        monthPart &&
+        dayPart &&
+        hourPart &&
+        minutePart
+      ) {
+        const utcDate = new Date(Date.UTC(
+          Number(yearPart.value),
+          Number(monthPart.value) - 1,
+          Number(dayPart.value),
+          Number(hourPart.value),
+          Number(minutePart.value)
+        ));
+        return utcDate.getTime();
+      }
+    }
     return new Date(Date.UTC(year, month - 1, day, hours || 0, minutes || 0)).getTime();
   } else {
+    if (timezone) {
+      const zonedDate = new Date(Date.UTC(year, month - 1, day));
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const parts = formatter.formatToParts(zonedDate);
+      const yearPart = parts.find((part) => part.type === "year");
+      const monthPart = parts.find((part) => part.type === "month");
+      const dayPart = parts.find((part) => part.type === "day");
+      if (yearPart && monthPart && dayPart) {
+        const utcDate = new Date(Date.UTC(
+          Number(yearPart.value),
+          Number(monthPart.value) - 1,
+          Number(dayPart.value)
+        ));
+        return utcDate.getTime();
+      }
+    }
     return new Date(Date.UTC(year, month - 1, day)).getTime();
   }
 }

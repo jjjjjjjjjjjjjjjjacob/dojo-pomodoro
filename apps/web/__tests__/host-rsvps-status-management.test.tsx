@@ -36,7 +36,7 @@ const mockUseQuery = mock((api: string, args: any) => {
         status: 'pending',
         redemptionStatus: 'none',
         redemptionCode: null,
-        metadata: { company: 'Acme Corp', title: 'Developer' },
+        customFieldValues: { company: 'Acme Corp', title: 'Developer' },
       },
       {
         id: 'rsvp2',
@@ -45,7 +45,7 @@ const mockUseQuery = mock((api: string, args: any) => {
         status: 'approved',
         redemptionStatus: 'issued',
         redemptionCode: 'XYZ789',
-        metadata: { company: 'Tech Inc', title: 'Manager' },
+        customFieldValues: { company: 'Tech Inc', title: 'Manager' },
       },
       {
         id: 'rsvp3',
@@ -54,7 +54,7 @@ const mockUseQuery = mock((api: string, args: any) => {
         status: 'denied',
         redemptionStatus: 'disabled',
         redemptionCode: 'DEF456',
-        metadata: { company: 'StartupXYZ', title: 'CEO' },
+        customFieldValues: { company: 'StartupXYZ', title: 'CEO' },
       },
     ]
   }
@@ -411,7 +411,7 @@ describe('Custom Field Column Generation', () => {
     const customFieldColumns = mockCustomFields.map((field) => ({
       id: `custom_${field.key}`,
       header: field.label,
-      accessorFn: (r: any) => r.metadata?.[field.key] || '',
+      accessorFn: (r: any) => r.customFieldValues?.[field.key] || '',
     }))
 
     expect(customFieldColumns).toHaveLength(3)
@@ -423,21 +423,21 @@ describe('Custom Field Column Generation', () => {
     expect(customFieldColumns[2].header).toBe('Years of Experience')
   })
 
-  it('should handle missing metadata gracefully', () => {
+  it('should handle missing custom fields gracefully', () => {
     const mockRsvp = {
-      metadata: { company: 'Test Corp' } // Missing title field
+      customFieldValues: { company: 'Test Corp' } // Missing title field
     }
 
-    const accessorFn = (r: any) => r.metadata?.['title'] || ''
+    const accessorFn = (r: any) => r.customFieldValues?.['title'] || ''
     const result = accessorFn(mockRsvp)
 
     expect(result).toBe('')
   })
 
-  it('should handle completely missing metadata', () => {
-    const mockRsvp = {} // No metadata at all
+  it('should handle completely missing custom fields', () => {
+    const mockRsvp = {} // No shared fields at all
 
-    const accessorFn = (r: any) => r.metadata?.['company'] || ''
+    const accessorFn = (r: any) => r.customFieldValues?.['company'] || ''
     const result = accessorFn(mockRsvp)
 
     expect(result).toBe('')
@@ -511,7 +511,7 @@ describe('Advanced RSVP Management Features', () => {
       status: 'pending',
       redemptionStatus: 'none',
       redemptionCode: null,
-      metadata: { company: 'Acme Corp', title: 'Developer' },
+      customFieldValues: { company: 'Acme Corp', title: 'Developer' },
     },
     {
       id: 'rsvp2',
@@ -520,7 +520,7 @@ describe('Advanced RSVP Management Features', () => {
       status: 'approved',
       redemptionStatus: 'issued',
       redemptionCode: 'XYZ789',
-      metadata: { company: 'Tech Inc', title: 'Manager' },
+      customFieldValues: { company: 'Tech Inc', title: 'Manager' },
     },
   ]
 

@@ -16,11 +16,13 @@ import type { Doc } from "./_generated/dataModel";
 export const create = action({
   args: {
     name: v.string(),
+    secondaryTitle: v.optional(v.string()),
     hosts: v.array(v.string()),
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(),
+    eventTimezone: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
     lists: v.array(
       v.object({
@@ -38,6 +40,7 @@ export const create = action({
           required: v.optional(v.boolean()),
           copyEnabled: v.optional(v.boolean()),
           prependUrl: v.optional(v.string()),
+          trimWhitespace: v.optional(v.boolean()),
         }),
       ),
     ),
@@ -105,11 +108,13 @@ export const create = action({
 
     const result = await ctx.runMutation(api.events.insertWithCreds, {
       name: args.name,
+      secondaryTitle: args.secondaryTitle,
       hosts: args.hosts,
       location: args.location,
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
       eventDate: args.eventDate,
+      eventTimezone: args.eventTimezone,
       maxAttendees: args.maxAttendees ?? 1,
       customFields: args.customFields,
       creds: derivedCredentials,
@@ -124,10 +129,12 @@ export const update = action({
     patch: v.optional(
       v.object({
         name: v.optional(v.string()),
+        secondaryTitle: v.optional(v.string()),
         hosts: v.optional(v.array(v.string())),
         location: v.optional(v.string()),
         flyerStorageId: v.optional(v.id("_storage")),
         eventDate: v.optional(v.number()),
+        eventTimezone: v.optional(v.string()),
         maxAttendees: v.optional(v.number()),
         status: v.optional(v.string()),
         customFields: v.optional(
@@ -139,6 +146,7 @@ export const update = action({
               required: v.optional(v.boolean()),
               copyEnabled: v.optional(v.boolean()),
               prependUrl: v.optional(v.string()),
+              trimWhitespace: v.optional(v.boolean()),
             }),
           ),
         ),

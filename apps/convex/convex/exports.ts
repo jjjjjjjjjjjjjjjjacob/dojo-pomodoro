@@ -59,7 +59,7 @@ export const exportRsvpsCsv = query({
           name: fullName,
           attendees: rsvp.attendees ?? 1,
           note: rsvp.note || "",
-          metadata: user?.metadata || {},
+          customFieldValues: rsvp.customFieldValues ?? {},
         };
       }),
     );
@@ -116,7 +116,7 @@ export const exportRsvpsCsv = query({
         if (includeNote) row.push(rsvp.note);
         if (includeCustomFields) {
           const customFieldValues = customFieldKeys.map(
-            (key) => rsvp.metadata[key] || "",
+            (key) => rsvp.customFieldValues?.[key] || "",
           );
           row.push(...customFieldValues);
         }

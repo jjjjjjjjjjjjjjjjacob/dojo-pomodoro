@@ -1,0 +1,42 @@
+import React from "react";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+beforeEach(() => {
+  mock.module("posthog-js", () => ({
+    __esModule: true,
+    default: {
+      init: () => {},
+      identify: () => {},
+      reset: () => {},
+      capture: () => {},
+    },
+  }));
+});
+
+async function renderAndOpenMenu() {
+  const user = userEvent.setup();
+  render(<HeaderClient />);
+  const triggerButton = screen.getByRole("button", {
+    name: /dojo pomodoro icon/i,
+  });
+  await user.click(triggerButton);
+}
+
+import HeaderClient from "../app/header-client";
+
+describe("HeaderClient navigation", () => {
+  it("shows profile and account links for signed in users", async () => {
+    await renderAndOpenMenu();
+
+    const profileLink = await screen.findByRole("menuitem", { name: /profile/i });
+    const accountLink = await screen.findByRole("menuitem", { name: /account settings/i });
+
+    expect(profileLink).toBeInTheDocument();
+    expect(accountLink).toBeInTheDocument();
+    expect(profileLink).toHaveAttribute("href", "/profile");
+    expect(accountLink).toHaveAttribute("href", "/account");
+  });
+});
+

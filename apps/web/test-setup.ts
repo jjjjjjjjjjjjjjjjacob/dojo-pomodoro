@@ -212,11 +212,12 @@ mock.module("next/navigation", () => ({
   },
 }));
 
-mock.module("next/link", () => {
-  return function MockLink({ children, href, ...props }: any) {
+mock.module("next/link", () => ({
+  __esModule: true,
+  default: function MockLink({ children, href, ...props }: any) {
     return React.createElement("a", { href, ...props }, children);
-  };
-});
+  },
+}));
 
 // Mock other dependencies
 mock.module("sonner", () => ({
@@ -239,6 +240,16 @@ mock.module("react-qr-code", () => ({
       },
       "QR Code",
     );
+  },
+}));
+
+mock.module("posthog-js", () => ({
+  __esModule: true,
+  default: {
+    init: () => {},
+    identify: () => {},
+    reset: () => {},
+    capture: () => {},
   },
 }));
 

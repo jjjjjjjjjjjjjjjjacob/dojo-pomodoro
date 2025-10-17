@@ -13,11 +13,13 @@ type UserIdentityWithRole = UserIdentity & {
 export const insertWithCreds = mutation({
   args: {
     name: v.string(),
+    secondaryTitle: v.optional(v.string()),
     hosts: v.array(v.string()),
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.number(),
+    eventTimezone: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
     customFields: v.optional(
       v.array(
@@ -26,6 +28,9 @@ export const insertWithCreds = mutation({
           label: v.string(),
           placeholder: v.optional(v.string()),
           required: v.optional(v.boolean()),
+          copyEnabled: v.optional(v.boolean()),
+          prependUrl: v.optional(v.string()),
+          trimWhitespace: v.optional(v.boolean()),
         }),
       ),
     ),
@@ -46,11 +51,13 @@ export const insertWithCreds = mutation({
       throw new Error("Event date must be in the future");
     const eventId = await ctx.db.insert("events", {
       name: args.name,
+      secondaryTitle: args.secondaryTitle,
       hosts: args.hosts,
       location: args.location,
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
       eventDate: args.eventDate,
+      eventTimezone: args.eventTimezone,
       maxAttendees: args.maxAttendees,
       customFields: args.customFields,
       createdAt: now,
@@ -71,11 +78,13 @@ export const update = mutation({
   args: {
     eventId: v.id("events"),
     name: v.optional(v.string()),
+    secondaryTitle: v.optional(v.string()),
     hosts: v.optional(v.array(v.string())),
     location: v.optional(v.string()),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.optional(v.number()),
+    eventTimezone: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
     isFeatured: v.optional(v.boolean()),
     customFields: v.optional(
@@ -87,6 +96,7 @@ export const update = mutation({
           required: v.optional(v.boolean()),
           copyEnabled: v.optional(v.boolean()),
           prependUrl: v.optional(v.string()),
+          trimWhitespace: v.optional(v.boolean()),
         }),
       ),
     ),
@@ -98,11 +108,13 @@ export const update = mutation({
     const patch: EventPatch & { updatedAt: number } = { updatedAt: Date.now() };
     const updateableFields = [
       "name",
+      "secondaryTitle",
       "hosts",
       "location",
       "flyerUrl",
       "flyerStorageId",
       "eventDate",
+      "eventTimezone",
       "maxAttendees",
       "isFeatured",
       "customFields",

@@ -2,22 +2,12 @@ import { mutation } from "./functions";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { updateRsvpInAggregate } from "./lib/rsvpAggregate";
+import { generateApprovalCode } from "./lib/codeGenerators";
 
 function isEmailHost(evHosts: string[], email?: string | null) {
   if (!email) return false;
   const target = email.toLowerCase();
   return evHosts.some((h) => h.toLowerCase() === target);
-}
-
-function genFallbackCode(): string {
-  // Pseudo-random, URL-safe 22 chars
-  const alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-  let out = "";
-  for (let i = 0; i < 22; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return out;
 }
 
 export const applyApproval = mutation({
@@ -61,7 +51,7 @@ export const applyApproval = mutation({
     let outCode: string;
     if (!existingRedemption) {
       // Generate code (use provided or fallback) and store in uppercase
-      const rawCode = code || genFallbackCode();
+      const rawCode = code || generateApprovalCode();
       outCode = rawCode.toUpperCase();
       await ctx.db.insert("redemptions", {
         eventId: rsvp.eventId,
@@ -151,7 +141,7 @@ export const approve = mutation({
     let redemptionCode: string;
     if (!existingRedemption) {
       // Create new redemption
-      redemptionCode = genFallbackCode().toUpperCase();
+      redemptionCode = generateApprovalCode().toUpperCase();
       await ctx.db.insert("redemptions", {
         eventId: rsvp.eventId,
         clerkUserId: rsvp.clerkUserId,

@@ -149,6 +149,120 @@ export const backfillUserNameInRsvps = migrations.define({
   },
 });
 
+// Backfill RSVP customFieldValues from user metadata when possible
+export const backfillRsvpCustomFieldsFromUserMetadata = migrations.define({
+  table: "rsvps",
+  migrateOne: async (ctx, rsvp) => {
+    const existingValues = rsvp.customFieldValues ?? {};
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q: any) =>
+        q.eq("clerkUserId", rsvp.clerkUserId),
+      )
+      .unique();
+
+    if (!user?.metadata || Object.keys(user.metadata).length === 0) {
+      return;
+    }
+
+    const event = await ctx.db.get(rsvp.eventId as Id<"events">);
+    if (!event?.customFields || event.customFields.length === 0) {
+      return;
+    }
+
+    const fieldMap = new Map(
+      event.customFields.map((definition: any) => [definition.key, definition]),
+    );
+
+    let modified = false;
+    const nextValues: Record<string, string> = { ...existingValues };
+
+    for (const [metadataKey, metadataValue] of Object.entries(user.metadata)) {
+      const definition = fieldMap.get(metadataKey);
+      if (!definition) continue;
+      if (nextValues[metadataKey] !== undefined) continue;
+      const stringValue =
+        typeof metadataValue === "string"
+          ? metadataValue
+          : `${metadataValue ?? ""}`;
+      const finalValue = definition.trimWhitespace === false
+        ? stringValue
+        : stringValue.trim();
+      if (!finalValue) continue;
+      nextValues[metadataKey] = finalValue;
+      modified = true;
+    }
+
+    if (!modified) {
+      return;
+    }
+
+    if (Object.keys(nextValues).length === 0) {
+      return { customFieldValues: undefined };
+    }
+
+    return { customFieldValues: nextValues };
+  },
+});
+
+// Consolidate user metadata into RSVP customFieldValues and drop metadata field
+export const migrateUserMetadataIntoRsvpCustomFields = migrations.define({
+  table: "users",
+  migrateOne: async (ctx, user) => {
+    if (!user.metadata || Object.keys(user.metadata).length === 0) {
+      return { metadata: undefined };
+    }
+
+    const rsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_user", (q) => q.eq("clerkUserId", user.clerkUserId))
+      .collect();
+
+    for (const rsvp of rsvps) {
+      const currentValues = rsvp.customFieldValues ?? {};
+      const nextValues: Record<string, string> = { ...currentValues };
+
+      const event = await ctx.db.get(rsvp.eventId as Id<"events">);
+      if (!event?.customFields || event.customFields.length === 0) continue;
+
+      const fieldMap = new Map(
+        event.customFields.map((definition: any) => [definition.key, definition]),
+      );
+
+      let modified = false;
+      for (const [key, value] of Object.entries(user.metadata ?? {})) {
+        const definition = fieldMap.get(key);
+        if (!definition) continue;
+        if (nextValues[key] !== undefined) continue;
+        const stringValue =
+          typeof value === "string" ? value : `${value ?? ""}`;
+        const finalValue = definition.trimWhitespace === false
+          ? stringValue
+          : stringValue.trim();
+        if (!finalValue) continue;
+        nextValues[key] = finalValue;
+        modified = true;
+      }
+
+      if (modified) {
+        await ctx.db.patch(rsvp._id, {
+          customFieldValues:
+            Object.keys(nextValues).length > 0 ? nextValues : undefined,
+          updatedAt: Date.now(),
+        });
+        console.log(
+          `[METADATA MIGRATION] Applied metadata from user ${user._id} to RSVP ${rsvp._id}`,
+        );
+      }
+    }
+
+    console.log(`[METADATA MIGRATION] Clearing metadata for user ${user._id}`);
+
+    return { metadata: undefined };
+  },
+});
+
 // ==================== CREDENTIALID SUNSET MIGRATIONS ====================
 
 // Phase 1: Validation migrations - Ensure all records have complete listKey data

@@ -1,6 +1,7 @@
 import { mutation, query } from "./functions";
 import { v } from "convex/values";
 import type { UserIdentity } from "convex/server";
+import { generateRedemptionCode } from "./lib/codeGenerators";
 
 function hasJwtDoorOrHost(identity: UserIdentity) {
   const role = identity?.role as string | null | undefined;
@@ -311,16 +312,6 @@ export const updateTicketStatus = mutation({
     return { status: "ok" as const };
   },
 });
-
-// Generate a random redemption code
-function generateRedemptionCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
 
 // Seed helper mutation - creates a redemption code for an RSVP
 export const createForRSVP = mutation({

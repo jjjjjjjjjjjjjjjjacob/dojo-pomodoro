@@ -14,6 +14,7 @@ import {
   deleteRsvpFromAggregate,
   countRsvpsWithAggregate,
 } from "./lib/rsvpAggregate";
+import { NotFoundError } from "./lib/types";
 
 export const submitRequest = mutation({
   args: {
@@ -27,6 +28,7 @@ export const submitRequest = mutation({
     // Contact is optional because user may have an existing encrypted profile.
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
+    customFields: v.optional(v.record(v.string(), v.string())),
   },
   handler: async (ctx, args) => {
     // Require authenticated user
@@ -49,6 +51,32 @@ export const submitRequest = mutation({
     const now = Date.now();
     if (!event || (event.status && event.status !== "active"))
       throw new Error("Event not available");
+    const eventFieldMap = new Map(
+      (event.customFields ?? []).map((field) => [field.key, field]),
+    );
+
+    const sanitizedCustomFieldValues = args.customFields
+      ? Object.fromEntries(
+          Object.entries(args.customFields)
+            .map(([fieldKey, rawValue]) => {
+              const fieldConfig = eventFieldMap.get(fieldKey);
+              if (!fieldConfig) return null;
+              const stringValue =
+                typeof rawValue === "string" ? rawValue : `${rawValue ?? ""}`;
+              const finalValue =
+                fieldConfig.trimWhitespace === false
+                  ? stringValue
+                  : stringValue.trim();
+              if (!finalValue) return null;
+              return [fieldKey, finalValue];
+            })
+            .filter(
+              (
+                entry,
+              ): entry is [string, string] => entry !== null,
+            ),
+        )
+      : undefined;
 
     // Validate attendees against event's maxAttendees setting
     const maxAttendeesAllowed = event.maxAttendees ?? 1;
@@ -82,6 +110,11 @@ export const submitRequest = mutation({
         smsConsentTimestamp: args.smsConsent !== undefined ? now : undefined,
         smsConsentIpAddress:
           args.smsConsent === true ? args.smsConsentIpAddress : undefined,
+        customFieldValues:
+          sanitizedCustomFieldValues &&
+          Object.keys(sanitizedCustomFieldValues).length > 0
+            ? sanitizedCustomFieldValues
+            : undefined,
         status: "pending",
         createdAt: now,
         updatedAt: now,
@@ -113,6 +146,12 @@ export const submitRequest = mutation({
           args.smsConsent === true
             ? args.smsConsentIpAddress
             : existing.smsConsentIpAddress,
+        customFieldValues:
+          sanitizedCustomFieldValues !== undefined
+            ? Object.keys(sanitizedCustomFieldValues).length > 0
+              ? sanitizedCustomFieldValues
+              : undefined
+            : existing.customFieldValues,
         // Reset to pending when re-requesting (unless already approved)
         status: existing.status === "approved" ? existing.status : "pending",
         updatedAt: now,
@@ -163,6 +202,164 @@ export const checkSmsConsentForUserEvent = internalQuery({
   },
 });
 
+export const listForCurrentUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    const clerkUserId = identity.subject;
+    const rsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
+      .order("desc")
+      .collect();
+
+    if (rsvps.length === 0) return [];
+
+    const uniqueEventIds = Array.from(
+      new Set(rsvps.map((rsvp) => rsvp.eventId)),
+    );
+    const eventEntries = await Promise.all(
+      uniqueEventIds.map(async (eventId) => ({
+        eventId,
+        event: await ctx.db.get(eventId),
+      })),
+    );
+    const eventMap = new Map(
+      eventEntries
+        .filter((entry) => entry.event)
+        .map((entry) => [entry.eventId, entry.event!]),
+    );
+
+    return rsvps.map((rsvp) => {
+      const event = eventMap.get(rsvp.eventId);
+      const customFieldDefinitions = event?.customFields ?? [];
+      const customFields = customFieldDefinitions.map((definition) => ({
+        key: definition.key,
+        label: definition.label,
+        value: rsvp.customFieldValues?.[definition.key] ?? "",
+        required: definition.required ?? false,
+        copyEnabled: definition.copyEnabled ?? false,
+        prependUrl: definition.prependUrl ?? "",
+        trimWhitespace: definition.trimWhitespace !== false,
+      }));
+
+      return {
+        rsvpId: rsvp._id,
+        eventId: rsvp.eventId,
+        eventName: event?.name ?? "Untitled Event",
+        eventSecondaryTitle: event?.secondaryTitle,
+        eventDate: event?.eventDate ?? null,
+        eventTimezone: event?.eventTimezone,
+        listKey: rsvp.listKey,
+        smsConsent: rsvp.smsConsent ?? false,
+        shareContact: rsvp.shareContact,
+        updatedAt: rsvp.updatedAt,
+        customFields,
+      };
+    });
+  },
+});
+
+export const updateSmsPreference = mutation({
+  args: {
+    rsvpId: v.optional(v.id("rsvps")),
+    smsConsent: v.boolean(),
+    applyToAll: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { rsvpId, smsConsent, applyToAll }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const clerkUserId = identity.subject;
+    const now = Date.now();
+
+    if (applyToAll || !rsvpId) {
+      const rsvps = await ctx.db
+        .query("rsvps")
+        .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
+        .collect();
+      await Promise.all(
+        rsvps.map((rsvp) =>
+          ctx.db.patch(rsvp._id, {
+            smsConsent,
+            smsConsentTimestamp: now,
+            smsConsentIpAddress: undefined,
+            updatedAt: now,
+          }),
+        ),
+      );
+      return { updated: rsvps.length };
+    }
+
+    const rsvp = await ctx.db.get(rsvpId);
+    if (!rsvp) throw new NotFoundError("RSVP");
+    if (rsvp.clerkUserId !== clerkUserId) throw new Error("Forbidden");
+    if (rsvp.smsConsent === smsConsent) return { updated: 0 };
+
+    await ctx.db.patch(rsvpId, {
+      smsConsent,
+      smsConsentTimestamp: now,
+      smsConsentIpAddress: undefined,
+      updatedAt: now,
+    });
+    return { updated: 1 };
+  },
+});
+
+export const updateSharedFields = mutation({
+  args: {
+    rsvpId: v.id("rsvps"),
+    fields: v.record(v.string(), v.string()),
+  },
+  handler: async (ctx, { rsvpId, fields }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const clerkUserId = identity.subject;
+
+    const rsvp = await ctx.db.get(rsvpId);
+    if (!rsvp) throw new NotFoundError("RSVP");
+    if (rsvp.clerkUserId !== clerkUserId) throw new Error("Forbidden");
+
+    const event = await ctx.db.get(rsvp.eventId);
+    if (!event) throw new NotFoundError("Event");
+
+    const fieldDefinitions = new Map(
+      (event.customFields ?? []).map((definition) => [definition.key, definition]),
+    );
+
+    const nextValues: Record<string, string> = {
+      ...(rsvp.customFieldValues ?? {}),
+    };
+
+    for (const [fieldKey, rawValue] of Object.entries(fields)) {
+      const definition = fieldDefinitions.get(fieldKey);
+      if (!definition) continue;
+      const stringValue =
+        typeof rawValue === "string" ? rawValue : `${rawValue ?? ""}`;
+      const finalValue =
+        definition.trimWhitespace === false
+          ? stringValue
+          : stringValue.trim();
+      if (finalValue) {
+        nextValues[fieldKey] = finalValue;
+      } else {
+        delete nextValues[fieldKey];
+      }
+    }
+
+    await ctx.db.patch(rsvpId, {
+      customFieldValues:
+        Object.keys(nextValues).length > 0 ? nextValues : undefined,
+      updatedAt: Date.now(),
+    });
+
+    return {
+      ok: true as const,
+      customFieldValues: Object.keys(nextValues).length > 0 ? nextValues : undefined,
+    };
+  },
+});
+
 export const listForEvent = query({
   args: { eventId: v.id("events") },
   handler: async (
@@ -180,7 +377,6 @@ export const listForEvent = query({
       status: string;
       attendees?: number;
       contact?: { email?: string; phone?: string };
-      metadata?: Record<string, unknown>;
       redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
       redemptionCode?: string;
       createdAt: number;
@@ -206,7 +402,6 @@ export const listForEvent = query({
           status: string;
           attendees?: number;
           contact?: { email?: string; phone?: string };
-          metadata?: Record<string, unknown>;
           redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
           redemptionCode?: string;
           createdAt: number;
@@ -265,7 +460,7 @@ export const listForEvent = query({
             status: r.status,
             attendees: r.attendees,
             contact,
-            metadata: user?.metadata,
+            customFieldValues: r.customFieldValues ?? undefined,
             redemptionStatus,
             redemptionCode: redemption?.code,
             createdAt: r.createdAt,
@@ -431,7 +626,6 @@ type EnrichedRsvp = {
   firstName: string;
   lastName: string;
   listKey: string;
-  // credentialId field has been removed from schema
   note?: string;
   status: string;
   attendees?: number;
@@ -439,7 +633,7 @@ type EnrichedRsvp = {
     email?: string;
     phone?: string;
   };
-  metadata?: Record<string, unknown>;
+  customFieldValues: Record<string, string> | undefined;
   redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
   redemptionCode?: string;
   createdAt: number;
@@ -596,15 +790,11 @@ export const listForEventPaginated = query({
         attendees: rsvp.attendees,
         contact: rsvp.shareContact
           ? {
-              // userEmail and userPhone fields have been removed from schema
-              // Contact info now comes from profiles table via API call
-              // For paginated results, we skip contact fetching for performance
-              // Use listForEvent query for contact information when needed
               email: undefined,
               phone: undefined,
             }
           : undefined,
-        metadata: user?.metadata, // Include user metadata for custom fields
+        customFieldValues: rsvp.customFieldValues ?? undefined,
         redemptionStatus,
         redemptionCode: redemption?.code,
         createdAt: rsvp.createdAt,
@@ -677,6 +867,7 @@ export const statusForUserEvent = query({
       listKey: chosen.listKey,
       status: chosen.status as "approved" | "pending" | "denied" | "attending",
       shareContact: chosen.shareContact,
+      customFieldValues: chosen.customFieldValues,
       generateQR: listCredential?.generateQR ?? false, // default to true for backward compatibility
     } as const;
   },
@@ -730,6 +921,7 @@ export const statusForUserEventServer = query({
       listKey: chosen.listKey,
       status: chosen.status as "approved" | "pending" | "denied" | "attending",
       shareContact: chosen.shareContact,
+      customFieldValues: chosen.customFieldValues,
       redemption: redemptionInfo,
     } as const;
   },

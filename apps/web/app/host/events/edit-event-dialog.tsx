@@ -9,11 +9,9 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Select, SelectOption } from "@/components/ui/select";
-import { FlyerUpload } from "@/components/flyer-upload";
-import { useMutation, useQuery, useAction } from "convex/react";
+import { Input } from "@/components/ui/input";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { toast } from "sonner";
@@ -21,24 +19,8 @@ import {
   CustomFieldsEditor,
   type CustomFieldDef,
 } from "@/components/custom-fields-builder";
-import { DateTimePicker } from "@/components/date-time-picker";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { Calendar as CalendarIcon, Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useForm } from "react-hook-form";
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormControl,
-  FormMessage,
-} from "@/components/ui/form";
+import { HostEventForm } from "@/components/host-event-form";
 import {
   Event,
   EditEventFormData,
@@ -46,6 +28,7 @@ import {
   CredentialResponse,
   ApplicationError,
 } from "@/lib/types";
+import { createTimestamp } from "@/lib/date-utils";
 
 export default function EditEventDialog({
   steve,
@@ -63,22 +46,9 @@ export default function EditEventDialog({
   const [internalOpen, setInternalOpen] = React.useState(false);
   const open = externalOpen !== undefined ? externalOpen : internalOpen;
   const setOpen = externalOnOpenChange || setInternalOpen;
-  const form = useForm<EditEventFormData>({
-    defaultValues: {
-      name: event.name || "",
-      hosts: (event.hosts || []).join(", "),
-      location: event.location || "",
-      flyerStorageId: event.flyerStorageId ?? null,
-      maxAttendees: event.maxAttendees ?? 1,
-    },
-  });
-  const [flyerStorageId, setFlyerStorageId] = React.useState<string | null>(
-    event.flyerStorageId ?? null,
-  );
-  const [eventDateOnly, setEventDateOnly] = React.useState(() => {
+  const defaultDate = React.useMemo(() => {
     try {
       const date = new Date(event.eventDate);
-      // Use UTC methods to extract the exact date that was stored
       const year = date.getUTCFullYear();
       const month = String(date.getUTCMonth() + 1).padStart(2, "0");
       const day = String(date.getUTCDate()).padStart(2, "0");
@@ -86,18 +56,37 @@ export default function EditEventDialog({
     } catch {
       return "";
     }
-  });
-  const [eventTimeOnly, setEventTimeOnly] = React.useState(() => {
+  }, [event.eventDate]);
+  const defaultTime = React.useMemo(() => {
     try {
       const date = new Date(event.eventDate);
-      // Use UTC methods to extract the exact time that was stored
       const hours = String(date.getUTCHours()).padStart(2, "0");
       const minutes = String(date.getUTCMinutes()).padStart(2, "0");
       return `${hours}:${minutes}`;
     } catch {
       return "";
     }
+  }, [event.eventDate]);
+  const defaultTimezone = React.useMemo(
+    () => event.eventTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    [event.eventTimezone],
+  );
+  const form = useForm<EditEventFormData>({
+    defaultValues: {
+      name: event.name || "",
+      secondaryTitle: event.secondaryTitle ?? "",
+      hosts: (event.hosts || []).join(", "),
+      location: event.location || "",
+      flyerStorageId: event.flyerStorageId ?? null,
+      eventDate: defaultDate,
+      eventTime: defaultTime,
+      eventTimezone: defaultTimezone,
+      maxAttendees: event.maxAttendees ?? 1,
+    },
   });
+  const [flyerStorageId, setFlyerStorageId] = React.useState<string | null>(
+    event.flyerStorageId ?? null,
+  );
   const [saving, setSaving] = React.useState(false);
   const update = useAction(api.eventsNode.update);
   const creds = useQuery(
@@ -130,20 +119,27 @@ export default function EditEventDialog({
   const removeList = (index: number) =>
     setLists((array) => array.filter((_, i) => i !== index));
 
-  async function onSave() {
+  const handleSubmit = async (values: EditEventFormData) => {
     try {
       setSaving(true);
       const patch: Partial<Event> = {};
-      const values = form.getValues();
-      if (values.name && values.name !== event.name) patch.name = values.name;
+      const trimmedName = values.name.trim();
+      if (trimmedName && trimmedName !== event.name) {
+        patch.name = trimmedName;
+      }
+      const trimmedSecondaryTitle = values.secondaryTitle?.trim() ?? "";
+      if (trimmedSecondaryTitle !== (event.secondaryTitle ?? "")) {
+        patch.secondaryTitle = trimmedSecondaryTitle;
+      }
       const hostArray = values.hosts
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
       if (JSON.stringify(hostArray) !== JSON.stringify(event.hosts))
         patch.hosts = hostArray;
-      if (values.location && values.location !== event.location)
-        patch.location = values.location;
+      const trimmedLocation = values.location.trim();
+      if (trimmedLocation && trimmedLocation !== event.location)
+        patch.location = trimmedLocation;
       if ((flyerStorageId ?? undefined) !== (event.flyerStorageId ?? undefined))
         patch.flyerStorageId = (flyerStorageId as Id<"_storage">) ?? undefined;
       if (
@@ -151,47 +147,44 @@ export default function EditEventDialog({
         values.maxAttendees !== (event.maxAttendees ?? 1)
       )
         patch.maxAttendees = values.maxAttendees;
-      // Compute local timestamp to avoid timezone skew; prefer RHF values
-      const dateStr = form.getValues("eventDate") || eventDateOnly;
-      const timeStr = form.getValues("eventTime") || eventTimeOnly;
-      if (dateStr) {
-        const [year, month, day] = dateStr
-          .split("-")
-          .map((value) => parseInt(value, 10));
-        let dateTime: number | undefined;
-        if (
-          Number.isFinite(year) &&
-          Number.isFinite(month) &&
-          Number.isFinite(day)
-        ) {
-          if (timeStr) {
-            const [hours, minutes] = timeStr
-              .split(":")
-              .map((value) => parseInt(value, 10));
-            dateTime = new Date(
-              Date.UTC(
-                year,
-                (month as number) - 1,
-                day,
-                hours || 0,
-                minutes || 0,
-              ),
-            ).getTime();
-          } else {
-            dateTime = new Date(
-              Date.UTC(year, (month as number) - 1, day),
-            ).getTime();
-          }
-        }
-        if (dateTime && !Number.isNaN(dateTime) && dateTime !== event.eventDate)
-          patch.eventDate = dateTime;
+      const timezoneValue =
+        values.eventTimezone || defaultTimezone;
+      const computedTimestamp =
+        values.eventDate && (values.eventTime || defaultTime)
+          ? createTimestamp(
+              values.eventDate,
+              values.eventTime || defaultTime || "19:00",
+              timezoneValue,
+            )
+          : undefined;
+      if (
+        computedTimestamp &&
+        Number.isFinite(computedTimestamp) &&
+        computedTimestamp !== event.eventDate
+      ) {
+        patch.eventDate = computedTimestamp;
+      }
+      if (timezoneValue && timezoneValue !== event.eventTimezone) {
+        patch.eventTimezone = timezoneValue;
       }
       const outgoingLists = lists.map((l) => ({
         id: l.id as Id<"listCredentials"> | undefined,
         listKey: l.listKey,
         password: l.password || undefined,
       }));
-      patch.customFields = customFields;
+      patch.customFields = customFields.map((field) => ({
+        key: field.key.trim(),
+        label: field.label.trim(),
+        placeholder: field.placeholder?.trim()
+          ? field.placeholder.trim()
+          : undefined,
+        required: field.required ?? false,
+        copyEnabled: field.copyEnabled ?? false,
+        prependUrl: field.prependUrl?.trim()
+          ? field.prependUrl.trim()
+          : undefined,
+        trimWhitespace: field.trimWhitespace !== false,
+      }));
       await update({ eventId: event._id, patch, lists: outgoingLists });
       toast.success("Event updated");
       setOpen(false);
@@ -201,7 +194,7 @@ export default function EditEventDialog({
     } finally {
       setSaving(false);
     }
-  }
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -217,148 +210,19 @@ export default function EditEventDialog({
             Update details and flyer. Password lists are managed on creation.
           </DialogDescription>
         </DialogHeader>
-        <Form {...form}>
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              onSave();
-            }}
-          >
-            {/* Event Basic Info */}
-            <div className="space-y-3">
-              <h4 className="font-medium text-sm text-muted-foreground">
-                EVENT DETAILS
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  rules={{ required: "Name is required" }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Event Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Event name" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="location"
-                  rules={{ required: "Location is required" }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Location</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Venue" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name="hosts"
-                rules={{ required: "Hosts are required" }}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Host Emails (comma-separated)</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="host1@example.com, host2@example.com"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            {/* Date, Time & Capacity */}
-            <div className="space-y-3">
-              <h4 className="font-medium text-sm text-muted-foreground">
-                DATE & CAPACITY
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <FormField
-                  control={form.control}
-                  name="eventDate"
-                  rules={{ required: "Date is required" }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Date & Time</FormLabel>
-                      <FormControl>
-                        <DateTimePicker
-                          date={(field.value as string) || eventDateOnly}
-                          time={form.getValues("eventTime") || eventTimeOnly}
-                          onDateChange={(val) => {
-                            setEventDateOnly(val);
-                            field.onChange(val);
-                          }}
-                          onTimeChange={(val) => {
-                            setEventTimeOnly(val);
-                            form.setValue("eventTime", val, {
-                              shouldDirty: true,
-                            });
-                          }}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="maxAttendees"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max Attendees</FormLabel>
-                      <FormControl>
-                        <Select
-                          value={field.value?.toString() || "1"}
-                          onValueChange={(value) =>
-                            field.onChange(parseInt(value, 10))
-                          }
-                        >
-                          <SelectOption value="1">
-                            1 (No plus-ones)
-                          </SelectOption>
-                          <SelectOption value="2">2</SelectOption>
-                          <SelectOption value="3">3</SelectOption>
-                          <SelectOption value="4">4</SelectOption>
-                          <SelectOption value="5">5</SelectOption>
-                          <SelectOption value="6">6</SelectOption>
-                        </Select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
-
-            {/* Flyer */}
-            <div className="space-y-3">
-              <h4 className="font-medium text-sm text-muted-foreground">
-                EVENT FLYER
-              </h4>
-              <FormItem>
-                <FormLabel>Upload Flyer (Optional)</FormLabel>
-                <FormControl>
-                  <FlyerUpload
-                    value={flyerStorageId}
-                    onChange={setFlyerStorageId}
-                  />
-                </FormControl>
-              </FormItem>
-            </div>
-            {/* Access Lists & Passwords */}
-            <div className="space-y-3">
+        <HostEventForm
+          form={form}
+          onSubmit={handleSubmit}
+          submitLabel="Save"
+          submittingLabel="Saving..."
+          isSubmitting={saving}
+          flyerStorageId={flyerStorageId}
+          onFlyerChange={(value) => {
+            setFlyerStorageId(value);
+            form.setValue("flyerStorageId", value, { shouldDirty: true });
+          }}
+          listsSection={
+            <div className="space-y-3 rounded-lg border bg-card p-4">
               <h4 className="font-medium text-sm text-muted-foreground">
                 ACCESS LISTS & PASSWORDS
               </h4>
@@ -413,10 +277,14 @@ export default function EditEventDialog({
                 </Button>
               </div>
             </div>
+          }
+          customFieldsSection={
             <CustomFieldsEditor
               initial={event.customFields ?? []}
               onChange={setCustomFields}
             />
+          }
+          footer={
             <DialogFooter>
               <Button
                 type="button"
@@ -429,8 +297,8 @@ export default function EditEventDialog({
                 {saving ? "Saving..." : "Save"}
               </Button>
             </DialogFooter>
-          </form>
-        </Form>
+          }
+        />
       </DialogContent>
     </Dialog>
   );

@@ -29,7 +29,7 @@ export function Select({
   return (
     <select
       className={cn(
-        "border rounded px-2 py-1 text-sm bg-background",
+        "border-input h-9 w-full min-w-0 rounded-md border bg-background px-3 text-sm shadow-xs transition-colors focus-visible:border-ring focus-visible:ring-ring/40",
         className,
       )}
       onChange={handleChange}

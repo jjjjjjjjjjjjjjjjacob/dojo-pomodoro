@@ -152,7 +152,6 @@ export const updateProfileMeta = mutation({
   args: {
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    metadata: v.optional(v.record(v.string(), v.string())),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -169,17 +168,14 @@ export const updateProfileMeta = mutation({
         firstName: args.firstName,
         lastName: args.lastName,
         imageUrl: identity.pictureUrl ?? undefined,
-        metadata: args.metadata ?? undefined,
         createdAt: now,
         updatedAt: now,
       });
       return { created: true as const };
     }
-    const mergedMeta = { ...(user.metadata ?? {}), ...(args.metadata ?? {}) };
     await ctx.db.patch(user._id, {
       firstName: args.firstName ?? user.firstName,
       lastName: args.lastName ?? user.lastName,
-      metadata: mergedMeta,
       updatedAt: now,
     });
     return { created: false as const };
@@ -192,7 +188,6 @@ export const create = mutation({
     clerkUserId: v.string(),
     phone: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
-    metadata: v.optional(v.record(v.string(), v.string())),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -200,7 +195,6 @@ export const create = mutation({
       clerkUserId: args.clerkUserId,
       phone: args.phone,
       imageUrl: args.imageUrl,
-      metadata: args.metadata,
       createdAt: now,
       updatedAt: now,
     });
@@ -499,33 +493,29 @@ export const listOrganizationUsersPaginated = query({
 });
 
 export const getUserStats = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, { clerkUserId }) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    if (!identity || identity.subject !== clerkUserId) {
       throw new Error("Unauthorized");
     }
 
-    const users = await ctx.db.query("users").collect();
-    const orgMemberships = await ctx.db.query("orgMemberships").collect();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
 
-    // Count users by their membership status
-    const usersWithMembership = new Set(
-      orgMemberships.map((m) => m.clerkUserId),
-    );
-    const guestCount = users.filter(
-      (u) => u.clerkUserId && !usersWithMembership.has(u.clerkUserId),
-    ).length;
+    const totalRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
+      .collect();
 
-    const roleStats = {
-      admin: orgMemberships.filter((m) => m.role === "admin").length,
-      member: orgMemberships.filter((m) => m.role === "member").length,
-      guest: guestCount,
-      total: users.length, // Total of all users in database
-      organizationMembers: orgMemberships.length, // Total organization members only
+    return {
+      totalRsvps: totalRsvps.length,
+      approvedRsvps: totalRsvps.filter((rsvp) => rsvp.status === "approved").length,
+      deniedRsvps: totalRsvps.filter((rsvp) => rsvp.status === "denied").length,
+      lastUpdated: user?.updatedAt ?? 0,
     };
-
-    return roleStats;
   },
 });
 
