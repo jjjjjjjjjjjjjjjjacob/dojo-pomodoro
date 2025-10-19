@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import QRCode from "react-qr-code";
 import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,12 +14,45 @@ import {
   getAccessibleTextColor,
   EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
 } from "@/lib/event-theme";
+import { hasEventSecondaryTitle } from "@/lib/event-display";
+import { useEventBranding } from "@/contexts/event-branding-context";
 
 export default function TicketPage() {
   const featuredEventQuery = useQuery(
     convexQuery(api.events.getFeaturedEvent, {}),
   );
   const featuredEvent = featuredEventQuery.data;
+  const featuredEventId = featuredEvent?._id ?? null;
+  const featuredEventIconQuery = useQuery(
+    convexQuery(
+      api.files.getUrl,
+      featuredEvent?.customIconStorageId
+        ? { storageId: featuredEvent.customIconStorageId as Id<"_storage"> }
+        : "skip",
+    ),
+  );
+  const featuredEventIconUrl = featuredEventIconQuery.data?.url ?? null;
+  const { applyBranding, clearBranding } = useEventBranding();
+
+  useEffect(() => {
+    if (!featuredEventId) {
+      clearBranding("door:featured");
+      return () => {
+        clearBranding("door:featured");
+      };
+    }
+    const brandingSourceId = `door:${featuredEventId}`;
+    if (featuredEventIconUrl) {
+      applyBranding({ sourceId: brandingSourceId, iconUrl: featuredEventIconUrl });
+      return () => {
+        clearBranding(brandingSourceId);
+      };
+    }
+    clearBranding(brandingSourceId);
+    return () => {
+      clearBranding(brandingSourceId);
+    };
+  }, [applyBranding, clearBranding, featuredEventIconUrl, featuredEventId]);
 
   if (featuredEventQuery.isLoading) {
     return (
@@ -62,7 +97,14 @@ export default function TicketPage() {
     <section className="space-y-3">
       <Card>
         <CardHeader>
-          <CardTitle>{featuredEvent.name}</CardTitle>
+          <div className="space-y-1">
+            <CardTitle>{featuredEvent.name}</CardTitle>
+            {hasEventSecondaryTitle(featuredEvent) && (
+              <p className="text-lg font-medium text-muted-foreground/80 leading-tight">
+                {featuredEvent.secondaryTitle}
+              </p>
+            )}
+          </div>
           <CardDescription>
             {eventDate.toLocaleDateString("en-US", {
               weekday: "long",

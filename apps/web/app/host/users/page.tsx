@@ -54,7 +54,7 @@ import { TableSkeleton } from "@/components/ui/table-skeleton";
 export default function UsersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
 
   // Read pagination directly from URL params
   const pageIndex = parseInt(searchParams.get("page") || "0");
@@ -80,7 +80,9 @@ export default function UsersPage() {
   const users = usersData?.users;
 
   const userStatsQuery = useQuery({
-    ...convexQuery(api.users.getUserStats, {}),
+    ...convexQuery(api.users.getUserStats, {
+      clerkUserId: isSignedIn ? userId ?? "" : "",
+    }),
     enabled: !!isSignedIn,
   });
   const userStats = userStatsQuery.data;
@@ -98,7 +100,10 @@ export default function UsersPage() {
   const filteredUsers = users || [];
 
   // Normalize role by stripping org: prefix
-  const normalizeRole = (role: string) => role?.replace(/^org:/, "") || role;
+  const normalizeRole = React.useCallback(
+    (role: string) => role?.replace(/^org:/, "") || role,
+    [],
+  );
 
   // Clear all filters function
   const clearAllFilters = () => {
@@ -114,7 +119,7 @@ export default function UsersPage() {
     const params = new URLSearchParams(searchParams as any);
     params.set("page", "0");
     router.replace(`/host/users?${params.toString()}`, { scroll: false });
-  }, [debouncedSearch, roleFilter]);
+  }, [debouncedSearch, roleFilter, router, searchParams]);
 
   // Check if any filters are active
   const hasActiveFilters =
@@ -124,7 +129,8 @@ export default function UsersPage() {
     (sorting.length === 1 &&
       (sorting[0].id !== "createdAt" || !sorting[0].desc));
 
-  const getRoleIcon = (role: string) => {
+  const getRoleIcon = React.useCallback(
+    (role: string) => {
     const normalized = normalizeRole(role);
     switch (normalized) {
       case "admin":
@@ -136,9 +142,12 @@ export default function UsersPage() {
       default:
         return <User className="h-4 w-4" />;
     }
-  };
+    },
+    [normalizeRole],
+  );
 
-  const getRoleColor = (role: string) => {
+  const getRoleColor = React.useCallback(
+    (role: string) => {
     const normalized = normalizeRole(role);
     switch (normalized) {
       case "admin":
@@ -150,9 +159,12 @@ export default function UsersPage() {
       default:
         return "text-gray-700 border-gray-200 bg-gray-50";
     }
-  };
+    },
+    [normalizeRole],
+  );
 
-  const getRoleLabel = (role: string) => {
+  const getRoleLabel = React.useCallback(
+    (role: string) => {
     const normalized = normalizeRole(role);
     switch (normalized) {
       case "admin":
@@ -164,7 +176,9 @@ export default function UsersPage() {
       default:
         return "Unknown";
     }
-  };
+    },
+    [normalizeRole],
+  );
 
   // Pagination change handler that updates URL
   const handlePaginationChange = (updaterOrValue: any) => {
@@ -375,7 +389,15 @@ export default function UsersPage() {
         },
       },
     ];
-  }, [pendingChanges, promoteUserToOrganization, updateUserRole]);
+  }, [
+    getRoleColor,
+    getRoleIcon,
+    getRoleLabel,
+    normalizeRole,
+    pendingChanges,
+    promoteUserToOrganization,
+    updateUserRole,
+  ]);
 
   const table = useReactTable({
     data: filteredUsers,

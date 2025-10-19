@@ -50,9 +50,19 @@ export default function DeniedPage({
       <div className="w-full max-w-2xl space-y-6 text-center">
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold text-primary">Access Denied</h1>
-          <p className="text-sm font-semibold text-foreground/70 text-primary">
-            {event.name} @ {event.location}
-          </p>
+          <div className="space-y-1 text-primary">
+            <p className="text-3xl font-semibold leading-tight">
+              {event.name}
+            </p>
+            {event.secondaryTitle?.trim() && (
+              <p className="text-2xl leading-tight text-primary/85 font-medium">
+                {event.secondaryTitle}
+              </p>
+            )}
+            {event.location && (
+              <p className="text-sm text-primary/70">{event.location}</p>
+            )}
+          </div>
         </header>
 
         <div className="space-y-4">

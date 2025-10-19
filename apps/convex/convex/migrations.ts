@@ -1,6 +1,14 @@
 import { Migrations } from "@convex-dev/migrations";
 import { components } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { Id } from "./_generated/dataModel";
+
+type EventCustomFieldDefinition = {
+  key: string;
+  trimWhitespace?: boolean;
+};
+
+type MetadataRecord = Record<string, unknown>;
 
 // Create migrations instance and runner
 export const migrations = new Migrations(components.migrations);
@@ -152,40 +160,59 @@ export const backfillUserNameInRsvps = migrations.define({
 // Backfill RSVP customFieldValues from user metadata when possible
 export const backfillRsvpCustomFieldsFromUserMetadata = migrations.define({
   table: "rsvps",
-  migrateOne: async (ctx, rsvp) => {
-    const existingValues = rsvp.customFieldValues ?? {};
+  migrateOne: async (
+    ctx,
+    rawRsvp,
+  ): Promise<{ customFieldValues?: Record<string, string> } | void> => {
+    const rsvp = rawRsvp as Doc<"rsvps">;
+    const existingValues: Record<string, string> = {};
+    const storedCustomFields = rsvp.customFieldValues;
+    if (storedCustomFields && typeof storedCustomFields === "object") {
+      for (const [key, value] of Object.entries(storedCustomFields)) {
+        if (typeof value === "string") {
+          existingValues[key] = value;
+        }
+      }
+    }
 
-    const user = await ctx.db
+    const user = (await ctx.db
       .query("users")
-      .withIndex("by_clerkUserId", (q: any) =>
-        q.eq("clerkUserId", rsvp.clerkUserId),
+      .withIndex("by_clerkUserId", (query) =>
+        query.eq("clerkUserId", rsvp.clerkUserId),
       )
-      .unique();
+      .unique()) as Doc<"users"> | null;
 
-    if (!user?.metadata || Object.keys(user.metadata).length === 0) {
+    const userMetadata: MetadataRecord | undefined =
+      user?.metadata && typeof user.metadata === "object"
+        ? (user.metadata as MetadataRecord)
+        : undefined;
+    if (!userMetadata || Object.keys(userMetadata).length === 0) {
       return;
     }
 
-    const event = await ctx.db.get(rsvp.eventId as Id<"events">);
-    if (!event?.customFields || event.customFields.length === 0) {
+    const event = (await ctx.db.get(
+      rsvp.eventId as Id<"events">,
+    )) as Doc<"events"> | null;
+    const customFields = event?.customFields as
+      | EventCustomFieldDefinition[]
+      | undefined;
+    if (!customFields || customFields.length === 0) {
       return;
     }
 
-    const fieldMap = new Map(
-      event.customFields.map((definition: any) => [definition.key, definition]),
+    const fieldMap = new Map<string, EventCustomFieldDefinition>(
+      customFields.map((definition) => [definition.key, definition]),
     );
 
     let modified = false;
     const nextValues: Record<string, string> = { ...existingValues };
 
-    for (const [metadataKey, metadataValue] of Object.entries(user.metadata)) {
+    for (const [metadataKey, metadataValue] of Object.entries(userMetadata)) {
       const definition = fieldMap.get(metadataKey);
       if (!definition) continue;
       if (nextValues[metadataKey] !== undefined) continue;
-      const stringValue =
-        typeof metadataValue === "string"
-          ? metadataValue
-          : `${metadataValue ?? ""}`;
+      if (metadataValue === undefined || metadataValue === null) continue;
+      const stringValue = String(metadataValue);
       const finalValue = definition.trimWhitespace === false
         ? stringValue
         : stringValue.trim();
@@ -198,45 +225,81 @@ export const backfillRsvpCustomFieldsFromUserMetadata = migrations.define({
       return;
     }
 
-    if (Object.keys(nextValues).length === 0) {
-      return { customFieldValues: undefined };
+    const sanitizedEntries: Array<[string, string]> = [];
+    for (const [key, value] of Object.entries(nextValues)) {
+      if (typeof value === "string" && value !== "") {
+        sanitizedEntries.push([key, value]);
+      }
     }
 
-    return { customFieldValues: nextValues };
+    if (sanitizedEntries.length === 0) {
+      return;
+    }
+
+    const sanitizedValues = Object.fromEntries(sanitizedEntries) as Record<string, string>;
+
+    return { customFieldValues: sanitizedValues };
   },
 });
 
 // Consolidate user metadata into RSVP customFieldValues and drop metadata field
 export const migrateUserMetadataIntoRsvpCustomFields = migrations.define({
   table: "users",
-  migrateOne: async (ctx, user) => {
-    if (!user.metadata || Object.keys(user.metadata).length === 0) {
+  migrateOne: async (
+    ctx,
+    rawUser,
+  ): Promise<{ metadata?: undefined } | void> => {
+    const user = rawUser as Doc<"users">;
+    const userMetadata: MetadataRecord | undefined =
+      user.metadata && typeof user.metadata === "object"
+        ? (user.metadata as MetadataRecord)
+        : undefined;
+    if (!userMetadata || Object.keys(userMetadata).length === 0) {
+      return { metadata: undefined };
+    }
+
+    const clerkUserId = user.clerkUserId;
+    if (!clerkUserId) {
       return { metadata: undefined };
     }
 
     const rsvps = await ctx.db
       .query("rsvps")
-      .withIndex("by_user", (q) => q.eq("clerkUserId", user.clerkUserId))
+      .withIndex("by_user", (query) =>
+        query.eq("clerkUserId", clerkUserId),
+      )
       .collect();
 
     for (const rsvp of rsvps) {
-      const currentValues = rsvp.customFieldValues ?? {};
-      const nextValues: Record<string, string> = { ...currentValues };
+      const existingValues: Record<string, string> = {};
+      if (rsvp.customFieldValues && typeof rsvp.customFieldValues === "object") {
+        for (const [key, value] of Object.entries(rsvp.customFieldValues)) {
+          if (typeof value === "string") {
+            existingValues[key] = value;
+          }
+        }
+      }
+      const nextValues: Record<string, string> = { ...existingValues };
 
-      const event = await ctx.db.get(rsvp.eventId as Id<"events">);
-      if (!event?.customFields || event.customFields.length === 0) continue;
+      const event = (await ctx.db.get(
+        rsvp.eventId as Id<"events">,
+      )) as Doc<"events"> | null;
+      const customFields = event?.customFields as
+        | EventCustomFieldDefinition[]
+        | undefined;
+      if (!customFields || customFields.length === 0) continue;
 
-      const fieldMap = new Map(
-        event.customFields.map((definition: any) => [definition.key, definition]),
+      const fieldMap = new Map<string, EventCustomFieldDefinition>(
+        customFields.map((definition) => [definition.key, definition]),
       );
 
       let modified = false;
-      for (const [key, value] of Object.entries(user.metadata ?? {})) {
+      for (const [key, value] of Object.entries(userMetadata)) {
         const definition = fieldMap.get(key);
         if (!definition) continue;
         if (nextValues[key] !== undefined) continue;
-        const stringValue =
-          typeof value === "string" ? value : `${value ?? ""}`;
+        if (value === undefined || value === null) continue;
+        const stringValue = String(value);
         const finalValue = definition.trimWhitespace === false
           ? stringValue
           : stringValue.trim();
@@ -245,16 +308,30 @@ export const migrateUserMetadataIntoRsvpCustomFields = migrations.define({
         modified = true;
       }
 
-      if (modified) {
-        await ctx.db.patch(rsvp._id, {
-          customFieldValues:
-            Object.keys(nextValues).length > 0 ? nextValues : undefined,
-          updatedAt: Date.now(),
-        });
-        console.log(
-          `[METADATA MIGRATION] Applied metadata from user ${user._id} to RSVP ${rsvp._id}`,
-        );
+      if (!modified) {
+        continue;
       }
+
+      const sanitizedEntries: Array<[string, string]> = [];
+      for (const [key, value] of Object.entries(nextValues)) {
+        if (typeof value === "string" && value !== "") {
+          sanitizedEntries.push([key, value]);
+        }
+      }
+
+      if (sanitizedEntries.length === 0) {
+        continue;
+      }
+
+      const sanitizedValues = Object.fromEntries(sanitizedEntries) as Record<string, string>;
+
+      await ctx.db.patch(rsvp._id as Id<"rsvps">, {
+        customFieldValues: sanitizedValues,
+        updatedAt: Date.now(),
+      });
+      console.log(
+        `[METADATA MIGRATION] Applied metadata from user ${user._id} to RSVP ${rsvp._id}`,
+      );
     }
 
     console.log(`[METADATA MIGRATION] Clearing metadata for user ${user._id}`);
@@ -268,62 +345,77 @@ export const migrateUserMetadataIntoRsvpCustomFields = migrations.define({
 // Phase 1: Validation migrations - Ensure all records have complete listKey data
 export const validateDataIntegrityBeforeCredentialIdSunset = migrations.define({
   table: "rsvps",
-  migrateOne: async (ctx, rsvp, { showLogs = false } = {}) => {
-    // Ensure every RSVP has a listKey
-    if (
-      !rsvp.listKey ||
-      typeof rsvp.listKey !== "string" ||
-      rsvp.listKey.trim() === ""
-    ) {
-      // Try to recover from credentialId if available
-      if (rsvp.credentialId) {
-        const credential = await ctx.db.get(
-          rsvp.credentialId as Id<"listCredentials">,
+  migrateOne: async (
+    ctx,
+    rawRsvp,
+    { showLogs = false }: { showLogs?: boolean } = {},
+  ) => {
+    const rsvp = rawRsvp as Doc<"rsvps">;
+    if (!rsvp.listKey || rsvp.listKey.trim() === "") {
+      if (showLogs) {
+        console.warn(
+          `[VALIDATION] RSVP ${rsvp._id} missing listKey. Attempting to recover from associated credential.`,
         );
-        if (credential && credential.listKey) {
+      }
+
+      const credentialId = (rsvp as { credentialId?: Id<"listCredentials"> }).credentialId;
+
+      if (credentialId) {
+        const credential = await ctx.db.get(
+          credentialId as Id<"listCredentials">,
+        );
+        if (credential?.listKey) {
           if (showLogs) {
             console.log(
-              `[VALIDATION] Recovering listKey for RSVP ${rsvp._id}: ${credential.listKey}`,
+              `[VALIDATION] Recovered listKey for RSVP ${rsvp._id} from credential ${credential._id}.`,
             );
           }
           return { listKey: credential.listKey };
         }
       }
 
-      // If we can't recover, this is a data integrity issue
       throw new Error(
-        `RSVP ${rsvp._id} missing listKey and cannot recover from credentialId`,
+        `RSVP ${rsvp._id} missing listKey and no credential fallback available.`,
       );
     }
 
-    // Validation passed
     return;
   },
 });
 
 export const validateApprovalsDataIntegrity = migrations.define({
   table: "approvals",
-  migrateOne: async (ctx, approval, { showLogs = false } = {}) => {
-    if (
-      !approval.listKey ||
-      typeof approval.listKey !== "string" ||
-      approval.listKey.trim() === ""
-    ) {
-      if (approval.credentialId) {
-        const credential = await ctx.db.get(
-          approval.credentialId as Id<"listCredentials">,
+  migrateOne: async (
+    ctx,
+    rawApproval,
+    { showLogs = false }: { showLogs?: boolean } = {},
+  ) => {
+    const approval = rawApproval as Doc<"approvals">;
+    if (!approval.listKey || approval.listKey.trim() === "") {
+      if (showLogs) {
+        console.warn(
+          `[VALIDATION] Approval ${approval._id} missing listKey. Attempting to recover from credential.`,
         );
-        if (credential && credential.listKey) {
+      }
+
+      const credentialId = (approval as { credentialId?: Id<"listCredentials"> }).credentialId;
+
+      if (credentialId) {
+        const credential = await ctx.db.get(
+          credentialId as Id<"listCredentials">,
+        );
+        if (credential?.listKey) {
           if (showLogs) {
             console.log(
-              `[VALIDATION] Recovering listKey for approval ${approval._id}: ${credential.listKey}`,
+              `[VALIDATION] Recovered listKey for approval ${approval._id} from credential ${credential._id}.`,
             );
           }
           return { listKey: credential.listKey };
         }
       }
+
       throw new Error(
-        `Approval ${approval._id} missing listKey and cannot recover from credentialId`,
+        `Approval ${approval._id} missing listKey and no credential fallback available.`,
       );
     }
     return;
@@ -332,27 +424,37 @@ export const validateApprovalsDataIntegrity = migrations.define({
 
 export const validateRedemptionsDataIntegrity = migrations.define({
   table: "redemptions",
-  migrateOne: async (ctx, redemption, { showLogs = false } = {}) => {
-    if (
-      !redemption.listKey ||
-      typeof redemption.listKey !== "string" ||
-      redemption.listKey.trim() === ""
-    ) {
-      if (redemption.credentialId) {
-        const credential = await ctx.db.get(
-          redemption.credentialId as Id<"listCredentials">,
+  migrateOne: async (
+    ctx,
+    rawRedemption,
+    { showLogs = false }: { showLogs?: boolean } = {},
+  ) => {
+    const redemption = rawRedemption as Doc<"redemptions">;
+    if (!redemption.listKey || redemption.listKey.trim() === "") {
+      if (showLogs) {
+        console.warn(
+          `[VALIDATION] Redemption ${redemption._id} missing listKey. Attempting to recover from credential.`,
         );
-        if (credential && credential.listKey) {
+      }
+
+      const credentialId = (redemption as { credentialId?: Id<"listCredentials"> }).credentialId;
+
+      if (credentialId) {
+        const credential = await ctx.db.get(
+          credentialId as Id<"listCredentials">,
+        );
+        if (credential?.listKey) {
           if (showLogs) {
             console.log(
-              `[VALIDATION] Recovering listKey for redemption ${redemption._id}: ${credential.listKey}`,
+              `[VALIDATION] Recovered listKey for redemption ${redemption._id} from credential ${credential._id}.`,
             );
           }
           return { listKey: credential.listKey };
         }
       }
+
       throw new Error(
-        `Redemption ${redemption._id} missing listKey and cannot recover from credentialId`,
+        `Redemption ${redemption._id} missing listKey and no credential fallback available.`,
       );
     }
     return;

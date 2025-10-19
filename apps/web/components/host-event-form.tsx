@@ -13,8 +13,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectOption } from "@/components/ui/select";
 import { FlyerUpload } from "@/components/flyer-upload";
+import { EventIconUpload } from "@/components/event-icon-upload";
 import { DateTimePicker } from "@/components/date-time-picker";
-import { UseFormReturn, BaseEventFormValues } from "@/lib/types";
+import type { UseFormReturn, BaseEventFormValues } from "@/lib/types";
+import type { Path, PathValue } from "react-hook-form";
 import {
   EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
   EVENT_THEME_DEFAULT_TEXT_COLOR,
@@ -28,6 +30,8 @@ export interface HostEventFormProps<FormValues extends BaseEventFormValues> {
   isSubmitting: boolean;
   flyerStorageId: string | null;
   onFlyerChange: (value: string | null) => void;
+  eventIconStorageId: string | null;
+  onEventIconChange: (value: string | null) => void;
   listsSection?: React.ReactNode;
   customFieldsSection?: React.ReactNode;
   footer?: React.ReactNode;
@@ -41,15 +45,21 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
   isSubmitting,
   flyerStorageId,
   onFlyerChange,
+  eventIconStorageId,
+  onEventIconChange,
   listsSection,
   customFieldsSection,
   footer,
 }: HostEventFormProps<FormValues>) {
   const selectedEventTime =
-    form.watch("eventTime") || "19:00";
+    (form.watch("eventTime" as Path<FormValues>) as string | undefined) ??
+    "19:00";
   const selectedEventTimezone =
-    form.watch("eventTimezone") ||
+    (form.watch("eventTimezone" as Path<FormValues>) as string | undefined) ??
     Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const selectedEventDate = form.watch(
+    "eventDate" as Path<FormValues>,
+  ) as string | undefined;
 
   return (
     <Form {...form}>
@@ -64,79 +74,126 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField
               control={form.control}
-              name="name"
+              name={"name" as Path<FormValues>}
               rules={{ required: "Name is required" }}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Event Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter event name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={({ field }) => {
+                const { value, onChange, ref, ...rest } = field
+                return (
+                  <FormItem>
+                    <FormLabel>Event Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter event name"
+                        value={(value as string | undefined) ?? ""}
+                        onChange={onChange}
+                        ref={ref}
+                        {...rest}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
             />
             <FormField
               control={form.control}
-              name="secondaryTitle"
-              render={({ field }) => (
-                <FormItem>
+              name={"secondaryTitle" as Path<FormValues>}
+              render={({ field }) => {
+                const { value, onChange, ref, ...rest } = field
+                return (
+                  <FormItem>
+                    <FormLabel>
+                      Secondary Title{" "}
+                      <span className="text-sm text-muted-foreground">
+                        (optional)
+                      </span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="After Party, Hosted by..."
+                        value={(value as string | undefined) ?? ""}
+                        onChange={onChange}
+                        ref={ref}
+                        {...rest}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
+            />
+            <FormField
+              control={form.control}
+              name={"themeBackgroundColor" as Path<FormValues>}
+              render={({ field }) => {
+                const { value, onChange } = field
+                return (
+                  <FormItem>
+                    <FormLabel>Background Color</FormLabel>
+                    <FormDescription>
+                      Applied to guest RSVP and ticket pages.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        type="color"
+                        value={
+                          (typeof value === "string" ? value : undefined) ??
+                            EVENT_THEME_DEFAULT_BACKGROUND_COLOR
+                        }
+                        onChange={(event) => onChange(event.target.value)}
+                        className="h-10 w-full cursor-pointer p-1"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
+            />
+            <FormField
+              control={form.control}
+              name={"themeTextColor" as Path<FormValues>}
+              render={({ field }) => {
+                const { value, onChange } = field
+                return (
+                  <FormItem>
+                    <FormLabel>Primary Text Color</FormLabel>
+                    <FormDescription>
+                      Used for emphasis across guest experiences.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        type="color"
+                        value={
+                          (typeof value === "string" ? value : undefined) ??
+                            EVENT_THEME_DEFAULT_TEXT_COLOR
+                        }
+                        onChange={(event) => onChange(event.target.value)}
+                        className="h-10 w-full cursor-pointer p-1"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
+            />
+            <FormField
+              control={form.control}
+              name={"customIconStorageId" as Path<FormValues>}
+              render={() => (
+                <FormItem className="md:col-span-2">
                   <FormLabel>
-                    Secondary Title{" "}
+                    Event Icon{" "}
                     <span className="text-sm text-muted-foreground">
                       (optional)
                     </span>
                   </FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="After Party, Hosted by..."
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="themeBackgroundColor"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Background Color</FormLabel>
                   <FormDescription>
-                    Applied to guest RSVP and ticket pages.
+                    Overrides the default favicon and navigation icon wherever custom theming is applied.
                   </FormDescription>
                   <FormControl>
-                    <Input
-                      type="color"
-                      value={
-                        field.value ?? EVENT_THEME_DEFAULT_BACKGROUND_COLOR
-                      }
-                      onChange={(event) => field.onChange(event.target.value)}
-                      className="h-10 w-full cursor-pointer p-1"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="themeTextColor"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Primary Text Color</FormLabel>
-                  <FormDescription>
-                    Used for emphasis across guest experiences.
-                  </FormDescription>
-                  <FormControl>
-                    <Input
-                      type="color"
-                      value={
-                        field.value ?? EVENT_THEME_DEFAULT_TEXT_COLOR
-                      }
-                      onChange={(event) => field.onChange(event.target.value)}
-                      className="h-10 w-full cursor-pointer p-1"
+                    <EventIconUpload
+                      value={eventIconStorageId}
+                      onChange={onEventIconChange}
                     />
                   </FormControl>
                   <FormMessage />
@@ -144,37 +201,52 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
               )}
             />
           </div>
-          <FormField
-            control={form.control}
-            name="location"
-            rules={{ required: "Location is required" }}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Location</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter venue or location" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="hosts"
-            rules={{ required: "Hosts are required" }}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Host Emails (comma-separated)</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder="host1@example.com, host2@example.com"
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name={"location" as Path<FormValues>}
+              rules={{ required: "Location is required" }}
+              render={({ field }) => {
+                const { value, onChange, ref, ...rest } = field
+                return (
+                  <FormItem>
+                    <FormLabel>Location</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter venue or location"
+                        value={(value as string | undefined) ?? ""}
+                        onChange={onChange}
+                        ref={ref}
+                        {...rest}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
+            />
+            <FormField
+              control={form.control}
+              name={"hosts" as Path<FormValues>}
+              rules={{ required: "Hosts are required" }}
+              render={({ field }) => {
+                const { value, onChange, ref, ...rest } = field
+                return (
+                  <FormItem>
+                    <FormLabel>Host Emails (comma-separated)</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="host1@example.com, host2@example.com"
+                        value={(value as string | undefined) ?? ""}
+                        onChange={onChange}
+                        ref={ref}
+                        {...rest}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
+            />
         </div>
 
         <div className="rounded-lg border bg-card p-4 space-y-4">
@@ -184,26 +256,30 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField
               control={form.control}
-              name="eventDate"
+              name={"eventDate" as Path<FormValues>}
               rules={{ required: "Event date is required" }}
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Date, Time & Timezone</FormLabel>
                   <FormControl>
                     <DateTimePicker
-                      date={field.value}
+                      date={selectedEventDate}
                       time={selectedEventTime}
                       timezone={selectedEventTimezone}
                       onDateChange={(value) => field.onChange(value)}
                       onTimeChange={(value) =>
-                        form.setValue("eventTime" as keyof FormValues, value, {
-                          shouldDirty: true,
-                        })
+                        form.setValue(
+                          "eventTime" as Path<FormValues>,
+                          value as PathValue<FormValues, Path<FormValues>>,
+                          {
+                            shouldDirty: true,
+                          },
+                        )
                       }
                       onTimezoneChange={(value) =>
                         form.setValue(
-                          "eventTimezone" as keyof FormValues,
-                          value,
+                          "eventTimezone" as Path<FormValues>,
+                          value as PathValue<FormValues, Path<FormValues>>,
                           {
                             shouldDirty: true,
                           },
@@ -217,16 +293,23 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
             />
             <FormField
               control={form.control}
-              name="maxAttendees"
+              name={"maxAttendees" as Path<FormValues>}
               render={({ field }) => (
                 <FormItem className="w-full max-w-xs md:max-w-[12rem] md:ml-auto">
                   <FormLabel>Max Attendees</FormLabel>
                   <FormControl>
                     <Select
                       className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                      value={field.value?.toString() || "1"}
-                      onValueChange={(value) =>
-                        field.onChange(parseInt(value, 10))
+                      value={field.value ? String(field.value) : "1"}
+                      onValueChange={(
+                        value
+                      ) =>
+                        field.onChange(
+                          Number.parseInt(value, 10) as PathValue<
+                            FormValues,
+                            Path<FormValues>
+                          >,
+                        )
                       }
                     >
                       <SelectOption value="1">1 (No plus-ones)</SelectOption>
@@ -248,9 +331,9 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
           <h3 className="font-medium text-sm text-muted-foreground">
             EVENT FLYER
           </h3>
-          <FormField
-            control={form.control}
-            name="flyerStorageId"
+        <FormField
+          control={form.control}
+          name={"flyerStorageId" as Path<FormValues>}
             render={() => (
               <FormItem>
                 <FormLabel>Upload Flyer (Optional)</FormLabel>

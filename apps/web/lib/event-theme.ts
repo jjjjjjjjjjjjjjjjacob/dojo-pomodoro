@@ -9,6 +9,11 @@ function clampHexChannel(channel: string): number {
   return Math.max(0, Math.min(255, parseInt(channel, 16)));
 }
 
+function componentToHex(value: number): string {
+  const clamped = Math.max(0, Math.min(255, Math.round(value)));
+  return clamped.toString(16).padStart(2, "0").toUpperCase();
+}
+
 function hexToRgbComponents(hexColor: string): { red: number; green: number; blue: number } {
   const normalizedHex = hexColor.replace("#", "");
   return {
@@ -16,6 +21,27 @@ function hexToRgbComponents(hexColor: string): { red: number; green: number; blu
     green: clampHexChannel(normalizedHex.slice(2, 4)),
     blue: clampHexChannel(normalizedHex.slice(4, 6)),
   };
+}
+
+function mixHexColors(
+  baseColor: string,
+  mixColor: string,
+  weight: number,
+): string {
+  const ratio = Math.max(0, Math.min(1, weight));
+  const normalizedBase = normalizeHexColorInput(baseColor) ?? "#000000";
+  const normalizedMix = normalizeHexColorInput(mixColor) ?? "#000000";
+  const baseComponents = hexToRgbComponents(normalizedBase);
+  const mixComponents = hexToRgbComponents(normalizedMix);
+  const mixedRed =
+    baseComponents.red * (1 - ratio) + mixComponents.red * ratio;
+  const mixedGreen =
+    baseComponents.green * (1 - ratio) + mixComponents.green * ratio;
+  const mixedBlue =
+    baseComponents.blue * (1 - ratio) + mixComponents.blue * ratio;
+  return `#${componentToHex(mixedRed)}${componentToHex(mixedGreen)}${componentToHex(
+    mixedBlue,
+  )}`;
 }
 
 function calculateRelativeLuminance(hexColor: string): number {
@@ -92,19 +118,39 @@ export function buildEventThemeStyle(
   const { backgroundColor, textColor } = getEventThemeColors(event);
   const foregroundColor = getAccessibleTextColor(backgroundColor);
   const primaryForegroundColor = getAccessibleTextColor(textColor);
+  const accentSurfaceColor = mixHexColors(backgroundColor, textColor, 0.12);
+  const mutedForegroundColor = mixHexColors(foregroundColor, backgroundColor, 0.35);
+  const borderColor = mixHexColors(backgroundColor, textColor, 0.24);
+  const accentColor = mixHexColors(textColor, backgroundColor, 0.18);
+
   return {
     "--background": backgroundColor,
-    "--card": backgroundColor,
-    "--popover": backgroundColor,
-    "--primary": textColor,
-    "--ring": textColor,
-    "--primary-foreground": primaryForegroundColor,
     "--foreground": foregroundColor,
+    "--card": backgroundColor,
     "--card-foreground": foregroundColor,
+    "--popover": backgroundColor,
     "--popover-foreground": foregroundColor,
-    "--muted-foreground": foregroundColor,
+    "--primary": textColor,
+    "--primary-foreground": primaryForegroundColor,
+    "--secondary": accentSurfaceColor,
     "--secondary-foreground": foregroundColor,
-    "--accent-foreground": foregroundColor,
+    "--muted": accentSurfaceColor,
+    "--muted-foreground": mutedForegroundColor,
+    "--accent": accentColor,
+    "--accent-foreground": primaryForegroundColor,
+    "--destructive": textColor,
+    "--destructive-foreground": primaryForegroundColor,
+    "--border": borderColor,
+    "--input": borderColor,
+    "--ring": textColor,
+    "--sidebar": accentSurfaceColor,
+    "--sidebar-foreground": foregroundColor,
+    "--sidebar-primary": textColor,
+    "--sidebar-primary-foreground": primaryForegroundColor,
+    "--sidebar-accent": accentSurfaceColor,
+    "--sidebar-accent-foreground": foregroundColor,
+    "--sidebar-border": borderColor,
+    "--sidebar-ring": textColor,
     backgroundColor,
     color: foregroundColor,
   } as CSSProperties;

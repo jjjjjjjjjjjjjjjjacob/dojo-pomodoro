@@ -3,6 +3,7 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import EventPageClient from "./page-client";
+import { formatEventDisplayName } from "@/lib/event-display";
 
 type Props = {
   params: Promise<{ eventId: string }>;
@@ -30,7 +31,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     }).replace(/\//g, ".");
 
     const title = `Dojo Pomodoro | ${event.location} ${formattedDate}`;
-    const description = `Join us at ${event.name} on ${eventDate.toLocaleDateString("en-US", {
+    const eventDisplayName = formatEventDisplayName(event);
+    const description = `Join us at ${eventDisplayName} on ${eventDate.toLocaleDateString("en-US", {
       weekday: "long",
       year: "numeric",
       month: "long",
@@ -49,6 +51,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         console.error("Error fetching flyer URL:", error);
       }
     }
+    let iconUrl: string | null = null;
+    if (event.customIconStorageId) {
+      try {
+        const iconData = await fetchQuery(api.files.getUrl, {
+          storageId: event.customIconStorageId,
+        });
+        iconUrl = iconData?.url ?? null;
+      } catch (error) {
+        console.error("Error fetching event icon URL:", error);
+      }
+    }
+    const iconEntries = iconUrl
+      ? [{ url: iconUrl }]
+      : [
+          { url: "/favicon.png", sizes: "32x32", type: "image/png" },
+          { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+        ];
 
     return {
       title,
@@ -63,7 +82,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
             url: imageUrl,
             width: 1200,
             height: 630,
-            alt: event.name,
+            alt: eventDisplayName,
           },
         ],
         locale: "en_US",
@@ -74,6 +93,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         title,
         description,
         images: [imageUrl],
+      },
+      icons: {
+        icon: iconEntries,
+        apple: iconUrl ?? "/apple-touch-icon.png",
+        shortcut: iconUrl ?? "/favicon.png",
       },
     };
   } catch (error) {

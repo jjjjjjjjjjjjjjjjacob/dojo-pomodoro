@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectOption } from "@/components/ui/select";
+import type { Event, TextBlast, TextBlastStatus } from "@/lib/types";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -33,15 +35,16 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Send, Save, Eye, Users, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
+import { formatEventTitleInline } from "@/lib/event-display";
 
 interface TextBlastDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  blastId?: string | null;
+  blastId?: Id<"textBlasts"> | null;
 }
 
 interface FormData {
-  eventId: string;
+  eventId: Id<"events"> | "";
   name: string;
   message: string;
   targetLists: string[];
@@ -55,14 +58,14 @@ export default function TextBlastDialog({
   onClose,
   blastId,
 }: TextBlastDialogProps) {
-  const events = useQuery(api.events.listAll, {});
+  const events = useQuery(api.events.listAll, {}) as Event[] | undefined;
   const existingBlast = useQuery(
     api.textBlasts.getBlastById,
-    blastId ? { blastId } : "skip"
-  );
+    blastId ? { blastId } : "skip",
+  ) as TextBlast | null | undefined;
   const createDraftMutation = useMutation(api.textBlasts.createDraft);
   const updateDraftMutation = useMutation(api.textBlasts.updateDraft);
-  const sendBlastMutation = useMutation(api.textBlasts.sendBlast);
+  const sendBlastAction = useAction(api.textBlasts.sendBlast);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>({
@@ -80,7 +83,7 @@ export default function TextBlastDialog({
 
   // Get available lists for selected event
   const availableLists = useMemo(() => {
-    if (!selectedEvent) return [];
+    if (!selectedEvent) return [] as string[];
     // Mock list - in real app, get from event or RSVP data
     return ["vip", "ga", "premium"];
   }, [selectedEvent]);
@@ -131,7 +134,7 @@ export default function TextBlastDialog({
     .replace(/\{\{eventDate\}\}/g, sampleData.eventDate)
     .replace(/\{\{eventLocation\}\}/g, sampleData.eventLocation);
 
-  const handleEventChange = (eventId: string) => {
+  const handleEventChange = (eventId: Id<"events"> | "") => {
     setFormData(prev => ({
       ...prev,
       eventId,
@@ -160,7 +163,16 @@ export default function TextBlastDialog({
         });
         toast.success("Text blast updated successfully");
       } else {
-        await createDraftMutation(formData);
+        if (!formData.eventId) {
+          toast.error("Select an event before saving the draft");
+          return;
+        }
+        await createDraftMutation({
+          eventId: formData.eventId,
+          name: formData.name,
+          message: formData.message,
+          targetLists: formData.targetLists,
+        });
         toast.success("Text blast draft saved successfully");
       }
       onClose();
@@ -177,10 +189,14 @@ export default function TextBlastDialog({
 
     setIsSending(true);
     try {
-      const result = await sendBlastMutation({ blastId });
-      toast.success(
-        `Text blast sent successfully! ${result.sentCount} messages delivered.`
-      );
+      const result = await sendBlastAction({ blastId });
+      if (result.success) {
+        toast.success(
+          `Text blast sent successfully! ${result.sentCount} messages delivered.`,
+        );
+      } else {
+        toast.error(result.message || "Failed to send text blast");
+      }
       onClose();
     } catch (error: any) {
       toast.error(error.message || "Failed to send text blast");
@@ -202,14 +218,19 @@ export default function TextBlastDialog({
               <Label htmlFor="eventId">Event</Label>
               <Select
                 value={formData.eventId}
-                onValueChange={handleEventChange}
+                onValueChange={(value) =>
+                  handleEventChange(value ? (value as Id<"events">) : "")
+                }
               >
                 <SelectOption value="">Select an event</SelectOption>
-                {events?.map(event => (
-                  <SelectOption key={event._id} value={event._id}>
-                    {event.name}
-                  </SelectOption>
-                ))}
+                {events?.map((event) => {
+                  const inlineTitle = formatEventTitleInline(event);
+                  return (
+                <SelectOption key={event._id} value={event._id}>
+                      {inlineTitle}
+                    </SelectOption>
+                  );
+                })}
               </Select>
             </div>
 

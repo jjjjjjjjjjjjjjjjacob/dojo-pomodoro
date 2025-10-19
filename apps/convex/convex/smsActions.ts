@@ -92,7 +92,12 @@ export const sendBulkSmsInternal = internalAction({
   },
   handler: async (ctx, args) => {
     const batchSize = args.batchSize || 10; // Process 10 SMS at a time
-    const results = [];
+    const results: Array<{
+      clerkUserId: string;
+      success: boolean;
+      messageId?: string;
+      error?: string;
+    }> = [];
 
     // Process recipients in batches
     for (let i = 0; i < args.recipients.length; i += batchSize) {
@@ -119,10 +124,14 @@ export const sendBulkSmsInternal = internalAction({
             messageId: result.value.messageId,
           });
         } else {
+          const errorMessage =
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason ?? "Unknown error");
           results.push({
             clerkUserId: recipient.clerkUserId,
             success: false,
-            error: result.reason?.message || "Unknown error",
+            error: errorMessage,
           });
         }
       });

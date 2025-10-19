@@ -9,6 +9,17 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import twilio from "twilio";
 
+type ActionResult<T> = T extends (...args: any[]) => Promise<infer R>
+  ? R
+  : never;
+
+type TestTwilioSmsArgs = {
+  testPhoneNumber: string;
+  testMessage?: string;
+};
+
+type SendSmsResult = unknown;
+
 /**
  * Test Twilio SMS integration
  * Call this from Convex dashboard to verify SMS functionality
@@ -18,7 +29,16 @@ export const testTwilioSms = action({
     testPhoneNumber: v.string(),
     testMessage: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    result?: SendSmsResult;
+    error?: string;
+    timestamp: string;
+  }> => {
     try {
       // Test simple SMS sending
       const result = await ctx.runAction(internal.smsActions.sendSmsInternal, {
@@ -92,7 +112,7 @@ export const testPhoneFormatting = action({
  */
 export const testTwilioAccount = action({
   args: {},
-  handler: async (ctx, args) => {
+  handler: async () => {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -143,7 +163,7 @@ export const checkTwilioStatus = action({
   args: {
     testPhoneNumber: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args: { testPhoneNumber: string }) => {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const fromNumber = process.env.TWILIO_PHONE_NUMBER;

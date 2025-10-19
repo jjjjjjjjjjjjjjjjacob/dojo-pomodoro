@@ -40,6 +40,7 @@ export interface Event {
   location: string;
   flyerUrl?: string;
   flyerStorageId?: Id<"_storage">;
+  customIconStorageId?: Id<"_storage"> | null;
   isFeatured?: boolean;
   eventDate: number;
   eventTimezone?: string;
@@ -133,6 +134,23 @@ export interface UserSharedEventField {
   trimWhitespace?: boolean;
 }
 
+export type TextBlastStatus = "draft" | "sending" | "sent" | "failed";
+
+export interface TextBlast {
+  _id: Id<"textBlasts">;
+  eventId: Id<"events">;
+  name: string;
+  message: string;
+  targetLists: string[];
+  recipientCount: number;
+  sentCount: number;
+  failedCount: number;
+  status: TextBlastStatus;
+  createdAt: number;
+  updatedAt: number;
+  sentAt?: number;
+}
+
 export interface UserEventSharing {
   rsvpId: string;
   eventId: Id<"events">;
@@ -148,19 +166,7 @@ export interface UserEventSharing {
 }
 
 // React Hook Form types
-export interface UseFormReturn<T = any> {
-  control: any;
-  handleSubmit: (
-    onSubmit: (data: T) => void | Promise<void>,
-  ) => (e?: React.BaseSyntheticEvent) => Promise<void>;
-  getValues: (name?: keyof T | (keyof T)[]) => any;
-  setValue: (name: keyof T, value: any, options?: any) => void;
-  setError: (name: keyof T, error: { type: string; message: string }) => void;
-  formState: {
-    isSubmitting: boolean;
-    errors: Record<string, any>;
-  };
-}
+export type UseFormReturn<FormValues extends Record<string, unknown>> = import("react-hook-form").UseFormReturn<FormValues>;
 
 // Component prop interfaces
 export interface EventCardProps {
@@ -216,15 +222,16 @@ export interface DateTimePickerProps {
 }
 
 // Form interfaces
-export interface BaseEventFormValues {
+export interface BaseEventFormValues extends Record<string, unknown> {
   name: string;
   secondaryTitle?: string;
   hosts: string;
   location: string;
   flyerStorageId?: string | null;
-  eventDate?: string;
-  eventTime?: string;
-  eventTimezone?: string;
+  customIconStorageId?: string | null;
+  eventDate: string;
+  eventTime: string;
+  eventTimezone: string;
   maxAttendees?: number;
   themeBackgroundColor?: string;
   themeTextColor?: string;
@@ -236,7 +243,7 @@ export interface EventFormData extends BaseEventFormValues {
 
 export interface EditEventFormData extends BaseEventFormValues {}
 
-export interface RSVPFormData {
+export interface RSVPFormData extends Record<string, unknown> {
   name: string; // Keep during migration phase
   firstName: string;
   lastName: string;

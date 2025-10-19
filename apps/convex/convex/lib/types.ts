@@ -52,6 +52,7 @@ export type EventPatch = Partial<Pick<Doc<"events">,
   | "location"
   | "flyerUrl"
   | "flyerStorageId"
+  | "customIconStorageId"
   | "eventDate"
   | "eventTimezone"
   | "maxAttendees"

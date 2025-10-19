@@ -11,7 +11,8 @@ import {
   FormControl,
   FormMessage,
 } from "@/components/ui/form";
-import { Event, CustomField, UseFormReturn, RSVPFormData } from "@/lib/types";
+import type { Event, CustomField, UseFormReturn, RSVPFormData } from "@/lib/types";
+import type { Path } from "react-hook-form";
 import { Info } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
@@ -109,7 +110,7 @@ export function GuestInfoFields({
         <FormField
           key={customField.key}
           control={form.control}
-          name={`custom.${customField.key}` as keyof RSVPFormData}
+          name={`custom.${customField.key}` as Path<RSVPFormData>}
           rules={
             customField.required
               ? {
@@ -117,66 +118,68 @@ export function GuestInfoFields({
                 }
               : undefined
           }
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel className="text-primary text-xs font-medium flex items-center gap-1">
-                {customField.label || customField.key}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label="How hosts use custom field information"
-                      className="size-4 flex items-center justify-center rounded-full border border-primary/40 text-primary/70 hover:border-primary hover:text-primary transition-colors"
-                    >
-                      <Info className="size-3" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="text-xs leading-relaxed text-primary/80">
-                    <p className="mb-2">
-                      Hosts review these answers to understand guest needs, manage capacity, and make approval decisions. Provide accurate details so they can plan properly.
-                    </p>
-                    <p className="mb-2">
-                      After your RSVP is submitted you can revisit and update these values anytime from your account dashboard.
-                    </p>
-                    <a
-                      href="/profile"
-                      className="text-primary font-semibold underline underline-offset-4"
-                    >
-                      Go to account dashboard
-                    </a>
-                  </PopoverContent>
-                </Popover>
-                {customField.required && (
-                  <span className="text-xs text-primary/70"> (required)</span>
-                )}
-              </FormLabel>
-              <FormControl>
-                <Input
-                  placeholder={
-                    customField.placeholder ||
-                    customField.label ||
-                    customField.key
-                  }
-                  className="border border-primary/20 placeholder:text-primary/50 text-primary"
-                  value={custom[customField.key] || ""}
-                  onChange={(e) => {
-                    const rawValue = e.target.value;
-                    const shouldTrim =
-                      customField.trimWhitespace !== false;
-                    const nextValue = shouldTrim
-                      ? rawValue.trim()
-                      : rawValue;
-                    setCustom((m) => ({
-                      ...m,
-                      [customField.key]: nextValue,
-                    }));
-                    field.onChange(nextValue);
-                  }}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
+          render={({ field }) => {
+            const { value, onChange, ref, ...rest } = field
+            return (
+              <FormItem>
+                <FormLabel className="text-primary text-xs font-medium flex items-center gap-1">
+                  {customField.label || customField.key}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="How hosts use custom field information"
+                        className="size-4 flex items-center justify-center rounded-full border border-primary/40 text-primary/70 hover:border-primary hover:text-primary transition-colors"
+                      >
+                        <Info className="size-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="text-xs leading-relaxed text-primary/80">
+                      <p className="mb-2">
+                        Hosts review these answers to understand guest needs, manage capacity, and make approval decisions. Provide accurate details so they can plan properly.
+                      </p>
+                      <p className="mb-2">
+                        After your RSVP is submitted you can revisit and update these values anytime from your account dashboard.
+                      </p>
+                      <a
+                        href="/profile"
+                        className="text-primary font-semibold underline underline-offset-4"
+                      >
+                        Go to account dashboard
+                      </a>
+                    </PopoverContent>
+                  </Popover>
+                  {customField.required && (
+                    <span className="text-xs text-primary/70"> (required)</span>
+                  )}
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder={
+                      customField.placeholder ||
+                      customField.label ||
+                      customField.key
+                    }
+                    className="border border-primary/20 placeholder:text-primary/50 text-primary"
+                    value={(value as string | undefined) ?? ""}
+                    onChange={(event) => {
+                      const rawValue = event.target.value
+                      const shouldTrim = customField.trimWhitespace !== false
+                      const nextValue = shouldTrim ? rawValue.trim() : rawValue
+                      setCustom((m) => ({
+                        ...m,
+                        [customField.key]: nextValue,
+                      }))
+                      onChange(nextValue)
+                    }}
+                    ref={ref}
+                    {...rest}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
         />
       ))}
 

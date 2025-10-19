@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { renderWithProviders, screen } from "./test-wrapper";
 import userEvent from "@testing-library/user-event";
 
 beforeEach(() => {
@@ -17,7 +17,7 @@ beforeEach(() => {
 
 async function renderAndOpenMenu() {
   const user = userEvent.setup();
-  render(<HeaderClient />);
+  renderWithProviders(<HeaderClient />);
   const triggerButton = screen.getByRole("button", {
     name: /dojo pomodoro icon/i,
   });

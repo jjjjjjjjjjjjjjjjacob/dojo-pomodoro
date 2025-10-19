@@ -41,6 +41,7 @@ export const create = action({
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
+    customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
     eventDate: v.number(),
     eventTimezone: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
@@ -144,6 +145,7 @@ export const create = action({
       location: args.location,
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
+      customIconStorageId: args.customIconStorageId ?? null,
       eventDate: args.eventDate,
       eventTimezone: args.eventTimezone,
       maxAttendees: args.maxAttendees ?? 1,
@@ -166,6 +168,7 @@ export const update = action({
         hosts: v.optional(v.array(v.string())),
         location: v.optional(v.string()),
         flyerStorageId: v.optional(v.id("_storage")),
+        customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
         eventDate: v.optional(v.number()),
         eventTimezone: v.optional(v.string()),
         maxAttendees: v.optional(v.number()),
@@ -214,6 +217,9 @@ export const update = action({
           patch.themeTextColor,
           "Text color",
         );
+      }
+      if (patch.customIconStorageId !== undefined) {
+        sanitizedPatch.customIconStorageId = patch.customIconStorageId ?? null;
       }
       await ctx.runMutation(api.events.update, { eventId, ...sanitizedPatch });
     }

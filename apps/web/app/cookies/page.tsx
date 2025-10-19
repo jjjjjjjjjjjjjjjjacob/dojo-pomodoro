@@ -1,4 +1,4 @@
-import Image from "next/image";
+import DojoPomodoreIcon from "@/components/icons/dojo-pomodoro-icon";
 
 export default function CookiesPolicy() {
   return (
@@ -7,13 +7,7 @@ export default function CookiesPolicy() {
         {/* Header */}
         <div className="text-center mb-12">
           <div className="flex items-center justify-center mb-6">
-            <Image
-              src="/icon-192x192.png"
-              alt="Dojo Pomodoro"
-              width={64}
-              height={64}
-              className="mr-4"
-            />
+            <DojoPomodoreIcon size={64} className="mr-4" />
             <h1 className="text-4xl font-bold text-primary">Cookies Policy</h1>
           </div>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">

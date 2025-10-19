@@ -7,6 +7,7 @@ import { Calendar, MapPin, Clock, QrCode, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { formatEventTitleInline } from "@/lib/event-display";
 
 function formatDate(eventDate: number) {
   return new Date(eventDate).toLocaleDateString("en-US", {
@@ -115,12 +116,15 @@ function TicketCard({ ticket }: { ticket: any }) {
   const isRedeemed = redemption?.redeemedAt;
   const hasValidTicket =
     (rsvp.status === "approved" || rsvp.status === "attending") && redemption;
+  const inlineTitle = formatEventTitleInline(event);
 
   return (
     <div className="border rounded-lg p-6 bg-card">
       <div className="flex justify-between items-start mb-4">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold mb-2">{event.name}</h3>
+          <h3 className="text-lg font-semibold mb-2" title={inlineTitle}>
+            {inlineTitle}
+          </h3>
           <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
             <div className="flex items-center gap-1">
               <Calendar className="h-4 w-4" />

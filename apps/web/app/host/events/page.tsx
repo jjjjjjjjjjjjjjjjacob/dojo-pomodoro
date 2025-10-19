@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { formatEventDateTime, copyEventLink } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatEventTitleInline } from "@/lib/event-display";
 
 type ViewMode = "card" | "list";
 type SortOption = "date" | "name" | "rsvps";
@@ -66,9 +67,11 @@ export default function EventsPage() {
 
     let filtered = events.filter((event: any) => {
       // Search filter
+      const normalizedQuery = searchQuery.toLowerCase();
       const matchesSearch =
-        event.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        event.location?.toLowerCase().includes(searchQuery.toLowerCase());
+        event.name?.toLowerCase().includes(normalizedQuery) ||
+        event.secondaryTitle?.toLowerCase().includes(normalizedQuery) ||
+        event.location?.toLowerCase().includes(normalizedQuery);
       if (!matchesSearch) return false;
 
       // Date filter
@@ -230,6 +233,7 @@ function EventListItem({ event }: { event: any }) {
   const setFeaturedEvent = useMutation(api.events.setFeaturedEvent);
   const now = Date.now();
   const isUpcoming = (event.eventDate || 0) > now;
+  const inlineTitle = formatEventTitleInline(event);
 
   return (
     <Card>
@@ -237,7 +241,9 @@ function EventListItem({ event }: { event: any }) {
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="font-medium">{event.name}</h3>
+              <h3 className="font-medium truncate max-w-[18rem]">
+                {inlineTitle}
+              </h3>
               {event.isFeatured && (
                 <Badge variant="secondary" className="text-xs">
                   Featured
@@ -291,7 +297,7 @@ function EventListItem({ event }: { event: any }) {
                   e.preventDefault();
                   try {
                     await setFeaturedEvent({ eventId: event._id });
-                    toast.success(`"${event.name}" is now the featured event`);
+                    toast.success(`"${inlineTitle}" is now the featured event`);
                     router.refresh();
                   } catch (error) {
                     toast.error(

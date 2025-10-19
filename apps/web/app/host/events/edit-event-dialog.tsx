@@ -89,6 +89,7 @@ export default function EditEventDialog({
       hosts: (event.hosts || []).join(", "),
       location: event.location || "",
       flyerStorageId: event.flyerStorageId ?? null,
+      customIconStorageId: event.customIconStorageId ?? null,
       eventDate: defaultDate,
       eventTime: defaultTime,
       eventTimezone: defaultTimezone,
@@ -99,6 +100,9 @@ export default function EditEventDialog({
   });
   const [flyerStorageId, setFlyerStorageId] = React.useState<string | null>(
     event.flyerStorageId ?? null,
+  );
+  const [eventIconStorageId, setEventIconStorageId] = React.useState<string | null>(
+    event.customIconStorageId ?? null,
   );
   const [saving, setSaving] = React.useState(false);
   const update = useAction(api.eventsNode.update);
@@ -159,6 +163,9 @@ export default function EditEventDialog({
       }
       if ((flyerStorageId ?? undefined) !== (event.flyerStorageId ?? undefined)) {
         patch.flyerStorageId = (flyerStorageId as Id<"_storage">) ?? undefined;
+      }
+      if ((eventIconStorageId ?? null) !== (event.customIconStorageId ?? null)) {
+        patch.customIconStorageId = (eventIconStorageId as Id<"_storage">) ?? null;
       }
       if (
         values.maxAttendees !== undefined &&
@@ -250,6 +257,11 @@ export default function EditEventDialog({
           onFlyerChange={(value) => {
             setFlyerStorageId(value);
             form.setValue("flyerStorageId", value, { shouldDirty: true });
+          }}
+          eventIconStorageId={eventIconStorageId}
+          onEventIconChange={(value) => {
+            setEventIconStorageId(value);
+            form.setValue("customIconStorageId", value, { shouldDirty: true });
           }}
           listsSection={
             <div className="space-y-3 rounded-lg border bg-card p-4">

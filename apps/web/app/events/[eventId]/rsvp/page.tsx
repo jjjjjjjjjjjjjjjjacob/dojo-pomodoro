@@ -15,7 +15,7 @@ import {
   validateRequired,
   validateRequiredWithFirstName,
 } from "@/lib/mini-zod";
-import { useForm } from "react-hook-form";
+import { useForm, type Path } from "react-hook-form";
 import {
   Form,
   FormField,
@@ -94,6 +94,9 @@ export default function RsvpPage({
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
+  const [smsConsentEnabled, setSmsConsentEnabled] = useState<boolean>(false);
+  const [hasInitializedSmsConsent, setHasInitializedSmsConsent] =
+    useState<boolean>(false);
 
   const resolve = useAction(api.credentialsNode.resolveListByPassword);
   const upsertContact = useAction(api.profilesNode.upsertEncryptedContact);
@@ -280,10 +283,10 @@ export default function RsvpPage({
           const label = customField.label || customField.key;
           const message = `${label} is required`;
           if (errs.includes(message)) {
-            perField[customField.key] = message;
-            form.setError(`custom.${customField.key}` as keyof RSVPFormData, {
+            const fieldPath = `custom.${customField.key}` as Path<RSVPFormData>
+            form.setError(fieldPath, {
               type: "required",
-              message: message,
+              message,
             });
           }
         }
@@ -328,7 +331,7 @@ export default function RsvpPage({
         note: note || undefined,
         shareContact: true,
         attendees: form.getValues("attendees") || 1,
-        smsConsent: true, // Implicit consent through Terms of Service acceptance
+        smsConsent: smsConsentEnabled,
         smsConsentIpAddress: undefined, // Not needed for implicit consent
         customFields: filteredCustomFields,
       });
@@ -358,6 +361,14 @@ export default function RsvpPage({
       setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (hasInitializedSmsConsent) return;
+    if (status?.smsConsent !== undefined) {
+      setSmsConsentEnabled(status.smsConsent);
+      setHasInitializedSmsConsent(true);
+    }
+  }, [status?.smsConsent, hasInitializedSmsConsent]);
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
@@ -415,7 +426,19 @@ export default function RsvpPage({
                       onChange={(e) => setNote(e.target.value)}
                     />
                   </div>
-                  <div className="flex items-center justify-center">
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <label
+                      htmlFor="sms-opt-in"
+                      className="flex items-center gap-2 text-sm text-primary"
+                    >
+                      <Checkbox
+                        id="sms-opt-in"
+                        checked={smsConsentEnabled}
+                        onCheckedChange={(checked) =>
+                          setSmsConsentEnabled(checked === true)}
+                      />
+                      <span>Opt in to SMS notifications</span>
+                    </label>
                     <Button
                       type="submit"
                       disabled={

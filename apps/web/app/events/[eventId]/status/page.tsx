@@ -1,11 +1,15 @@
 "use client";
 import React, { use } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useMutation } from "convex/react";
 import { convexQuery } from "@convex-dev/react-query";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useAuth } from "@clerk/nextjs";
 import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { CheckCircle2, CircleDashed } from "lucide-react";
 
 export default function StatusPage({
   params,
@@ -14,6 +18,8 @@ export default function StatusPage({
 }) {
   const { eventId } = use(params);
   const { isSignedIn, isLoaded } = useAuth();
+  const updateSmsPreference = useMutation(api.rsvps.updateSmsPreference);
+  const [isUpdatingSmsPreference, setIsUpdatingSmsPreference] = React.useState(false);
 
   // Only query when auth is loaded and user is signed in
   const statusQuery = useQuery(
@@ -26,6 +32,23 @@ export default function StatusPage({
 
   const status = statusQuery.data;
   const event = eventQuery.data;
+
+  const handleSmsOptIn = async () => {
+    if (!status?.rsvpId) return;
+    try {
+      setIsUpdatingSmsPreference(true);
+      await updateSmsPreference({
+        rsvpId: status.rsvpId as Id<"rsvps">,
+        smsConsent: true,
+      });
+      toast.success("SMS notifications enabled.");
+    } catch (error) {
+      const errorDetails = error as Error;
+      toast.error(errorDetails.message || "Failed to enable SMS notifications.");
+    } finally {
+      setIsUpdatingSmsPreference(false);
+    }
+  };
 
   // Show loading while auth is initializing
   if (!isLoaded) {
@@ -59,10 +82,19 @@ export default function StatusPage({
         <div className="w-full max-w-2xl space-y-6 text-center">
           <header className="space-y-1">
             <h1 className="text-2xl font-semibold text-primary">RSVP Status</h1>
-            <p className="text-sm font-semibold text-foreground/70 text-primary">
-              {event.name} @ {event.location}
-            </p>
-            <p className="text-sm text-foreground/70 text-primary"></p>
+            <div className="space-y-1 text-primary">
+              <p className="text-3xl font-semibold leading-tight">
+                {event.name}
+              </p>
+              {event.secondaryTitle?.trim() && (
+                <p className="text-2xl leading-tight text-primary/85 font-medium">
+                  {event.secondaryTitle}
+                </p>
+              )}
+              {event.location && (
+                <p className="text-sm text-primary/70">{event.location}</p>
+              )}
+            </div>
           </header>
           {status?.status === "pending" && (
             <div className="flex flex-col text-sm text-primary gap-2">
@@ -74,6 +106,38 @@ export default function StatusPage({
               <p className="font-medium">
                 IMPORTANT: Approval is necessary to access the event.
               </p>
+            </div>
+          )}
+          {status && (
+            <div className="flex flex-col gap-2 items-center text-sm text-primary">
+              {status.smsConsent ? (
+                <div className="flex items-center gap-2 text-emerald-600">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>SMS notifications enabled</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex items-center gap-2 text-primary/80">
+                    <CircleDashed className="h-4 w-4" />
+                    <span>SMS notifications off</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleSmsOptIn}
+                    disabled={
+                      statusQuery.isLoading ||
+                      statusQuery.isFetching ||
+                      isUpdatingSmsPreference
+                    }
+                  >
+                    {isUpdatingSmsPreference && (
+                      <Spinner className="h-3.5 w-3.5" />
+                    )}
+                    Enable SMS Updates
+                  </Button>
+                </div>
+              )}
             </div>
           )}
           {status?.status === "denied" && (

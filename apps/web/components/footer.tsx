@@ -1,5 +1,5 @@
 import Link from "next/link";
-import Image from "next/image";
+import DojoPomodoreIcon from "@/components/icons/dojo-pomodoro-icon";
 
 export function Footer() {
   return (
@@ -9,13 +9,7 @@ export function Footer() {
 
           {/* Logo and Brand */}
           <div className="flex items-center">
-            <Image
-              src="/icon-192x192.png"
-              alt="Dojo Pomodoro"
-              width={24}
-              height={24}
-              className="mr-2"
-            />
+            <DojoPomodoreIcon size={24} className="mr-2" />
             <Link href="/" className="font-semibold text-primary hover:text-primary/80 transition-colors">
               Dojo Pomodoro
             </Link>

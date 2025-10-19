@@ -21,6 +21,7 @@ import {
   getColorContrastRatio,
   EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
 } from "@/lib/event-theme";
+import { formatEventTitleInline, hasEventSecondaryTitle } from "@/lib/event-display";
 
 function downloadQRCodeAsImage(
   qrCodeValue: string,
@@ -167,6 +168,13 @@ export default function TicketClientPage({
   const qrBackgroundColor = hasAccessibleContrast
     ? eventBackgroundColor
     : EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+  const eventDisplayName = formatEventTitleInline(event);
+  const eventHasSecondaryTitle = hasEventSecondaryTitle(event);
+  const sanitizedFileName = eventDisplayName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const qrFileName = sanitizedFileName || "ticket";
 
   useEffect(() => {
     if (
@@ -179,7 +187,7 @@ export default function TicketClientPage({
         { eventId: eventId as Id<"events"> },
         {
           onSuccess: () => {
-            toast.success(`You're confirmed for ${event.name} 🎉`, {
+            toast.success(`You're confirmed for ${eventDisplayName} 🎉`, {
               description: "Your QR code is now visible below.",
             });
             setCelebrate(true);
@@ -234,7 +242,16 @@ export default function TicketClientPage({
 
   const renderEventHeader = () => (
     <header className="space-y-1">
-      <h1 className="text-4xl font-semibold text-primary">{event?.name}</h1>
+      <div className="space-y-1">
+        <h1 className="text-4xl font-semibold text-primary">
+          {event?.name}
+        </h1>
+        {eventHasSecondaryTitle && (
+          <p className="text-3xl text-primary/85 font-medium leading-tight">
+            {event?.secondaryTitle}
+          </p>
+        )}
+      </div>
       <div>
         <p className="text-sm text-foreground/70 text-primary">
           {event?.location}
@@ -271,7 +288,7 @@ export default function TicketClientPage({
           onClick={() =>
             downloadQRCodeAsImage(
               `${window.location.origin}/redeem/${myRedemption?.code}`,
-              event?.name?.toLowerCase().replace(/[^a-z0-9]/g, "-") || "ticket",
+              qrFileName,
               {
                 foregroundColor: qrForegroundColor,
                 backgroundColor: qrBackgroundColor,

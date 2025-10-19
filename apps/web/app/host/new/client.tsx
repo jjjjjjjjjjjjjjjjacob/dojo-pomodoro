@@ -20,6 +20,7 @@ import {
   isValidHexColor,
   normalizeHexColorInput,
 } from "@/lib/event-theme";
+import { Id } from "@convex/_generated/dataModel";
 
 type ListRow = { listKey: string; password: string };
 
@@ -64,6 +65,7 @@ export default function NewEventClient() {
       eventTime: "19:00",
       eventTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       flyerStorageId: null,
+      customIconStorageId: null,
       maxAttendees: 1,
       themeBackgroundColor: EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
       themeTextColor: EVENT_THEME_DEFAULT_TEXT_COLOR,
@@ -71,6 +73,7 @@ export default function NewEventClient() {
   });
 
   const flyerStorageId = form.watch("flyerStorageId") ?? null;
+  const eventIconStorageId = form.watch("customIconStorageId") ?? null;
   const [lists, setLists] = React.useState<ListRow[]>([
     { listKey: "vip", password: "" },
     { listKey: "ga", password: "" },
@@ -123,7 +126,8 @@ export default function NewEventClient() {
         secondaryTitle: trimmedSecondaryTitle || undefined,
         hosts: hostEmails,
         location: values.location.trim(),
-        flyerStorageId: values.flyerStorageId || undefined,
+        flyerStorageId: values.flyerStorageId ? (values.flyerStorageId as unknown as Id<"_storage"> | undefined) : undefined,
+        customIconStorageId: values.customIconStorageId ? (values.customIconStorageId as unknown as Id<"_storage"> | null) : null,
         eventDate: timestamp,
         eventTimezone: values.eventTimezone,
         maxAttendees: values.maxAttendees,
@@ -168,13 +172,17 @@ export default function NewEventClient() {
           form={form}
           onSubmit={onSubmit}
           submitLabel="Create Event"
-          submittingLabel="Creating Event..."
-          isSubmitting={form.formState.isSubmitting}
-          flyerStorageId={flyerStorageId}
-          onFlyerChange={(value) =>
-            form.setValue("flyerStorageId", value, { shouldDirty: true })
-          }
-          listsSection={
+        submittingLabel="Creating Event..."
+        isSubmitting={form.formState.isSubmitting}
+        flyerStorageId={flyerStorageId}
+        onFlyerChange={(value) =>
+          form.setValue("flyerStorageId", value, { shouldDirty: true })
+        }
+        eventIconStorageId={eventIconStorageId}
+        onEventIconChange={(value) =>
+          form.setValue("customIconStorageId", value, { shouldDirty: true })
+        }
+        listsSection={
             <div className="rounded-lg border bg-card p-4 space-y-4">
               <h3 className="font-medium text-sm text-muted-foreground">
                 ACCESS LISTS & PASSWORDS

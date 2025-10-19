@@ -171,7 +171,6 @@ export const seedTestRSVPs = action({
         await ctx.runMutation(api.users.create, {
           clerkUserId,
           phone,
-          metadata,
         });
 
         // Insert RSVP

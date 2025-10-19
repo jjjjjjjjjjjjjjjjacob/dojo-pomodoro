@@ -500,21 +500,25 @@ export const getUserStats = query({
       throw new Error("Unauthorized");
     }
 
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
-      .unique();
-
     const totalRsvps = await ctx.db
       .query("rsvps")
       .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
       .collect();
 
+  const organizationMembers = await ctx.db
+    .query("orgMemberships")
+    .collect();
+
     return {
+      total: organizationMembers.length,
+      admin: organizationMembers.filter((member) => member.role === "org:admin").length,
+      member: organizationMembers.filter((member) => member.role === "org:member").length,
+      guest: organizationMembers.filter((member) => member.role === "org:guest").length,
+      organizationMembers: organizationMembers.length,
       totalRsvps: totalRsvps.length,
       approvedRsvps: totalRsvps.filter((rsvp) => rsvp.status === "approved").length,
       deniedRsvps: totalRsvps.filter((rsvp) => rsvp.status === "denied").length,
-      lastUpdated: user?.updatedAt ?? 0,
+      lastUpdated: Date.now(),
     };
   },
 });
@@ -537,10 +541,14 @@ export const promoteUserToOrganizationWithClerk = action({
       throw new Error("Only admins can promote users");
     }
 
+    const targetUserRecord = await ctx.runQuery(api.users.getById, { userId });
+    const targetClerkUserId = targetUserRecord?.clerkUserId;
+    if (!targetClerkUserId) {
+      throw new Error("Target user missing Clerk ID");
+    }
+
     const targetUser = await ctx.runQuery(api.users.getByClerkUser, {
-      clerkUserId: (
-        await ctx.runQuery(api.users.getById, { userId })
-      ).clerkUserId!,
+      clerkUserId: targetClerkUserId,
     });
 
     if (!targetUser || !targetUser.clerkUserId) {
@@ -600,10 +608,14 @@ export const updateUserRoleWithClerk = action({
       throw new Error("Only admins can change user roles");
     }
 
+    const targetUserRecord = await ctx.runQuery(api.users.getById, { userId });
+    const targetClerkUserId = targetUserRecord?.clerkUserId;
+    if (!targetClerkUserId) {
+      throw new Error("Target user missing Clerk ID");
+    }
+
     const targetUser = await ctx.runQuery(api.users.getByClerkUser, {
-      clerkUserId: (
-        await ctx.runQuery(api.users.getById, { userId })
-      ).clerkUserId!,
+      clerkUserId: targetClerkUserId,
     });
 
     if (!targetUser || !targetUser.clerkUserId) {

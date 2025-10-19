@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "**.convex.dev",
       },
+      {
+        protocol: "https",
+        hostname: "**.convex.cloud",
+      },
     ],
   },
   typescript: {

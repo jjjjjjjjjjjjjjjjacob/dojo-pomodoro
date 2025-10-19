@@ -402,6 +402,7 @@ export const listForEvent = query({
           status: string;
           attendees?: number;
           contact?: { email?: string; phone?: string };
+          customFieldValues?: Record<string, string>;
           redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
           redemptionCode?: string;
           createdAt: number;
@@ -837,38 +838,23 @@ export const statusForUserEvent = query({
     const clerkUserId = identity.subject;
     const rsvps = await ctx.db
       .query("rsvps")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .filter((q) => q.eq(q.field("clerkUserId"), clerkUserId))
+      .withIndex("by_event", (query) => query.eq("eventId", eventId))
+      .filter((query) => query.eq(query.field("clerkUserId"), clerkUserId))
       .collect();
-    if (!rsvps || rsvps.length === 0) return null;
-    // Prefer approved > pending > denied; if tie, choose most recently updated
-    const pick = (status: string) =>
-      rsvps
-        .filter((r) => r.status === status)
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
-    const approved = pick("approved");
-    const pending = pick("pending");
-    const denied = pick("denied");
-    const attending = pick("attending");
-    const chosen = approved || pending || denied || attending || rsvps[0];
+    if (rsvps.length === 0) return null;
 
-    // Get list credential info to check generateQR setting
-    let listCredential = null;
-    if (chosen.listKey) {
-      // Fallback to listKey lookup for backward compatibility
-      listCredential = await ctx.db
-        .query("listCredentials")
-        .withIndex("by_event", (q) => q.eq("eventId", eventId))
-        .filter((q) => q.eq(q.field("listKey"), chosen.listKey))
-        .unique();
-    }
+    const chosen = selectPrimaryRsvp(rsvps);
+
+    const listCredential = await resolveListCredential(ctx, eventId, chosen);
 
     return {
+      rsvpId: chosen._id,
       listKey: chosen.listKey,
-      status: chosen.status as "approved" | "pending" | "denied" | "attending",
+      status: sanitizeStatus(chosen.status),
       shareContact: chosen.shareContact,
-      customFieldValues: chosen.customFieldValues,
-      generateQR: listCredential?.generateQR ?? false, // default to true for backward compatibility
+      customFieldValues: chosen.customFieldValues ?? undefined,
+      smsConsent: chosen.smsConsent ?? false,
+      generateQR: listCredential?.generateQR ?? false,
     } as const;
   },
 });
@@ -878,54 +864,91 @@ export const statusForUserEventServer = query({
   handler: async (ctx, { eventId, clerkUserId }) => {
     const rsvps = await ctx.db
       .query("rsvps")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .filter((q) => q.eq(q.field("clerkUserId"), clerkUserId))
+      .withIndex("by_event", (query) => query.eq("eventId", eventId))
+      .filter((query) => query.eq(query.field("clerkUserId"), clerkUserId))
       .collect();
-    if (!rsvps || rsvps.length === 0) return null;
-    // Prefer approved > pending > denied; if tie, choose most recently updated
-    const pick = (status: string) =>
-      rsvps
-        .filter((r) => r.status === status)
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
-    const approved = pick("approved");
-    const pending = pick("pending");
-    const denied = pick("denied");
-    const attending = pick("attending");
-    const chosen = approved || pending || denied || attending || rsvps[0];
+    if (rsvps.length === 0) return null;
 
-    // Get redemption information for approved/attending users
-    let redemptionInfo = null;
-    if (chosen.status === "approved" || chosen.status === "attending") {
-      const redemption = await ctx.db
-        .query("redemptions")
-        .withIndex("by_event_user", (q) =>
-          q.eq("eventId", eventId).eq("clerkUserId", clerkUserId),
-        )
-        .unique();
-      if (redemption) {
-        redemptionInfo = {
-          code: redemption.code,
-          listKey: redemption.listKey,
-          redeemedAt: redemption.redeemedAt,
-          disabledAt: redemption.disabledAt,
-          status: redemption.disabledAt
-            ? ("disabled" as const)
-            : redemption.redeemedAt
-              ? ("redeemed" as const)
-              : ("issued" as const),
-        };
-      }
-    }
+    const chosen = selectPrimaryRsvp(rsvps);
+
+    const redemptionInfo = await resolveRedemption(ctx, eventId, clerkUserId, chosen);
 
     return {
+      rsvpId: chosen._id,
       listKey: chosen.listKey,
-      status: chosen.status as "approved" | "pending" | "denied" | "attending",
+      status: sanitizeStatus(chosen.status),
       shareContact: chosen.shareContact,
-      customFieldValues: chosen.customFieldValues,
+      customFieldValues: chosen.customFieldValues ?? undefined,
+      smsConsent: chosen.smsConsent ?? false,
       redemption: redemptionInfo,
     } as const;
   },
 });
+
+type RawRsvp = Doc<"rsvps">;
+
+const statusPriority = ["approved", "attending", "pending", "denied"] as const;
+
+function selectPrimaryRsvp(rsvps: RawRsvp[]): RawRsvp {
+  const prioritized = [...rsvps].sort((a, b) => {
+    const priorityDiff =
+      statusPriority.indexOf((b.status as typeof statusPriority[number]) ?? "denied") -
+      statusPriority.indexOf((a.status as typeof statusPriority[number]) ?? "denied");
+    if (priorityDiff !== 0) return priorityDiff;
+    return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  });
+  return prioritized[0];
+}
+
+function sanitizeStatus(status: string): "approved" | "pending" | "denied" | "attending" {
+  const typedStatus = status as "approved" | "pending" | "denied" | "attending";
+  return statusPriority.includes(typedStatus) ? typedStatus : "pending";
+}
+
+async function resolveListCredential(
+  ctx: any,
+  eventId: Id<"events">,
+  rsvp: RawRsvp,
+) {
+  if (!rsvp.listKey) return null;
+  return ctx.db
+    .query("listCredentials")
+    .withIndex("by_event", (query: any) => query.eq("eventId", eventId))
+    .filter((query: any) => query.eq(query.field("listKey"), rsvp.listKey))
+    .unique();
+}
+
+async function resolveRedemption(
+  ctx: any,
+  eventId: Id<"events">,
+  clerkUserId: string,
+  rsvp: RawRsvp,
+) {
+  if (rsvp.status !== "approved" && rsvp.status !== "attending") {
+    return null;
+  }
+
+  const redemption = await ctx.db
+    .query("redemptions")
+    .withIndex("by_event_user", (query: any) =>
+      query.eq("eventId", eventId).eq("clerkUserId", clerkUserId),
+    )
+    .unique();
+
+  if (!redemption) return null;
+
+  return {
+    code: redemption.code,
+    listKey: redemption.listKey,
+    redeemedAt: redemption.redeemedAt,
+    disabledAt: redemption.disabledAt,
+    status: redemption.disabledAt
+      ? ("disabled" as const)
+      : redemption.redeemedAt
+        ? ("redeemed" as const)
+        : ("issued" as const),
+  };
+}
 
 export const acceptRsvp = mutation({
   args: { eventId: v.id("events") },

@@ -38,12 +38,8 @@ import {
   Trash2,
   CheckCircle,
 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { formatEventTitleInline } from "@/lib/event-display";
 
 export default function EventCardClient({
   event,
@@ -59,6 +55,7 @@ export default function EventCardClient({
 
   const now = Date.now();
   const isUpcoming = (event.eventDate || 0) > now;
+  const inlineTitle = formatEventTitleInline(event);
 
   return (
     <Card className="flex flex-col h-content">
@@ -77,7 +74,9 @@ export default function EventCardClient({
       <div className="flex flex-col flex-grow justify-between">
         <CardContent className="pb-0">
           <div className="flex items-center gap-2 mb-1">
-            <div className="font-medium">{event.name}</div>
+            <div className="font-medium truncate" title={inlineTitle}>
+              {inlineTitle}
+            </div>
             {event.isFeatured && (
               <Badge variant="secondary" className="text-xs">
                 Featured
@@ -136,7 +135,7 @@ export default function EventCardClient({
                       try {
                         await setFeaturedEvent({ eventId: event._id });
                         toast.success(
-                          `"${event.name}" is now the featured event`,
+                          `"${inlineTitle}" is now the featured event`,
                         );
                         router.refresh();
                       } catch (error) {

@@ -3,9 +3,10 @@
  * Handles bulk SMS campaigns for events
  */
 
-import { action, mutation, query, internalAction, internalQuery } from "./_generated/server";
+import { action, mutation, query, internalAction, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * Create a new text blast draft
@@ -17,7 +18,10 @@ export const createDraft = mutation({
     message: v.string(),
     targetLists: v.array(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Id<"textBlasts">> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -62,7 +66,10 @@ export const updateDraft = mutation({
     message: v.optional(v.string()),
     targetLists: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Doc<"textBlasts"> | null> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -105,11 +112,37 @@ export const updateDraft = mutation({
 /**
  * Send a text blast immediately
  */
+type SendBlastResult = {
+  success: true;
+  totalRecipients: number;
+  sentCount: number;
+  failedCount: number;
+} | {
+  success: false;
+  message?: string;
+};
+
+type BlastRecipient = {
+  clerkUserId: string;
+  decryptedPhone: string;
+  phoneObfuscated: string;
+  listKey: string;
+};
+
+type SmsRecipientPayload = {
+  phoneNumber: string;
+  clerkUserId: string;
+  notificationId: Id<"smsNotifications">;
+};
+
 export const sendBlast = action({
   args: {
     blastId: v.id("textBlasts"),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<SendBlastResult> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -135,10 +168,13 @@ export const sendBlast = action({
 
     try {
       // Get all recipients with their encrypted phone data
-      const recipients = await ctx.runAction(internal.textBlasts.getRecipientsWithPhonesInternal, {
-        eventId: blast.eventId,
-        targetLists: blast.targetLists,
-      });
+      const recipients = await ctx.runAction(
+        internal.textBlasts.getRecipientsWithPhonesInternal,
+        {
+          eventId: blast.eventId,
+          targetLists: blast.targetLists,
+        },
+      ) as BlastRecipient[];
 
       if (recipients.length === 0) {
         await ctx.runMutation(internal.textBlasts.updateBlastStatus, {
@@ -162,10 +198,10 @@ export const sendBlast = action({
       }
 
       // Prepare recipients for bulk SMS sending
-      const smsRecipients = recipients.map((recipient, index) => ({
+      const smsRecipients: SmsRecipientPayload[] = recipients.map((recipient, index) => ({
         phoneNumber: recipient.decryptedPhone,
         clerkUserId: recipient.clerkUserId,
-        notificationId: notificationIds[index] as any,
+        notificationId: notificationIds[index] as Id<"smsNotifications">,
       }));
 
       // Send bulk SMS
@@ -195,7 +231,6 @@ export const sendBlast = action({
         blastId: args.blastId,
         status: "failed",
       });
-
       throw new Error(`Failed to send text blast: ${error.message}`);
     }
   },
@@ -210,7 +245,10 @@ export const getBlastsByEvent = query({
     limit: v.optional(v.number()),
     status: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Doc<"textBlasts">[]> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -232,7 +270,7 @@ export const getBlastsByEvent = query({
       .order("desc")
       .take(args.limit || 50);
 
-    return blasts;
+    return blasts as Doc<"textBlasts">[];
   },
 });
 
@@ -244,7 +282,10 @@ export const getMyBlasts = query({
     limit: v.optional(v.number()),
     status: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Doc<"textBlasts">[]> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -260,7 +301,7 @@ export const getMyBlasts = query({
       .order("desc")
       .take(args.limit || 50);
 
-    return blasts;
+    return blasts as Doc<"textBlasts">[];
   },
 });
 
@@ -269,7 +310,10 @@ export const getMyBlasts = query({
  */
 export const getBlastById = query({
   args: { blastId: v.id("textBlasts") },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Doc<"textBlasts"> | null> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -289,7 +333,10 @@ export const getBlastById = query({
  */
 export const duplicateBlast = mutation({
   args: { blastId: v.id("textBlasts") },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Id<"textBlasts">> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -363,19 +410,27 @@ export const getBlastInternal = internalQuery({
 /**
  * Internal mutation to update blast status
  */
-export const updateBlastStatus = mutation({
+type UpdateBlastStatusArgs = {
+  blastId: Id<"textBlasts">;
+  status: string;
+  sentAt?: number;
+};
+
+export const updateBlastStatus = internalMutation({
   args: {
     blastId: v.id("textBlasts"),
     status: v.string(),
     sentAt: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const updateData: any = {
+  handler: async (ctx, args: UpdateBlastStatusArgs) => {
+    const updateData: Partial<Doc<"textBlasts"> & { updatedAt: number }> = {
       status: args.status,
       updatedAt: Date.now(),
     };
 
-    if (args.sentAt) updateData.sentAt = args.sentAt;
+    if (args.sentAt !== undefined) {
+      updateData.sentAt = args.sentAt;
+    }
 
     await ctx.db.patch(args.blastId, updateData);
   },
@@ -384,14 +439,21 @@ export const updateBlastStatus = mutation({
 /**
  * Internal mutation to update blast counts
  */
-export const updateBlastCounts = mutation({
+type UpdateBlastCountArgs = {
+  blastId: Id<"textBlasts">;
+  sentCount: number;
+  failedCount: number;
+  status: string;
+};
+
+export const updateBlastCounts = internalMutation({
   args: {
     blastId: v.id("textBlasts"),
     sentCount: v.number(),
     failedCount: v.number(),
     status: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args: UpdateBlastCountArgs) => {
     await ctx.db.patch(args.blastId, {
       sentCount: args.sentCount,
       failedCount: args.failedCount,
@@ -449,15 +511,18 @@ export const getRecipientsWithPhonesInternal = internalAction({
     eventId: v.id("events"),
     targetLists: v.array(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<BlastRecipient[]> => {
     // Get all approved RSVPs for target lists
     const rsvps = await ctx.runQuery(internal.textBlasts.getApprovedRsvpsForListsInternal, {
       eventId: args.eventId,
       targetLists: args.targetLists,
     });
 
-    const recipients = [];
-    const processedUsers = new Set();
+    const recipients: BlastRecipient[] = [];
+    const processedUsers = new Set<string>();
 
     for (const rsvp of rsvps) {
       // Skip if we already processed this user

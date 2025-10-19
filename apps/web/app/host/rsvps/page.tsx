@@ -96,6 +96,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { cn, sanitizeFieldValue } from "@/lib/utils";
+import { formatEventTitleInline } from "@/lib/event-display";
 
 export default function RsvpsPage() {
   const router = useRouter();
@@ -1693,11 +1694,14 @@ export default function RsvpsPage() {
       <div className="flex gap-2 items-center flex-wrap">
         <span className="text-sm text-foreground/70">Event:</span>
         <Select value={eventId} onValueChange={setEventId} className="max-w-sm">
-          {eventsSorted.map((event: any) => (
-            <SelectOption key={event._id} value={event._id}>
-              {new Date(event.eventDate).toLocaleDateString()} • {event.name}
-            </SelectOption>
-          ))}
+          {eventsSorted.map((event: any) => {
+            const inlineTitle = formatEventTitleInline(event);
+            return (
+              <SelectOption key={event._id} value={event._id}>
+                {new Date(event.eventDate).toLocaleDateString()} • {inlineTitle}
+              </SelectOption>
+            );
+          })}
         </Select>
       </div>
 

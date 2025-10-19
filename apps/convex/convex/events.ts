@@ -18,6 +18,7 @@ export const insertWithCreds = mutation({
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
+    customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
     eventDate: v.number(),
     eventTimezone: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
@@ -58,6 +59,7 @@ export const insertWithCreds = mutation({
       location: args.location,
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
+      customIconStorageId: args.customIconStorageId ?? null,
       eventDate: args.eventDate,
       eventTimezone: args.eventTimezone,
       maxAttendees: args.maxAttendees,
@@ -106,6 +108,7 @@ export const update = mutation({
     ),
     themeBackgroundColor: v.optional(v.string()),
     themeTextColor: v.optional(v.string()),
+    customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
   },
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
@@ -119,6 +122,7 @@ export const update = mutation({
       "location",
       "flyerUrl",
       "flyerStorageId",
+      "customIconStorageId",
       "eventDate",
       "eventTimezone",
       "maxAttendees",

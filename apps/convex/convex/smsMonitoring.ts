@@ -4,6 +4,43 @@
 
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
+
+const DEFAULT_LIMIT = 1000;
+
+type SmsUsageLog = Doc<"smsUsageLogs">;
+
+type SmsUsageLogSummary = {
+  totalMessages: number;
+  totalCost: number;
+  averageCostPerMessage: number;
+  messagesByType: Record<string, number>;
+  costByType: Record<string, number>;
+};
+
+function buildLogSummary(logs: SmsUsageLog[]): SmsUsageLogSummary {
+  const messagesByType: Record<string, number> = {};
+  const costByType: Record<string, number> = {};
+
+  let totalCost = 0;
+
+  for (const log of logs) {
+    totalCost += log.estimatedCost;
+    messagesByType[log.messageType] = (messagesByType[log.messageType] ?? 0) + 1;
+    costByType[log.messageType] = (costByType[log.messageType] ?? 0) + log.estimatedCost;
+  }
+
+  const totalMessages = logs.length;
+  const averageCostPerMessage = totalMessages === 0 ? 0 : totalCost / totalMessages;
+
+  return {
+    totalMessages,
+    totalCost,
+    averageCostPerMessage,
+    messagesByType,
+    costByType,
+  };
+}
 
 /**
  * Log SMS usage for cost tracking with Twilio (accepts pre-hashed phone)
@@ -39,14 +76,16 @@ export const getSmsUsageLogs = internalQuery({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const limit = args.limit ?? DEFAULT_LIMIT;
+
     const logs = await ctx.db
       .query("smsUsageLogs")
       .withIndex("by_timestamp", (q) =>
         q.gte("timestamp", args.startDate).lte("timestamp", args.endDate)
       )
-      .take(args.limit || 1000);
+      .take(limit);
 
-    return logs;
+    return logs satisfies SmsUsageLog[];
   },
 });
 
@@ -66,26 +105,7 @@ export const getSmsCostSummary = internalQuery({
       )
       .collect();
 
-    const summary = {
-      totalMessages: logs.length,
-      totalCost: logs.reduce((sum, log) => sum + log.estimatedCost, 0),
-      averageCostPerMessage: 0,
-      messagesByType: {} as Record<string, number>,
-      costByType: {} as Record<string, number>,
-    };
-
-    if (summary.totalMessages > 0) {
-      summary.averageCostPerMessage = summary.totalCost / summary.totalMessages;
-    }
-
-    logs.forEach((log) => {
-      summary.messagesByType[log.messageType] =
-        (summary.messagesByType[log.messageType] || 0) + 1;
-      summary.costByType[log.messageType] =
-        (summary.costByType[log.messageType] || 0) + log.estimatedCost;
-    });
-
-    return summary;
+    return buildLogSummary(logs satisfies SmsUsageLog[]);
   },
 });
 

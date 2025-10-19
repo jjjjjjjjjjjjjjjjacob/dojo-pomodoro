@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { hasEventSecondaryTitle } from "@/lib/event-display";
 
 export default function EventPageClient({
   params,
@@ -103,7 +104,16 @@ export default function EventPageClient({
         </div>
       ) : (
         <header className="w-full max-w-2xl space-y-4 text-center text-primary animate-in! fade-in! duration-1000">
-          <h1 className="text-4xl font-semibold uppercase">{event.name}</h1>
+          <div className="space-y-1">
+            <h1 className="text-4xl font-semibold uppercase">
+              {event.name}
+            </h1>
+            {hasEventSecondaryTitle(event) && (
+              <p className="text-2xl uppercase tracking-wide text-primary/85 font-semibold">
+                {event?.secondaryTitle}
+              </p>
+            )}
+          </div>
           <div>
             <div className="text-lg leading-tight">{dateText}</div>
             <div className="text-lg leading-tight">{event?.location}</div>
@@ -120,7 +130,9 @@ export default function EventPageClient({
               </DialogTrigger>
               <DialogContent className="text-primary">
                 <DialogHeader className="text-primary">
-                  <DialogTitle>Enter List Password</DialogTitle>
+                  <DialogTitle>
+                    Enter List Password
+                  </DialogTitle>
                   <DialogDescription className="text-primary">
                     Provide the password for your guest list to continue.
                   </DialogDescription>

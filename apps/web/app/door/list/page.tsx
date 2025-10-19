@@ -22,6 +22,7 @@ import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Search, Filter, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { hasEventSecondaryTitle } from "@/lib/event-display";
 
 export default function GuestListPage() {
   const router = useRouter();
@@ -148,7 +149,19 @@ export default function GuestListPage() {
             });
             return (
               <SelectOption key={event._id} value={event._id}>
-                {event.name} — {formattedDate}
+                <div className="flex flex-col">
+                  <span className="font-medium leading-tight">
+                    {event.name}
+                  </span>
+                  {hasEventSecondaryTitle(event) && (
+                    <span className="text-xs text-muted-foreground leading-tight">
+                      {event.secondaryTitle}
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {formattedDate}
+                  </span>
+                </div>
               </SelectOption>
             );
           })}

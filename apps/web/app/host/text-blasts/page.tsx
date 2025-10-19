@@ -3,11 +3,14 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
+import type { Event, TextBlast, TextBlastStatus } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import type { BadgeProps } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -51,22 +54,7 @@ import TextBlastDialog from "./text-blast-dialog";
 type FilterOption = "all" | "draft" | "sent" | "failed";
 type SortOption = "date" | "name" | "recipients";
 
-interface TextBlast {
-  _id: string;
-  name: string;
-  message: string;
-  eventId: string;
-  targetLists: string[];
-  recipientCount: number;
-  sentCount: number;
-  failedCount: number;
-  status: "draft" | "sending" | "sent" | "failed";
-  createdAt: number;
-  updatedAt: number;
-  sentAt?: number;
-}
-
-function getStatusIcon(status: string) {
+function getStatusIcon(status: TextBlastStatus) {
   switch (status) {
     case "draft":
       return <Clock className="h-4 w-4" />;
@@ -81,42 +69,45 @@ function getStatusIcon(status: string) {
   }
 }
 
-function getStatusColor(status: string) {
+function getStatusBadgeProps(status: TextBlastStatus): { variant: NonNullable<BadgeProps["variant"]>; label: string } {
   switch (status) {
     case "draft":
-      return "secondary";
+      return { variant: "secondary", label: "Draft" };
     case "sending":
-      return "default";
+      return { variant: "default", label: "Sending" };
     case "sent":
-      return "success";
+      return { variant: "success", label: "Sent" };
     case "failed":
-      return "destructive";
+      return { variant: "destructive", label: "Failed" };
     default:
-      return "secondary";
+      return { variant: "secondary", label: status };
   }
 }
 
 export default function TextBlastsPage() {
   const textBlasts = useQuery(api.textBlasts.getMyBlasts, {});
-  const events = useQuery(api.events.listAll, {});
+  const events = useQuery(api.events.listAll, {}) as Event[] | undefined;
   const duplicateBlastMutation = useMutation(api.textBlasts.duplicateBlast);
   const deleteBlastMutation = useMutation(api.textBlasts.deleteBlast);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [sortBy, setSortBy] = useState<SortOption>("date");
-  const [selectedBlastForDialog, setSelectedBlastForDialog] = useState<string | null>(null);
+  const [selectedBlastForDialog, setSelectedBlastForDialog] = useState<Id<"textBlasts"> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const eventsMap = useMemo(() => {
-    if (!events) return new Map();
-    return new Map(events.map(event => [event._id, event]));
+    const map = new Map<Id<"events">, Event>();
+    events?.forEach((event) => {
+      map.set(event._id, event);
+    });
+    return map;
   }, [events]);
 
   const filteredAndSortedBlasts = useMemo(() => {
     if (!textBlasts) return [];
 
-    let filtered = textBlasts.filter((blast: TextBlast) => {
+    let filtered = textBlasts.filter((blast) => {
       // Search filter
       const event = eventsMap.get(blast.eventId);
       const matchesSearch =
@@ -132,7 +123,7 @@ export default function TextBlastsPage() {
     });
 
     // Sort
-    filtered.sort((a: TextBlast, b: TextBlast) => {
+    filtered = [...filtered].sort((a, b) => {
       switch (sortBy) {
         case "name":
           return a.name.localeCompare(b.name);
@@ -148,21 +139,29 @@ export default function TextBlastsPage() {
     return filtered;
   }, [textBlasts, searchQuery, filterBy, sortBy, eventsMap]);
 
-  const handleDuplicateBlast = async (blastId: string) => {
+  const handleDuplicateBlast = async (blastId: Id<"textBlasts">) => {
     try {
       await duplicateBlastMutation({ blastId });
       toast.success("Text blast duplicated successfully");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to duplicate text blast");
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to duplicate text blast",
+      );
     }
   };
 
-  const handleDeleteBlast = async (blastId: string) => {
+  const handleDeleteBlast = async (blastId: Id<"textBlasts">) => {
     try {
       await deleteBlastMutation({ blastId });
       toast.success("Text blast deleted successfully");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete text blast");
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete text blast",
+      );
     }
   };
 
@@ -243,8 +242,9 @@ export default function TextBlastsPage() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredAndSortedBlasts.map((blast: TextBlast) => {
+          {filteredAndSortedBlasts.map((blast) => {
             const event = eventsMap.get(blast.eventId);
+            const statusBadge = getStatusBadgeProps(blast.status as TextBlastStatus);
             return (
               <Card key={blast._id} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2">
@@ -317,11 +317,11 @@ export default function TextBlastsPage() {
                   {/* Status Badge */}
                   <div className="flex items-center gap-2">
                     <Badge
-                      variant={getStatusColor(blast.status) as any}
+                      variant={statusBadge.variant}
                       className="flex items-center gap-1"
                     >
-                      {getStatusIcon(blast.status)}
-                      {blast.status.charAt(0).toUpperCase() + blast.status.slice(1)}
+                      {getStatusIcon(blast.status as TextBlastStatus)}
+                      {statusBadge.label}
                     </Badge>
                   </div>
 

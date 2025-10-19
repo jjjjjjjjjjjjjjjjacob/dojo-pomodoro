@@ -50,6 +50,13 @@ mock.module("@clerk/nextjs", () => ({
       lastName: "User",
       primaryPhoneNumber: { phoneNumber: "+1234567890" },
       phoneNumbers: [{ phoneNumber: "+1234567890" }],
+      organizationMemberships: [
+        {
+          id: "membership_123",
+          role: "org:admin" as const,
+          organization: { id: "org_123", name: "Test Organization" },
+        },
+      ],
     },
   }),
   useClerk: () => ({
@@ -185,6 +192,7 @@ mock.module("next/navigation", () => ({
     query: {},
     asPath: "/",
   }),
+  usePathname: () => "/",
   useSearchParams: () => ({
     get: (key: string) => {
       if (key === "password") return "test123";
