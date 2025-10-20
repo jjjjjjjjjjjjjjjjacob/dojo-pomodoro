@@ -399,6 +399,8 @@ export default function UsersPage() {
     updateUserRole,
   ]);
 
+  // useReactTable returns a mutable instance with non-memoizable callbacks; suppress lint warning.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: filteredUsers,
     columns,

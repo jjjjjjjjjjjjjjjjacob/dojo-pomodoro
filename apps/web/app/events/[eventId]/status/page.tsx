@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { CheckCircle2, CircleDashed } from "lucide-react";
+import { getEventThemeColors } from "@/lib/event-theme";
 
 export default function StatusPage({
   params,
@@ -32,19 +33,33 @@ export default function StatusPage({
 
   const status = statusQuery.data;
   const event = eventQuery.data;
+  const eventThemeColors = React.useMemo(
+    () => getEventThemeColors(event ?? null),
+    [event],
+  );
 
-  const handleSmsOptIn = async () => {
+  const handleSmsPreferenceChange = async (desiredSmsConsent: boolean) => {
     if (!status?.rsvpId) return;
     try {
       setIsUpdatingSmsPreference(true);
       await updateSmsPreference({
         rsvpId: status.rsvpId as Id<"rsvps">,
-        smsConsent: true,
+        smsConsent: desiredSmsConsent,
       });
-      toast.success("SMS notifications enabled.");
+      await statusQuery.refetch();
+      toast.success(
+        desiredSmsConsent
+          ? "SMS notifications enabled."
+          : "SMS notifications disabled.",
+      );
     } catch (error) {
       const errorDetails = error as Error;
-      toast.error(errorDetails.message || "Failed to enable SMS notifications.");
+      toast.error(
+        errorDetails.message ||
+          (desiredSmsConsent
+            ? "Failed to enable SMS notifications."
+            : "Failed to disable SMS notifications."),
+      );
     } finally {
       setIsUpdatingSmsPreference(false);
     }
@@ -111,9 +126,31 @@ export default function StatusPage({
           {status && (
             <div className="flex flex-col gap-2 items-center text-sm text-primary">
               {status.smsConsent ? (
-                <div className="flex items-center gap-2 text-emerald-600">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>SMS notifications enabled</span>
+                <div className="flex flex-col items-center gap-3">
+                  <div
+                    className="flex items-center gap-2 text-sm font-medium"
+                    style={{ color: eventThemeColors.textColor }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>SMS notifications enabled</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="min-w-[7rem]"
+                    onClick={() => handleSmsPreferenceChange(false)}
+                    disabled={
+                      statusQuery.isLoading ||
+                      statusQuery.isFetching ||
+                      isUpdatingSmsPreference
+                    }
+                  >
+                    {isUpdatingSmsPreference && (
+                      <Spinner className="h-3.5 w-3.5" />
+                    )}
+                    SMS On
+                  </Button>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-3">
@@ -124,7 +161,7 @@ export default function StatusPage({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={handleSmsOptIn}
+                    onClick={() => handleSmsPreferenceChange(true)}
                     disabled={
                       statusQuery.isLoading ||
                       statusQuery.isFetching ||

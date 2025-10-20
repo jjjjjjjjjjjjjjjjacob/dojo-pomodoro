@@ -34,10 +34,13 @@ export default function GuestListPage() {
     .sort((a: any, b: any) => (b.eventDate ?? 0) - (a.eventDate ?? 0));
   const initialId = searchParams.get("eventId") ?? eventsSorted[0]?._id;
   const [eventId, setEventId] = React.useState<string | undefined>(initialId);
+  const firstSortedEventId = eventsSorted[0]?._id as string | undefined;
 
   React.useEffect(() => {
-    if (!eventId && eventsSorted[0]?._id) setEventId(eventsSorted[0]._id);
-  }, [eventsSorted.map((event: any) => event._id).join(","), eventId]);
+    if (!eventId && firstSortedEventId) {
+      setEventId(firstSortedEventId);
+    }
+  }, [eventId, firstSortedEventId]);
 
   const [guestSearch, setGuestSearch] = React.useState("");
   const debouncedGuest = useDebounce(guestSearch, 250);

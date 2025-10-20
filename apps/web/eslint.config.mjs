@@ -4,7 +4,7 @@ const compat = new FlatCompat({
   baseDirectory: import.meta.dirname,
 });
 
-export default [
+const config = [
   ...compat.config({
     extends: ["next/core-web-vitals"],
     rules: {
@@ -13,3 +13,5 @@ export default [
     },
   }),
 ];
+
+export default config;

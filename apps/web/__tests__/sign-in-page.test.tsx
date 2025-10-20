@@ -1,18 +1,16 @@
-import React from 'react'
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'bun:test'
-import SignInPage from '../app/sign-in/[[...sign-in]]/page'
+import React from "react";
+import { render, screen } from "@testing-library/react";
+import { describe, it, expect, mock } from "bun:test";
+import type { ComponentProps } from "react";
+import { SignInClient } from "../app/sign-in/[[...sign-in]]/sign-in-client";
 
-describe('Sign In Page', () => {
-  it('renders sign in page without crashing', () => {
-    render(<SignInPage />)
-    // Basic render test - just check it doesn't crash
-    expect(document.body).toBeTruthy()
-  })
+mock.module("@clerk/nextjs", () => ({
+  SignIn: (_props: ComponentProps<"div">) => <div data-testid="sign-in-component" />,
+}));
 
-  it('displays sign in interface', () => {
-    render(<SignInPage />)
-    // Test basic functionality without complex mocking
-    expect(document.body).toBeTruthy()
-  })
-})
+describe("SignInClient", () => {
+  it("renders sign in interface with routing props", () => {
+    render(<SignInClient redirectUrl="/events/sample" />);
+    expect(screen.getByTestId("sign-in-component")).toBeTruthy();
+  });
+});

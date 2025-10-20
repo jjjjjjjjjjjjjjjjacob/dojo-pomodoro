@@ -94,7 +94,7 @@ export default function RsvpPage({
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
-  const [smsConsentEnabled, setSmsConsentEnabled] = useState<boolean>(false);
+  const [smsConsentEnabled, setSmsConsentEnabled] = useState<boolean>(true);
   const [hasInitializedSmsConsent, setHasInitializedSmsConsent] =
     useState<boolean>(false);
 
@@ -436,6 +436,7 @@ export default function RsvpPage({
                         checked={smsConsentEnabled}
                         onCheckedChange={(checked) =>
                           setSmsConsentEnabled(checked === true)}
+                        defaultChecked={smsConsentEnabled}
                       />
                       <span>Opt in to SMS notifications</span>
                     </label>
