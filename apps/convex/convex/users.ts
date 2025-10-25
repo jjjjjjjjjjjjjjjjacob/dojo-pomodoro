@@ -566,6 +566,9 @@ export const promoteUserToOrganizationWithClerk = action({
       }
       clerkOrgId = currentUserMemberships[0].organizationId;
     }
+    if (!clerkOrgId) {
+      throw new Error("Unable to resolve organization ID for Clerk promotion");
+    }
 
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
     if (!clerkSecretKey) {

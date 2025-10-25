@@ -53,6 +53,9 @@ export type EventPatch = Partial<Pick<Doc<"events">,
   | "flyerUrl"
   | "flyerStorageId"
   | "customIconStorageId"
+  | "guestPortalImageStorageId"
+  | "guestPortalLinkLabel"
+  | "guestPortalLinkUrl"
   | "eventDate"
   | "eventTimezone"
   | "maxAttendees"
@@ -67,7 +70,7 @@ export type EventPatch = Partial<Pick<Doc<"events">,
  * List credential patch type
  */
 export type ListCredentialPatch = Partial<Pick<Doc<"listCredentials">,
-  "listKey" | "passwordHash" | "passwordSalt" | "passwordIterations" | "passwordFingerprint"
+  "listKey" | "passwordHash" | "passwordSalt" | "passwordIterations" | "passwordFingerprint" | "generateQR"
 >>;
 
 /**
@@ -77,6 +80,7 @@ export type ListUpdate = {
   id?: Id<"listCredentials">;
   listKey: string;
   password?: string;
+  generateQR?: boolean;
 };
 
 /**

@@ -17,6 +17,7 @@ import type * as devUtils from "../devUtils.js";
 import type * as events from "../events.js";
 import type * as eventsNode from "../eventsNode.js";
 import type * as exports from "../exports.js";
+import type * as exportsQueries from "../exportsQueries.js";
 import type * as files from "../files.js";
 import type * as functions from "../functions.js";
 import type * as http from "../http.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   eventsNode: typeof eventsNode;
   exports: typeof exports;
+  exportsQueries: typeof exportsQueries;
   files: typeof files;
   functions: typeof functions;
   http: typeof http;

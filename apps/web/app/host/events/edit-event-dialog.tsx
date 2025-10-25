@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -34,6 +35,27 @@ import {
   EVENT_THEME_DEFAULT_TEXT_COLOR,
   normalizeHexColorInput,
 } from "@/lib/event-theme";
+
+type EventUpdatePatch = {
+  name?: string;
+  secondaryTitle?: string;
+  hosts?: string[];
+  location?: string;
+  flyerUrl?: string;
+  flyerStorageId?: Id<"_storage">;
+  customIconStorageId?: Id<"_storage"> | null;
+  guestPortalImageStorageId?: Id<"_storage">;
+  guestPortalLinkLabel?: string;
+  guestPortalLinkUrl?: string;
+  eventDate?: number;
+  eventTimezone?: string;
+  maxAttendees?: number;
+  status?: Event["status"];
+  isFeatured?: boolean;
+  customFields?: Event["customFields"];
+  themeBackgroundColor?: string;
+  themeTextColor?: string;
+};
 
 export default function EditEventDialog({
   steve,
@@ -90,6 +112,9 @@ export default function EditEventDialog({
       location: event.location || "",
       flyerStorageId: event.flyerStorageId ?? null,
       customIconStorageId: event.customIconStorageId ?? null,
+      guestPortalImageStorageId: event.guestPortalImageStorageId ?? null,
+      guestPortalLinkLabel: event.guestPortalLinkLabel ?? "",
+      guestPortalLinkUrl: event.guestPortalLinkUrl ?? "",
       eventDate: defaultDate,
       eventTime: defaultTime,
       eventTimezone: defaultTimezone,
@@ -103,6 +128,9 @@ export default function EditEventDialog({
   );
   const [eventIconStorageId, setEventIconStorageId] = React.useState<string | null>(
     event.customIconStorageId ?? null,
+  );
+  const [guestPortalImageStorageId, setGuestPortalImageStorageId] = React.useState<string | null>(
+    event.guestPortalImageStorageId ?? null,
   );
   const [saving, setSaving] = React.useState(false);
   const update = useAction(api.eventsNode.update);
@@ -122,14 +150,22 @@ export default function EditEventDialog({
           id: credential._id,
           listKey: credential.listKey,
           password: "",
+          generateQR: credential.generateQR ?? false,
         })),
       );
     }
   }, [open, creds]);
 
   const addList = () =>
-    setLists((array) => [...array, { listKey: "", password: "" }]);
-  const setList = (index: number, key: "listKey" | "password", value: string) =>
+    setLists((array) => [
+      ...array,
+      { listKey: "", password: "", generateQR: false },
+    ]);
+  const setList = <Key extends keyof ListCredentialEdit>(
+    index: number,
+    key: Key,
+    value: ListCredentialEdit[Key],
+  ) =>
     setLists((array) =>
       array.map((item, position) =>
         position === index ? { ...item, [key]: value } : item,
@@ -141,7 +177,7 @@ export default function EditEventDialog({
   const handleSubmit = async (values: EditEventFormData) => {
     try {
       setSaving(true);
-      const patch: Partial<Event> = {};
+      const patch: EventUpdatePatch = {};
       const trimmedName = values.name.trim();
       if (trimmedName && trimmedName !== event.name) {
         patch.name = trimmedName;
@@ -168,6 +204,13 @@ export default function EditEventDialog({
         patch.customIconStorageId = (eventIconStorageId as Id<"_storage">) ?? null;
       }
       if (
+        (guestPortalImageStorageId ?? null) !==
+        (event.guestPortalImageStorageId ?? null)
+      ) {
+        patch.guestPortalImageStorageId =
+          (guestPortalImageStorageId as Id<"_storage">) ?? undefined;
+      }
+      if (
         values.maxAttendees !== undefined &&
         values.maxAttendees !== (event.maxAttendees ?? 1)
       ) {
@@ -184,6 +227,33 @@ export default function EditEventDialog({
         EVENT_THEME_DEFAULT_TEXT_COLOR;
       if (nextThemeTextColor !== normalizedEventTextColor) {
         patch.themeTextColor = nextThemeTextColor;
+      }
+      const trimmedGuestPortalLinkLabel =
+        values.guestPortalLinkLabel?.trim() ?? "";
+      const trimmedGuestPortalLinkUrl =
+        values.guestPortalLinkUrl?.trim() ?? "";
+      const hasLabel = trimmedGuestPortalLinkLabel.length > 0;
+      const hasUrl = trimmedGuestPortalLinkUrl.length > 0;
+      if ((hasLabel && !hasUrl) || (hasUrl && !hasLabel)) {
+        toast.error(
+          "Provide both a guest link label and URL or leave both blank",
+        );
+        setSaving(false);
+        return;
+      }
+      if (hasLabel || hasUrl || event.guestPortalLinkLabel || event.guestPortalLinkUrl) {
+        const previousLabel = event.guestPortalLinkLabel ?? "";
+        const previousUrl = event.guestPortalLinkUrl ?? "";
+        if (trimmedGuestPortalLinkLabel !== previousLabel) {
+          patch.guestPortalLinkLabel = hasLabel
+            ? trimmedGuestPortalLinkLabel
+            : undefined;
+        }
+        if (trimmedGuestPortalLinkUrl !== previousUrl) {
+          patch.guestPortalLinkUrl = hasUrl
+            ? trimmedGuestPortalLinkUrl
+            : undefined;
+        }
       }
       const timezoneValue = values.eventTimezone || defaultTimezone;
       const computedTimestamp =
@@ -208,6 +278,7 @@ export default function EditEventDialog({
         id: list.id as Id<"listCredentials"> | undefined,
         listKey: list.listKey,
         password: list.password || undefined,
+        generateQR: list.generateQR,
       }));
       patch.customFields = customFields.map((field) => ({
         key: field.key.trim(),
@@ -263,6 +334,13 @@ export default function EditEventDialog({
             setEventIconStorageId(value);
             form.setValue("customIconStorageId", value, { shouldDirty: true });
           }}
+          guestPortalImageStorageId={guestPortalImageStorageId}
+          onGuestPortalImageChange={(value) => {
+            setGuestPortalImageStorageId(value);
+            form.setValue("guestPortalImageStorageId", value, {
+              shouldDirty: true,
+            });
+          }}
           listsSection={
             <div className="space-y-3 rounded-lg border bg-card p-4">
               <h4 className="font-medium text-sm text-muted-foreground">
@@ -272,7 +350,7 @@ export default function EditEventDialog({
                 {lists.map((listPassword, index) => (
                   <div
                     key={listPassword.id ?? index}
-                    className="flex gap-3 items-end p-3 rounded border bg-muted/20"
+                    className="flex gap-3 items-start p-3 rounded border bg-muted/20"
                   >
                     <div className="flex flex-col w-full">
                       <label className="text-xs font-medium text-muted-foreground">
@@ -297,6 +375,29 @@ export default function EditEventDialog({
                           setList(index, "password", event.target.value.trim())
                         }
                       />
+                    </div>
+                    <div className="flex flex-1 flex-col gap-2">
+                      <label
+                        htmlFor={`edit-generate-qr-${index}`}
+                        className="text-xs font-medium text-muted-foreground"
+                      >
+                        QR Code Generation
+                      </label>
+                      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                        <Checkbox
+                          id={`edit-generate-qr-${index}`}
+                          checked={listPassword.generateQR ?? false}
+                          onCheckedChange={(checked) =>
+                            setList(index, "generateQR", Boolean(checked))
+                          }
+                        />
+                        <label
+                          htmlFor={`edit-generate-qr-${index}`}
+                          className="text-sm text-muted-foreground leading-tight"
+                        >
+                          Generate QR code for guests on this list
+                        </label>
+                      </div>
                     </div>
                     <Button
                       type="button"

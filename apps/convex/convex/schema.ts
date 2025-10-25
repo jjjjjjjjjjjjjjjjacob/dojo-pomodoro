@@ -33,6 +33,9 @@ export default defineSchema({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    guestPortalImageStorageId: v.optional(v.id("_storage")),
+    guestPortalLinkLabel: v.optional(v.string()),
+    guestPortalLinkUrl: v.optional(v.string()),
     eventDate: v.number(), // ms since epoch
     eventTimezone: v.optional(v.string()),
     isFeatured: v.optional(v.boolean()), // one event can be featured for home page redirect

@@ -85,7 +85,9 @@ function getStatusBadgeProps(status: TextBlastStatus): { variant: NonNullable<Ba
 }
 
 export default function TextBlastsPage() {
-  const textBlasts = useQuery(api.textBlasts.getMyBlasts, {});
+  const textBlasts = useQuery(api.textBlasts.getMyBlasts, {}) as
+    | TextBlast[]
+    | undefined;
   const events = useQuery(api.events.listAll, {}) as Event[] | undefined;
   const duplicateBlastMutation = useMutation(api.textBlasts.duplicateBlast);
   const deleteBlastMutation = useMutation(api.textBlasts.deleteBlast);
@@ -104,7 +106,7 @@ export default function TextBlastsPage() {
     return map;
   }, [events]);
 
-  const filteredAndSortedBlasts = useMemo(() => {
+  const filteredAndSortedBlasts = useMemo<TextBlast[]>(() => {
     if (!textBlasts) return [];
 
     let filtered = textBlasts.filter((blast) => {
@@ -244,7 +246,7 @@ export default function TextBlastsPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredAndSortedBlasts.map((blast) => {
             const event = eventsMap.get(blast.eventId);
-            const statusBadge = getStatusBadgeProps(blast.status as TextBlastStatus);
+            const statusBadge = getStatusBadgeProps(blast.status);
             return (
               <Card key={blast._id} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2">
@@ -320,7 +322,7 @@ export default function TextBlastsPage() {
                       variant={statusBadge.variant}
                       className="flex items-center gap-1"
                     >
-                      {getStatusIcon(blast.status as TextBlastStatus)}
+                      {getStatusIcon(blast.status)}
                       {statusBadge.label}
                     </Badge>
                   </div>

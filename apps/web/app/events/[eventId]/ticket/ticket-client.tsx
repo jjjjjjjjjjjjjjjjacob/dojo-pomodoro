@@ -149,6 +149,17 @@ export default function TicketClientPage({
     },
   );
   const myRedemption = myRedemptionQuery;
+  const guestPortalImageResponse = useConvexQuery(
+    api.files.getUrl,
+    event?.guestPortalImageStorageId
+      ? { storageId: event.guestPortalImageStorageId as Id<"_storage"> }
+      : "skip",
+  );
+  const guestPortalImageUrl = guestPortalImageResponse?.url ?? null;
+  const guestPortalLinkLabel = event?.guestPortalLinkLabel?.trim() ?? "";
+  const guestPortalLinkUrl = event?.guestPortalLinkUrl?.trim() ?? "";
+  const shouldShowGuestLink =
+    guestPortalLinkLabel.length > 0 && guestPortalLinkUrl.length > 0;
 
   const acceptRsvp = useMutation({
     mutationFn: useConvexMutation(api.rsvps.acceptRsvp),
@@ -445,6 +456,34 @@ export default function TicketClientPage({
         <div className="w-full max-w-2xl space-y-6 text-center animate-in fade-in">
           {renderEventHeader()}
           <section className="space-y-3">{renderStatusContent()}</section>
+          {(guestPortalImageUrl || shouldShowGuestLink) && (
+            <section className="space-y-3 rounded-lg border border-primary/15 bg-card/70 p-4">
+              {guestPortalImageUrl && (
+                <div className="flex justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={guestPortalImageUrl}
+                    alt={event?.name ? `${event.name} guest info` : "Event guest information"}
+                    className="max-h-72 w-full rounded-md object-cover"
+                  />
+                </div>
+              )}
+              {shouldShowGuestLink && (
+                <div className="flex justify-center">
+                  <Button asChild variant="outline">
+                    <a
+                      href={guestPortalLinkUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium"
+                    >
+                      {guestPortalLinkLabel}
+                    </a>
+                  </Button>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
       {celebrate && event && <ConfettiOverlay count={120} />}

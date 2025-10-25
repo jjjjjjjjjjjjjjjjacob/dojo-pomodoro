@@ -1,7 +1,7 @@
 "use client";
 import React, { use } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery as useConvexQuery } from "convex/react";
 import { convexQuery } from "@convex-dev/react-query";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -37,6 +37,16 @@ export default function StatusPage({
     () => getEventThemeColors(event ?? null),
     [event],
   );
+  const guestPortalImageResponse = useConvexQuery(
+    api.files.getUrl,
+    event?.guestPortalImageStorageId
+      ? { storageId: event.guestPortalImageStorageId as Id<"_storage"> }
+      : "skip",
+  );
+  const guestPortalLinkLabel = event?.guestPortalLinkLabel?.trim() ?? "";
+  const guestPortalLinkUrl = event?.guestPortalLinkUrl?.trim() ?? "";
+  const shouldShowGuestLink = guestPortalLinkLabel.length > 0 && guestPortalLinkUrl.length > 0;
+  const guestPortalImageUrl = guestPortalImageResponse?.url ?? null;
 
   const handleSmsPreferenceChange = async (desiredSmsConsent: boolean) => {
     if (!status?.rsvpId) return;
@@ -111,6 +121,34 @@ export default function StatusPage({
               )}
             </div>
           </header>
+          {(guestPortalImageUrl || shouldShowGuestLink) && (
+            <section className="space-y-3 rounded-lg border border-primary/15 bg-card/70 p-4">
+              {guestPortalImageUrl && (
+                <div className="flex justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={guestPortalImageUrl}
+                    alt={event?.name ? `${event.name} guest info` : "Event guest information"}
+                    className="max-h-64 w-full rounded-md object-cover"
+                  />
+                </div>
+              )}
+              {shouldShowGuestLink && (
+                <div className="flex justify-center">
+                  <Button asChild variant="outline">
+                    <a
+                      href={guestPortalLinkUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium"
+                    >
+                      {guestPortalLinkLabel}
+                    </a>
+                  </Button>
+                </div>
+              )}
+            </section>
+          )}
           {status?.status === "pending" && (
             <div className="flex flex-col text-sm text-primary gap-2">
               <p>

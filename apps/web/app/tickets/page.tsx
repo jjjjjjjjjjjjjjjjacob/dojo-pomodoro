@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { formatEventTitleInline } from "@/lib/event-display";
+import type { UserTicket, RSVP } from "@/lib/types";
 
 function formatDate(eventDate: number) {
   return new Date(eventDate).toLocaleDateString("en-US", {
@@ -25,7 +26,7 @@ function formatTime(eventDate: number) {
   });
 }
 
-function getStatusBadgeColor(status: string) {
+function getStatusBadgeColor(status: RSVP["status"]) {
   switch (status) {
     case "approved":
       return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
@@ -41,7 +42,9 @@ function getStatusBadgeColor(status: string) {
 }
 
 export default function TicketsPage() {
-  const userTickets = useQuery(api.rsvps.listUserTickets);
+  const userTickets = useQuery(api.rsvps.listUserTickets) as
+    | UserTicket[]
+    | undefined;
 
   if (userTickets === undefined) {
     return (
@@ -108,7 +111,7 @@ export default function TicketsPage() {
   );
 }
 
-function TicketCard({ ticket }: { ticket: any }) {
+function TicketCard({ ticket }: { ticket: UserTicket }) {
   const { rsvp, event, redemption } = ticket;
 
   if (!event) return null;

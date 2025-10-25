@@ -6,6 +6,7 @@ import { api } from "@convex/_generated/api";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { HostEventForm } from "@/components/host-event-form";
 import {
   CustomFieldsEditor,
@@ -22,7 +23,11 @@ import {
 } from "@/lib/event-theme";
 import { Id } from "@convex/_generated/dataModel";
 
-type ListRow = { listKey: string; password: string };
+type ListRow = {
+  listKey: string;
+  password: string;
+  shouldGenerateQrCode: boolean;
+};
 
 function validateCreate(values: EventFormData, lists: ListRow[]): string[] {
   const validationErrors: string[] = [];
@@ -66,6 +71,9 @@ export default function NewEventClient() {
       eventTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       flyerStorageId: null,
       customIconStorageId: null,
+      guestPortalImageStorageId: null,
+      guestPortalLinkLabel: "",
+      guestPortalLinkUrl: "",
       maxAttendees: 1,
       themeBackgroundColor: EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
       themeTextColor: EVENT_THEME_DEFAULT_TEXT_COLOR,
@@ -74,15 +82,24 @@ export default function NewEventClient() {
 
   const flyerStorageId = form.watch("flyerStorageId") ?? null;
   const eventIconStorageId = form.watch("customIconStorageId") ?? null;
+  const guestPortalImageStorageId =
+    form.watch("guestPortalImageStorageId") ?? null;
   const [lists, setLists] = React.useState<ListRow[]>([
-    { listKey: "vip", password: "" },
-    { listKey: "ga", password: "" },
+    { listKey: "vip", password: "", shouldGenerateQrCode: false },
+    { listKey: "ga", password: "", shouldGenerateQrCode: false },
   ]);
   const [customFields, setCustomFields] = React.useState<CustomFieldDef[]>([]);
 
   const addList = () =>
-    setLists((current) => [...current, { listKey: "", password: "" }]);
-  const setList = (index: number, key: keyof ListRow, value: string) => {
+    setLists((current) => [
+      ...current,
+      { listKey: "", password: "", shouldGenerateQrCode: false },
+    ]);
+  const setList = <Key extends keyof ListRow>(
+    index: number,
+    key: Key,
+    value: ListRow[Key],
+  ) => {
     setLists((current) =>
       current.map((item, idx) =>
         idx === index ? { ...item, [key]: value } : item,
@@ -98,6 +115,19 @@ export default function NewEventClient() {
       validationErrors.forEach((message) => toast.error(message));
       return;
     }
+    const trimmedGuestPortalLinkLabel =
+      values.guestPortalLinkLabel?.trim() ?? "";
+    const trimmedGuestPortalLinkUrl =
+      values.guestPortalLinkUrl?.trim() ?? "";
+    const hasLabel = trimmedGuestPortalLinkLabel.length > 0;
+    const hasUrl = trimmedGuestPortalLinkUrl.length > 0;
+    if ((hasLabel && !hasUrl) || (hasUrl && !hasLabel)) {
+      toast.error(
+        "Provide both a guest link label and URL or leave both blank",
+      );
+      return;
+    }
+
     try {
       const hostEmails = values.hosts
         .split(",")
@@ -112,6 +142,7 @@ export default function NewEventClient() {
         .map((list) => ({
           listKey: list.listKey.trim(),
           password: list.password.trim(),
+          generateQR: list.shouldGenerateQrCode,
         }))
         .filter((list) => list.listKey && list.password);
       const trimmedSecondaryTitle = values.secondaryTitle?.trim() ?? "";
@@ -127,7 +158,14 @@ export default function NewEventClient() {
         hosts: hostEmails,
         location: values.location.trim(),
         flyerStorageId: values.flyerStorageId ? (values.flyerStorageId as unknown as Id<"_storage"> | undefined) : undefined,
-        customIconStorageId: values.customIconStorageId ? (values.customIconStorageId as unknown as Id<"_storage"> | null) : null,
+        customIconStorageId: values.customIconStorageId
+          ? (values.customIconStorageId as unknown as Id<"_storage"> | null)
+          : null,
+        guestPortalImageStorageId: values.guestPortalImageStorageId
+          ? (values.guestPortalImageStorageId as unknown as Id<"_storage">)
+          : undefined,
+        guestPortalLinkLabel: hasLabel ? trimmedGuestPortalLinkLabel : undefined,
+        guestPortalLinkUrl: hasUrl ? trimmedGuestPortalLinkUrl : undefined,
         eventDate: timestamp,
         eventTimezone: values.eventTimezone,
         maxAttendees: values.maxAttendees,
@@ -182,6 +220,12 @@ export default function NewEventClient() {
         onEventIconChange={(value) =>
           form.setValue("customIconStorageId", value, { shouldDirty: true })
         }
+        guestPortalImageStorageId={guestPortalImageStorageId}
+        onGuestPortalImageChange={(value) =>
+          form.setValue("guestPortalImageStorageId", value, {
+            shouldDirty: true,
+          })
+        }
         listsSection={
             <div className="rounded-lg border bg-card p-4 space-y-4">
               <h3 className="font-medium text-sm text-muted-foreground">
@@ -191,7 +235,7 @@ export default function NewEventClient() {
                 {lists.map((list, idx) => (
                   <div
                     key={idx}
-                    className="flex gap-3 items-end p-3 rounded-lg border bg-background"
+                    className="flex gap-3 items-start p-3 rounded-lg border bg-background"
                   >
                     <div className="flex flex-col w-full">
                       <label className="text-xs font-medium text-muted-foreground">
@@ -216,6 +260,33 @@ export default function NewEventClient() {
                           setList(idx, "password", event.target.value)
                         }
                       />
+                    </div>
+                    <div className="flex flex-1 flex-col gap-2">
+                      <label
+                        htmlFor={`generate-qr-${idx}`}
+                        className="text-xs font-medium text-muted-foreground"
+                      >
+                        QR Code Generation
+                      </label>
+                      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                        <Checkbox
+                          id={`generate-qr-${idx}`}
+                          checked={list.shouldGenerateQrCode}
+                          onCheckedChange={(checked) =>
+                            setList(
+                              idx,
+                              "shouldGenerateQrCode",
+                              Boolean(checked),
+                            )
+                          }
+                        />
+                        <label
+                          htmlFor={`generate-qr-${idx}`}
+                          className="text-sm text-muted-foreground leading-tight"
+                        >
+                          Generate QR code for guests on this list
+                        </label>
+                      </div>
                     </div>
                     <Button
                       type="button"

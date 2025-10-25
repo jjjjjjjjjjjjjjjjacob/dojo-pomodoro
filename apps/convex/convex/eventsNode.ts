@@ -42,6 +42,9 @@ export const create = action({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    guestPortalImageStorageId: v.optional(v.id("_storage")),
+    guestPortalLinkLabel: v.optional(v.string()),
+    guestPortalLinkUrl: v.optional(v.string()),
     eventDate: v.number(),
     eventTimezone: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
@@ -137,6 +140,46 @@ export const create = action({
       args.themeTextColor,
       "Text color",
     );
+    const trimmedGuestPortalLinkLabel =
+      args.guestPortalLinkLabel?.trim() ?? "";
+    const trimmedGuestPortalLinkUrl =
+      args.guestPortalLinkUrl?.trim() ?? "";
+    const hasGuestPortalLinkLabel = trimmedGuestPortalLinkLabel.length > 0;
+    const hasGuestPortalLinkUrl = trimmedGuestPortalLinkUrl.length > 0;
+
+    if (hasGuestPortalLinkLabel && !hasGuestPortalLinkUrl) {
+      throw new ValidationError(
+        "Guest experience link URL is required when a label is provided",
+      );
+    }
+    if (hasGuestPortalLinkUrl && !hasGuestPortalLinkLabel) {
+      throw new ValidationError(
+        "Guest experience link label is required when a URL is provided",
+      );
+    }
+
+    let normalizedGuestPortalLinkUrl: string | undefined;
+    if (hasGuestPortalLinkUrl) {
+      try {
+        const parsedUrl = new URL(trimmedGuestPortalLinkUrl);
+        if (
+          parsedUrl.protocol !== "http:" &&
+          parsedUrl.protocol !== "https:"
+        ) {
+          throw new ValidationError(
+            "Guest experience link must use http or https",
+          );
+        }
+        normalizedGuestPortalLinkUrl = parsedUrl.toString();
+      } catch (error) {
+        throw new ValidationError(
+          "Guest experience link must be a valid URL",
+        );
+      }
+    }
+    const normalizedGuestPortalLinkLabel = hasGuestPortalLinkLabel
+      ? trimmedGuestPortalLinkLabel
+      : undefined;
 
     const result = await ctx.runMutation(api.events.insertWithCreds, {
       name: args.name,
@@ -146,6 +189,9 @@ export const create = action({
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
       customIconStorageId: args.customIconStorageId ?? null,
+      guestPortalImageStorageId: args.guestPortalImageStorageId,
+      guestPortalLinkLabel: normalizedGuestPortalLinkLabel,
+      guestPortalLinkUrl: normalizedGuestPortalLinkUrl,
       eventDate: args.eventDate,
       eventTimezone: args.eventTimezone,
       maxAttendees: args.maxAttendees ?? 1,
@@ -169,6 +215,9 @@ export const update = action({
         location: v.optional(v.string()),
         flyerStorageId: v.optional(v.id("_storage")),
         customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+        guestPortalImageStorageId: v.optional(v.id("_storage")),
+        guestPortalLinkLabel: v.optional(v.string()),
+        guestPortalLinkUrl: v.optional(v.string()),
         eventDate: v.optional(v.number()),
         eventTimezone: v.optional(v.string()),
         maxAttendees: v.optional(v.number()),
@@ -196,6 +245,7 @@ export const update = action({
           id: v.optional(v.id("listCredentials")),
           listKey: v.string(),
           password: v.optional(v.string()),
+          generateQR: v.optional(v.boolean()),
         }),
       ),
     ),
@@ -220,6 +270,55 @@ export const update = action({
       }
       if (patch.customIconStorageId !== undefined) {
         sanitizedPatch.customIconStorageId = patch.customIconStorageId ?? null;
+      }
+      if (patch.guestPortalImageStorageId !== undefined) {
+        sanitizedPatch.guestPortalImageStorageId =
+          patch.guestPortalImageStorageId ?? undefined;
+      }
+      if (
+        patch.guestPortalLinkLabel !== undefined ||
+        patch.guestPortalLinkUrl !== undefined
+      ) {
+        const trimmedLinkLabel = (patch.guestPortalLinkLabel ?? "").trim();
+        const trimmedLinkUrl = (patch.guestPortalLinkUrl ?? "").trim();
+        const hasLabel = trimmedLinkLabel.length > 0;
+        const hasUrl = trimmedLinkUrl.length > 0;
+
+        if (hasLabel && !hasUrl) {
+          throw new ValidationError(
+            "Guest experience link URL is required when a label is provided",
+          );
+        }
+        if (hasUrl && !hasLabel) {
+          throw new ValidationError(
+            "Guest experience link label is required when a URL is provided",
+          );
+        }
+
+        let normalizedLinkUrl: string | undefined;
+        if (hasUrl) {
+          try {
+            const parsedUrl = new URL(trimmedLinkUrl);
+            if (
+              parsedUrl.protocol !== "http:" &&
+              parsedUrl.protocol !== "https:"
+            ) {
+              throw new ValidationError(
+                "Guest experience link must use http or https",
+              );
+            }
+            normalizedLinkUrl = parsedUrl.toString();
+          } catch (error) {
+            throw new ValidationError(
+              "Guest experience link must be a valid URL",
+            );
+          }
+        }
+
+        sanitizedPatch.guestPortalLinkLabel = hasLabel
+          ? trimmedLinkLabel
+          : undefined;
+        sanitizedPatch.guestPortalLinkUrl = normalizedLinkUrl;
       }
       await ctx.runMutation(api.events.update, { eventId, ...sanitizedPatch });
     }
@@ -258,6 +357,7 @@ export const update = action({
     for (const list of lists) {
       const currentCredential = list.id ? existingById.get(list.id) : undefined;
       const wantsPasswordUpdate = list.password && list.password.length > 0;
+      const nextGenerateQrCodeEnabled = list.generateQR ?? false;
       type ListCredentialPatch = Partial<
         Pick<
           Doc<"listCredentials">,
@@ -266,6 +366,7 @@ export const update = action({
           | "passwordSalt"
           | "passwordIterations"
           | "passwordFingerprint"
+          | "generateQR"
         >
       >;
       const credentialPatch: ListCredentialPatch = {};
@@ -304,6 +405,11 @@ export const update = action({
           credentialPatch.passwordIterations = iterations;
           credentialPatch.passwordFingerprint = fingerprint;
         }
+        const currentGenerateQrCodeEnabled =
+          currentCredential.generateQR ?? false;
+        if (nextGenerateQrCodeEnabled !== currentGenerateQrCodeEnabled) {
+          credentialPatch.generateQR = nextGenerateQrCodeEnabled;
+        }
         if (Object.keys(credentialPatch).length > 0) {
           await ctx.runMutation(api.events.updateListCredential, {
             id: currentCredential._id,
@@ -336,6 +442,7 @@ export const update = action({
           passwordSalt: saltB64,
           passwordIterations: iterations,
           passwordFingerprint: fingerprint,
+          generateQR: nextGenerateQrCodeEnabled,
         });
       }
     }

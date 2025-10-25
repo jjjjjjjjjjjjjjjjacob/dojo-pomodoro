@@ -3,7 +3,7 @@ import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
-import { useQuery } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Select, SelectOption } from "@/components/ui/select";
@@ -97,29 +97,48 @@ import {
 } from "@tanstack/react-table";
 import { cn, sanitizeFieldValue } from "@/lib/utils";
 import { formatEventTitleInline } from "@/lib/event-display";
+import type { Event, HostRsvp, ListCredential } from "@/lib/types";
+
+type PaginatedHostRsvpResult = {
+  page: HostRsvp[];
+  nextCursor: string | null;
+  isDone: boolean;
+};
+
+type ApprovalStatusOption = "pending" | "approved" | "denied";
+type TicketStatusOption = "issued" | "not-issued" | "disabled";
+type TicketDisplayStatus = TicketStatusOption | "redeemed";
 
 export default function RsvpsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   // Use Convex queries
-  const events = useQuery(api.events.listAll, {});
-  const eventsSorted = (events ?? [])
-    .slice()
-    .sort((a: any, b: any) => (b.eventDate ?? 0) - (a.eventDate ?? 0));
+  const events = useQuery(api.events.listAll, {}) as Event[] | undefined;
+  const eventsSorted = React.useMemo<Event[]>(
+    () =>
+      (events ?? [])
+        .slice()
+        .sort(
+          (firstEvent, secondEvent) =>
+            (secondEvent.eventDate ?? 0) - (firstEvent.eventDate ?? 0),
+        ),
+    [events],
+  );
   const initialId = searchParams.get("eventId") ?? eventsSorted[0]?._id;
   const [eventId, setEventId] = React.useState<string | undefined>(initialId);
   React.useEffect(() => {
-    if (!eventId && eventsSorted[0]?._id) setEventId(eventsSorted[0]._id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventsSorted.map((event: any) => event._id).join(","), eventId]);
+    if (!eventId && eventsSorted[0]?._id) {
+      setEventId(eventsSorted[0]._id);
+    }
+  }, [eventId, eventsSorted]);
 
   /*
   React.useEffect(() => {
     if (!eventId) return;
     const currentEventId = searchParams.get("eventId");
     if (currentEventId !== eventId) {
-      const params = new URLSearchParams(searchParams as any);
+      const params = new URLSearchParams(searchParams.toString());
       params.set("eventId", eventId);
       router.replace(`/host/rsvps?${params.toString()}`, { scroll: false });
     }
@@ -160,7 +179,7 @@ export default function RsvpsPage() {
           redemptionFilter,
         }
       : "skip",
-  );
+  ) as PaginatedHostRsvpResult | undefined;
 
   // Get total count using the aggregate-based count query
   const totalCount = useQuery(
@@ -174,23 +193,23 @@ export default function RsvpsPage() {
           redemptionFilter,
         }
       : "skip",
-  );
+  ) as number | undefined;
 
   // Extract the page data
-  const rsvps = React.useMemo(
-    () => rsvpsPaginated?.page || [],
-    [rsvpsPaginated?.page],
+  const rsvps = React.useMemo<HostRsvp[]>(
+    () => rsvpsPaginated?.page ?? [],
+    [rsvpsPaginated],
   );
 
   const currentEvent = useQuery(
     api.events.get,
     eventId ? { eventId: eventId as Id<"events"> } : "skip",
-  );
+  ) as Event | null | undefined;
 
   const listCredentials = useQuery(
     api.credentials.getCredsForEvent,
     eventId ? { eventId: eventId as Id<"events"> } : "skip",
-  );
+  ) as ListCredential[] | undefined;
 
   const [exportOptionsOpen, setExportOptionsOpen] = React.useState(false);
   const [selectedListsForExport, setSelectedListsForExport] = React.useState<
@@ -199,6 +218,9 @@ export default function RsvpsPage() {
   const [includeAttendees, setIncludeAttendees] = React.useState(true);
   const [includeNote, setIncludeNote] = React.useState(true);
   const [includeCustomFields, setIncludeCustomFields] = React.useState(true);
+  const [includePhone, setIncludePhone] = React.useState(true);
+  const [isExportingCsv, setIsExportingCsv] = React.useState(false);
+  const runExportRsvpsCsv = useAction(api.exports.exportRsvpsCsv);
 
   React.useEffect(() => {
     if (listCredentials && selectedListsForExport.length === 0) {
@@ -208,26 +230,6 @@ export default function RsvpsPage() {
     }
   }, [listCredentials, selectedListsForExport.length]);
 
-  const exportData = useQuery(
-    api.exports.exportRsvpsCsv,
-    eventId && selectedListsForExport.length > 0 && exportOptionsOpen
-      ? {
-          eventId: eventId as Id<"events">,
-          listKeys: selectedListsForExport,
-          includeAttendees,
-          includeNote,
-          includeCustomFields,
-          exportTimestamp: new Date().toLocaleString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          }),
-        }
-      : "skip",
-  );
   // Convert mutations to TanStack Query
   const approveMutation = useMutation({
     mutationFn: useConvexMutation(api.approvals.approve),
@@ -271,10 +273,10 @@ export default function RsvpsPage() {
     Record<
       string,
       {
-        originalApprovalStatus: string;
-        originalTicketStatus: string;
-        currentApprovalStatus: string;
-        currentTicketStatus: string;
+        originalApprovalStatus: ApprovalStatusOption;
+        originalTicketStatus: TicketDisplayStatus;
+        currentApprovalStatus: ApprovalStatusOption;
+        currentTicketStatus: TicketDisplayStatus;
       }
     >
   >({});
@@ -325,19 +327,46 @@ export default function RsvpsPage() {
       .trim();
   };
 
+  const normalizeApprovalStatus = (
+    status: HostRsvp["status"],
+  ): ApprovalStatusOption => {
+    if (status === "approved" || status === "denied") {
+      return status;
+    }
+    return "pending";
+  };
+
+  const normalizeTicketStatus = (
+    status: HostRsvp["redemptionStatus"],
+  ): TicketDisplayStatus => {
+    if (status === "none") {
+      return "not-issued";
+    }
+    return status;
+  };
+
+  const coerceTicketStatusOption = (
+    status: TicketDisplayStatus,
+  ): TicketStatusOption | undefined => {
+    if (status === "redeemed") {
+      return undefined;
+    }
+    return status;
+  };
+
   // Generate dynamic custom field columns
-  const customFieldColumns = React.useMemo(() => {
+  const customFieldColumns = React.useMemo<ColumnDef<HostRsvp>[]>(() => {
     if (!currentEvent?.customFields) return [];
 
     return currentEvent.customFields.map((field) => ({
       id: `custom_${field.key}`,
       header: field.label.replace(/:\s*$/, "").trim(), // Remove trailing colon and spaces
-      accessorFn: (r: any) => {
-        if (!r.customFieldValues) return "";
+      accessorFn: (row: HostRsvp) => {
+        if (!row.customFieldValues) return "";
 
         // Try exact match first
-        if (r.customFieldValues[field.key]) {
-          return r.customFieldValues[field.key];
+        if (row.customFieldValues[field.key]) {
+          return row.customFieldValues[field.key] ?? "";
         }
 
         // Try normalized key
@@ -345,7 +374,7 @@ export default function RsvpsPage() {
 
         // Check all stored keys for a normalized match
         for (const [metaKey, metaValue] of Object.entries(
-          r.customFieldValues,
+          row.customFieldValues,
         )) {
           if (normalizeFieldKey(metaKey) === normalizedKey) {
             return metaValue;
@@ -354,8 +383,8 @@ export default function RsvpsPage() {
 
         return "";
       },
-      cell: ({ getValue }: any) => {
-        const rawValue = getValue() as string;
+      cell: ({ getValue }) => {
+        const rawValue = (getValue() as string | undefined) ?? "";
         const hasPrependUrl = !!field.prependUrl;
         const isCopyEnabled = field.copyEnabled;
 
@@ -457,22 +486,28 @@ export default function RsvpsPage() {
   }, [currentEvent?.customFields]);
 
   // Create base columns without selection functionality first
-  const baseCols = React.useMemo<ColumnDef<any>[]>(
+  const baseCols = React.useMemo<ColumnDef<HostRsvp>[]>(
     () => [
       {
         id: "guest",
         header: "Guest",
-        accessorFn: (r: any) => {
-          const displayName = `${r.firstName || ""} ${r.lastName || ""}`.trim();
+        accessorFn: (rsvp: HostRsvp) => {
+          const displayName = `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
           return (
             displayName ||
-            r.contact?.email ||
-            r.contact?.phone ||
+            rsvp.contact?.email ||
+            rsvp.contact?.phone ||
             "(no contact)"
           );
         },
-        cell: (ctx) => {
-          const guestName = ctx.getValue() as string;
+        cell: ({ row }) => {
+          const rsvp = row.original;
+          const displayName = `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
+          const guestName =
+            displayName ||
+            rsvp.contact?.email ||
+            rsvp.contact?.phone ||
+            "(no contact)";
           return <span>{guestName}</span>;
         },
       },
@@ -484,7 +519,7 @@ export default function RsvpsPage() {
           const rsvp = row.original;
           const currentListKey = rsvp.listKey;
           const availableListKeys =
-            listCredentials?.map((cred) => cred.listKey) || [];
+            listCredentials?.map((credential) => credential.listKey) || [];
 
           // Use shared loading state for this row
           const isUpdatingList = loadingListUpdates.has(rsvp.id);
@@ -577,18 +612,47 @@ export default function RsvpsPage() {
       {
         id: "attendees",
         header: "Attendees",
-        accessorFn: (r: any) => r.attendees ?? 1,
-        cell: ({ getValue }) => {
-          const attendees = getValue() as number;
+        accessorFn: (rsvp: HostRsvp): number => rsvp.attendees ?? 1,
+        cell: ({ row }) => {
+          const attendees = row.original.attendees ?? 1;
           return <span className="text-sm">{attendees}</span>;
+        },
+      },
+      {
+        id: "noteForHosts",
+        header: "Note for Hosts",
+        accessorKey: "note",
+        cell: ({ row }) => {
+          const noteForHosts = row.original.note?.trim();
+          if (!noteForHosts) {
+            return (
+              <span className="text-sm text-muted-foreground">—</span>
+            );
+          }
+
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-sm truncate max-w-[16rem] cursor-default">
+                  {noteForHosts}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                align="start"
+                className="max-w-xs whitespace-pre-line"
+              >
+                {noteForHosts}
+              </TooltipContent>
+            </Tooltip>
+          );
         },
       },
       {
         id: "createdAt",
         header: "Created",
         accessorKey: "createdAt",
-        cell: ({ getValue }) => {
-          const timestamp = getValue() as number;
+        cell: ({ row }) => {
+          const timestamp = row.original.createdAt;
           const date = new Date(timestamp);
           return (
             <div className="text-xs">
@@ -611,13 +675,15 @@ export default function RsvpsPage() {
         accessorKey: "status",
         cell: ({ row }) => {
           const rsvp = row.original;
-          const originalApprovalStatus = rsvp.status || "pending";
+          const originalApprovalStatus = normalizeApprovalStatus(rsvp.status);
           const currentApprovalStatus = originalApprovalStatus;
 
           // Use shared loading state for this row
           const isUpdatingApproval = loadingApprovalUpdates.has(rsvp.id);
 
-          const handleStatusChange = async (newStatus: string) => {
+          const handleStatusChange = async (
+            newStatus: ApprovalStatusOption,
+          ) => {
             if (newStatus === originalApprovalStatus) return;
 
             // Get guest name for toast
@@ -638,7 +704,7 @@ export default function RsvpsPage() {
             updateRsvpCompleteMutation.mutate(
               {
                 rsvpId: rsvp.id,
-                approvalStatus: newStatus as any,
+                approvalStatus: newStatus,
               },
               {
                 onSuccess: () => {
@@ -670,7 +736,9 @@ export default function RsvpsPage() {
             );
           };
 
-          const getStatusColor = (currentStatus: string) => {
+          const getStatusColor = (
+            currentStatus: ApprovalStatusOption,
+          ): string => {
             switch (currentStatus) {
               case "approved":
                 return "text-green-700 border-green-200 bg-green-50 hover:bg-green-10 hover:text-green-700";
@@ -700,7 +768,9 @@ export default function RsvpsPage() {
               <DropdownMenuContent>
                 <DropdownMenuRadioGroup
                   value={currentApprovalStatus}
-                  onValueChange={handleStatusChange}
+                  onValueChange={(value) =>
+                    handleStatusChange(value as ApprovalStatusOption)
+                  }
                 >
                   <DropdownMenuRadioItem value="pending">
                     <span className="text-amber-700">Pending</span>
@@ -720,20 +790,21 @@ export default function RsvpsPage() {
       {
         id: "ticketStatus",
         header: "Ticket",
-        accessorFn: (r: any) => r.redemptionStatus,
+        accessorFn: (rsvp: HostRsvp) => rsvp.redemptionStatus,
         cell: ({ row }) => {
           const rsvp = row.original;
-          const originalTicketStatus =
-            rsvp.redemptionStatus === "none"
-              ? "not-issued"
-              : rsvp.redemptionStatus;
+          const originalTicketStatus = normalizeTicketStatus(
+            rsvp.redemptionStatus,
+          );
           const currentTicketStatus = originalTicketStatus;
           const isRedeemed = originalTicketStatus === "redeemed";
 
           // Use shared loading state for this row
           const isUpdatingTicket = loadingTicketUpdates.has(rsvp.id);
 
-          const handleTicketStatusChange = async (newStatus: string) => {
+          const handleTicketStatusChange = async (
+            newStatus: TicketStatusOption,
+          ) => {
             if (isRedeemed) return; // Cannot change redeemed status
             if (newStatus === originalTicketStatus) return;
 
@@ -755,7 +826,7 @@ export default function RsvpsPage() {
             updateRsvpCompleteMutation.mutate(
               {
                 rsvpId: rsvp.id,
-                ticketStatus: newStatus as any,
+                ticketStatus: newStatus,
               },
               {
                 onSuccess: () => {
@@ -786,7 +857,7 @@ export default function RsvpsPage() {
             );
           };
 
-          const getTicketStatusColor = (status: string) => {
+          const getTicketStatusColor = (status: TicketDisplayStatus): string => {
             switch (status) {
               case "issued":
                 return "text-purple-700 border-purple-200 bg-purple-50 hover:bg-purple-10 hover:text-purple-700";
@@ -800,7 +871,7 @@ export default function RsvpsPage() {
             }
           };
 
-          const getTicketStatusLabel = (status: string) => {
+          const getTicketStatusLabel = (status: TicketDisplayStatus): string => {
             switch (status) {
               case "issued":
                 return "Issued";
@@ -831,7 +902,9 @@ export default function RsvpsPage() {
               <DropdownMenuContent>
                 <DropdownMenuRadioGroup
                   value={currentTicketStatus}
-                  onValueChange={handleTicketStatusChange}
+                  onValueChange={(value) =>
+                    handleTicketStatusChange(value as TicketStatusOption)
+                  }
                 >
                   <DropdownMenuRadioItem value="not-issued">
                     <span className="text-gray-700">None</span>
@@ -850,9 +923,11 @@ export default function RsvpsPage() {
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() => {
-                          const url = `${window.location.origin}/redeem/${rsvp.redemptionCode}`;
+                          const redemptionCode = rsvp.redemptionCode;
+                          if (!redemptionCode) return;
+                          const url = `${window.location.origin}/redeem/${redemptionCode}`;
                           setQr({
-                            code: rsvp.redemptionCode,
+                            code: redemptionCode,
                             url,
                             status: currentTicketStatus,
                             listKey: rsvp.listKey,
@@ -884,19 +959,29 @@ export default function RsvpsPage() {
           const handleSave = async () => {
             if (!changes || !hasChanges) return;
 
+            const approvalStatusUpdate =
+              changes.currentApprovalStatus !== changes.originalApprovalStatus
+                ? changes.currentApprovalStatus
+                : undefined;
+            const ticketStatusUpdate =
+              changes.currentTicketStatus !== changes.originalTicketStatus
+                ? coerceTicketStatusOption(changes.currentTicketStatus)
+                : undefined;
+
+            const mutationInput: Parameters<
+              typeof updateRsvpCompleteMutation.mutate
+            >[0] = {
+              rsvpId: rsvp.id,
+            };
+            if (approvalStatusUpdate) {
+              mutationInput.approvalStatus = approvalStatusUpdate;
+            }
+            if (ticketStatusUpdate) {
+              mutationInput.ticketStatus = ticketStatusUpdate;
+            }
+
             updateRsvpCompleteMutation.mutate(
-              {
-                rsvpId: rsvp.id,
-                approvalStatus:
-                  changes.currentApprovalStatus !==
-                  changes.originalApprovalStatus
-                    ? (changes.currentApprovalStatus as any)
-                    : undefined,
-                ticketStatus:
-                  changes.currentTicketStatus !== changes.originalTicketStatus
-                    ? (changes.currentTicketStatus as any)
-                    : undefined,
-              },
+              mutationInput,
               {
                 onSuccess: () => {
                   // Clear pending changes for this row
@@ -988,6 +1073,7 @@ export default function RsvpsPage() {
       updateRsvpCompleteMutation,
       deleteRsvpCompleteMutation,
       updateRsvpListKeyMutation,
+      listCredentials,
       customFieldColumns,
       loadingListUpdates,
       loadingApprovalUpdates,
@@ -1073,7 +1159,7 @@ export default function RsvpsPage() {
 
   // Bulk action handlers
   const handleBulkListChange = async (newListKey: string) => {
-    const selectedRsvps = rsvps.filter((rsvp: any) =>
+    const selectedRsvps = rsvps.filter((rsvp) =>
       selectedRows.has(rsvp.id),
     );
     const count = selectedRsvps.length;
@@ -1091,7 +1177,7 @@ export default function RsvpsPage() {
     toast.info(`Updating ${count} RSVPs...`);
 
     // Execute bulk update in single mutation
-    const updates = selectedRsvps.map((rsvp: any) => ({
+    const updates = selectedRsvps.map((rsvp) => ({
       rsvpId: rsvp.id,
       listKey: newListKey,
     }));
@@ -1127,8 +1213,10 @@ export default function RsvpsPage() {
     }
   };
 
-  const handleBulkApprovalChange = async (newStatus: string) => {
-    const selectedRsvps = rsvps.filter((rsvp: any) =>
+  const handleBulkApprovalChange = async (
+    newStatus: ApprovalStatusOption,
+  ) => {
+    const selectedRsvps = rsvps.filter((rsvp) =>
       selectedRows.has(rsvp.id),
     );
     const count = selectedRsvps.length;
@@ -1146,9 +1234,9 @@ export default function RsvpsPage() {
     toast.info(`Updating ${count} RSVPs...`);
 
     // Execute bulk update in single mutation
-    const updates = selectedRsvps.map((rsvp: any) => ({
+    const updates = selectedRsvps.map((rsvp) => ({
       rsvpId: rsvp.id,
-      approvalStatus: newStatus as any,
+      approvalStatus: newStatus,
     }));
 
     try {
@@ -1186,13 +1274,15 @@ export default function RsvpsPage() {
     }
   };
 
-  const handleBulkTicketStatusChange = async (newStatus: string) => {
-    const selectedRsvps = rsvps.filter((rsvp: any) =>
+  const handleBulkTicketStatusChange = async (
+    newStatus: TicketStatusOption,
+  ) => {
+    const selectedRsvps = rsvps.filter((rsvp) =>
       selectedRows.has(rsvp.id),
     );
     // Filter out redeemed tickets as they can't be changed
     const changeableRsvps = selectedRsvps.filter(
-      (rsvp: any) => rsvp.redemptionStatus !== "redeemed",
+      (rsvp) => rsvp.redemptionStatus !== "redeemed",
     );
     const count = changeableRsvps.length;
     const redeemedCount = selectedRsvps.length - changeableRsvps.length;
@@ -1215,9 +1305,9 @@ export default function RsvpsPage() {
     toast.info(`Updating ${count} RSVPs...`);
 
     // Execute bulk update in single mutation
-    const updates = changeableRsvps.map((rsvp: any) => ({
+    const updates = changeableRsvps.map((rsvp) => ({
       rsvpId: rsvp.id,
-      ticketStatus: newStatus as any,
+      ticketStatus: newStatus,
     }));
 
     try {
@@ -1269,7 +1359,7 @@ export default function RsvpsPage() {
   };
 
   const handleBulkDelete = async () => {
-    const selectedRsvps = rsvps.filter((rsvp: any) =>
+    const selectedRsvps = rsvps.filter((rsvp) =>
       selectedRows.has(rsvp.id),
     );
     const count = selectedRsvps.length;
@@ -1277,7 +1367,7 @@ export default function RsvpsPage() {
     if (count === 0) return;
 
     // Execute bulk deletion in single mutation
-    const rsvpIds = selectedRsvps.map((rsvp: any) => rsvp.id);
+    const rsvpIds = selectedRsvps.map((rsvp) => rsvp.id);
 
     try {
       const result = await bulkDeleteRsvpsMutation.mutateAsync({ rsvpIds });
@@ -1297,7 +1387,7 @@ export default function RsvpsPage() {
   };
 
   // Create initial columns without selection functionality
-  const initialCols = React.useMemo<ColumnDef<any>[]>(
+  const initialCols = React.useMemo<ColumnDef<HostRsvp>[]>(
     () => [
       {
         id: "select",
@@ -1401,7 +1491,7 @@ export default function RsvpsPage() {
   }, [toggleSelectAllCurrent]);
 
   // Create the final columns with proper header checkbox
-  const finalCols = React.useMemo<ColumnDef<any>[]>(
+  const finalCols = React.useMemo<ColumnDef<HostRsvp>[]>(
     () => [
       {
         id: "select",
@@ -1462,23 +1552,64 @@ export default function RsvpsPage() {
     currentEvent === undefined ||
     totalCount === undefined;
 
-  const handleExportCsv = () => {
-    if (!exportData) {
-      toast.error("Export data not ready");
-      return;
+  const handleExportCsv = React.useCallback(async (): Promise<boolean> => {
+    if (!eventId) {
+      toast.error("Select an event before exporting");
+      return false;
     }
 
-    const blob = new Blob([exportData.csvContent], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = exportData.filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-    toast.success("CSV exported successfully");
-  };
+    if (selectedListsForExport.length === 0) {
+      toast.error("Select at least one list to export");
+      return false;
+    }
+
+    setIsExportingCsv(true);
+    try {
+      const exportResult = await runExportRsvpsCsv({
+        eventId: eventId as Id<"events">,
+        listKeys: selectedListsForExport,
+        includeAttendees,
+        includeNote,
+        includeCustomFields,
+        includePhone,
+        exportTimestamp: new Date().toLocaleString("en-US", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }),
+      });
+
+      const blob = new Blob([exportResult.csvContent], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = exportResult.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      toast.success("CSV exported successfully");
+      return true;
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Failed to export CSV: ${errorMessage}`);
+      return false;
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }, [
+    eventId,
+    includeAttendees,
+    includeCustomFields,
+    includeNote,
+    includePhone,
+    runExportRsvpsCsv,
+    selectedListsForExport,
+  ]);
 
   return (
     <div className="flex-1 space-y-4">
@@ -1653,6 +1784,21 @@ export default function RsvpsPage() {
                   </div>
                   <div className="flex items-center">
                     <Checkbox
+                      id="col-phone"
+                      checked={includePhone}
+                      onCheckedChange={(checked) =>
+                        setIncludePhone(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="col-phone"
+                      className="ml-2 text-sm cursor-pointer"
+                    >
+                      Phone
+                    </label>
+                  </div>
+                  <div className="flex items-center">
+                    <Checkbox
                       id="col-custom"
                       checked={includeCustomFields}
                       onCheckedChange={(checked) =>
@@ -1670,20 +1816,26 @@ export default function RsvpsPage() {
               </div>
 
               <Button
-                onClick={() => {
-                  handleExportCsv();
-                  setExportOptionsOpen(false);
+                onClick={async () => {
+                  const exported = await handleExportCsv();
+                  if (exported) {
+                    setExportOptionsOpen(false);
+                  }
                 }}
                 disabled={
-                  !exportData ||
                   isLoading ||
+                  isExportingCsv ||
                   selectedListsForExport.length === 0
                 }
                 className="w-full"
                 size="sm"
               >
-                <Download className="h-4 w-4 mr-2" />
-                Export
+                {isExportingCsv ? (
+                  <Spinner className="h-4 w-4 mr-2" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                {isExportingCsv ? "Exporting..." : "Export"}
               </Button>
             </div>
           </PopoverContent>
@@ -1694,7 +1846,7 @@ export default function RsvpsPage() {
       <div className="flex gap-2 items-center flex-wrap">
         <span className="text-sm text-foreground/70">Event:</span>
         <Select value={eventId} onValueChange={setEventId} className="max-w-sm">
-          {eventsSorted.map((event: any) => {
+          {eventsSorted.map((event) => {
             const inlineTitle = formatEventTitleInline(event);
             return (
               <SelectOption key={event._id} value={event._id}>
@@ -2048,7 +2200,7 @@ export default function RsvpsPage() {
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
-                const params = new URLSearchParams(searchParams as any);
+                const params = new URLSearchParams(searchParams.toString());
                 params.set("pageSize", value);
                 router.replace(`/host/rsvps?${params.toString()}`, {
                   scroll: false,

@@ -27,7 +27,9 @@ import type { Id } from "@convex/_generated/dataModel";
 
 export default function ProfilePage() {
   const { isLoaded, isSignedIn, user } = useUser();
-  const sharedEvents = useQuery(api.rsvps.listForCurrentUser, {});
+  const sharedEvents = useQuery(api.rsvps.listForCurrentUser, {}) as
+    | UserEventSharing[]
+    | undefined;
   const updateSmsPreference = useMutation(api.rsvps.updateSmsPreference);
   const updateSharedFields = useMutation(api.rsvps.updateSharedFields);
   const [editingRsvpId, setEditingRsvpId] = React.useState<string | null>(null);

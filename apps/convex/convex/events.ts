@@ -19,6 +19,9 @@ export const insertWithCreds = mutation({
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
     customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    guestPortalImageStorageId: v.optional(v.id("_storage")),
+    guestPortalLinkLabel: v.optional(v.string()),
+    guestPortalLinkUrl: v.optional(v.string()),
     eventDate: v.number(),
     eventTimezone: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
@@ -60,6 +63,9 @@ export const insertWithCreds = mutation({
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
       customIconStorageId: args.customIconStorageId ?? null,
+      guestPortalImageStorageId: args.guestPortalImageStorageId,
+      guestPortalLinkLabel: args.guestPortalLinkLabel,
+      guestPortalLinkUrl: args.guestPortalLinkUrl,
       eventDate: args.eventDate,
       eventTimezone: args.eventTimezone,
       maxAttendees: args.maxAttendees,
@@ -91,6 +97,9 @@ export const update = mutation({
     flyerStorageId: v.optional(v.id("_storage")),
     eventDate: v.optional(v.number()),
     eventTimezone: v.optional(v.string()),
+    guestPortalImageStorageId: v.optional(v.id("_storage")),
+    guestPortalLinkLabel: v.optional(v.string()),
+    guestPortalLinkUrl: v.optional(v.string()),
     maxAttendees: v.optional(v.number()),
     isFeatured: v.optional(v.boolean()),
     customFields: v.optional(
@@ -123,6 +132,9 @@ export const update = mutation({
       "flyerUrl",
       "flyerStorageId",
       "customIconStorageId",
+      "guestPortalImageStorageId",
+      "guestPortalLinkLabel",
+      "guestPortalLinkUrl",
       "eventDate",
       "eventTimezone",
       "maxAttendees",
@@ -167,6 +179,7 @@ export const addListCredential = mutation({
     passwordSalt: v.string(),
     passwordIterations: v.number(),
     passwordFingerprint: v.string(),
+    generateQR: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -177,6 +190,7 @@ export const addListCredential = mutation({
       passwordSalt: args.passwordSalt,
       passwordIterations: args.passwordIterations,
       passwordFingerprint: args.passwordFingerprint,
+      generateQR: args.generateQR,
       createdAt: now,
     });
     return { ok: true as const };
@@ -192,6 +206,7 @@ export const updateListCredential = mutation({
       passwordSalt: v.optional(v.string()),
       passwordIterations: v.optional(v.number()),
       passwordFingerprint: v.optional(v.string()),
+      generateQR: v.optional(v.boolean()),
     }),
   },
   handler: async (ctx, { id, patch }) => {

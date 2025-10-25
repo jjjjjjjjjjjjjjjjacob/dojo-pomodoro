@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectOption } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   FormField,
   FormItem,
@@ -248,6 +249,28 @@ export function GuestInfoFields({
             <FormMessage />
           </FormItem>
         )}
+      />
+    </div>
+  );
+}
+
+export function NoteForHostsField({
+  note,
+  setNote,
+}: {
+  note: string;
+  setNote: (value: string) => void;
+}) {
+  return (
+    <div className="rounded border border-primary/30 p-3 space-y-2">
+      <div className="font-medium text-xs text-primary">
+        NOTE FOR HOSTS (optional)
+      </div>
+      <Textarea
+        placeholder="Anything hosts should know"
+        className="border border-primary/20 placeholder:text-primary/30 text-primary"
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
       />
     </div>
   );

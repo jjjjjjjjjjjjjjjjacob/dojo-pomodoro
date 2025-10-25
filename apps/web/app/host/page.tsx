@@ -30,6 +30,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { navigationItems, quickActions } from "@/components/app-sidebar";
 import Link from "next/link";
+import type { RecentActivityEntry } from "@/lib/types";
 
 export default function HostDashboard() {
   const { isSignedIn } = useAuth();
@@ -56,7 +57,9 @@ export default function HostDashboard() {
     ...convexQuery(api.dashboard.getRecentActivity, {}),
     enabled: !!isSignedIn,
   });
-  const recentActivity = recentActivityQuery.data;
+  const recentActivity = recentActivityQuery.data as
+    | RecentActivityEntry[]
+    | undefined;
 
   if (!dashboardStats) {
     return <DashboardSkeleton />;

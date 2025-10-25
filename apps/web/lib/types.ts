@@ -41,6 +41,9 @@ export interface Event {
   flyerUrl?: string;
   flyerStorageId?: Id<"_storage">;
   customIconStorageId?: Id<"_storage"> | null;
+  guestPortalImageStorageId?: Id<"_storage"> | null;
+  guestPortalLinkLabel?: string;
+  guestPortalLinkUrl?: string;
   isFeatured?: boolean;
   eventDate: number;
   eventTimezone?: string;
@@ -165,6 +168,45 @@ export interface UserEventSharing {
   customFields: UserSharedEventField[];
 }
 
+export interface RecentActivityEntry {
+  id: string;
+  guestName: string;
+  eventName: string;
+  status: RSVP["status"];
+  createdAt: number;
+  type: "rsvp";
+}
+
+export interface HostRsvp {
+  id: Id<"rsvps">;
+  clerkUserId: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  listKey: string;
+  note?: string;
+  status: RSVP["status"];
+  attendees?: number;
+  contact?: {
+    email?: string;
+    phone?: string;
+  };
+  customFieldValues?: Record<string, string>;
+  redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
+  redemptionCode?: string;
+  createdAt: number;
+}
+
+export interface UserTicket {
+  rsvp: RSVP;
+  event: Event | null;
+  redemption: {
+    code: string;
+    listKey: string;
+    redeemedAt?: number;
+  } | null;
+}
+
 // React Hook Form types
 export type UseFormReturn<FormValues extends Record<string, unknown>> = import("react-hook-form").UseFormReturn<FormValues>;
 
@@ -201,6 +243,7 @@ export interface ListCredentialEdit {
   id?: string;
   listKey: string;
   password: string;
+  generateQR: boolean;
 }
 
 // Credential from API response
@@ -208,6 +251,7 @@ export interface CredentialResponse {
   _id: string;
   listKey: string;
   // password is never returned from API
+  generateQR?: boolean;
 }
 
 export interface DateTimePickerProps {
@@ -229,6 +273,9 @@ export interface BaseEventFormValues extends Record<string, unknown> {
   location: string;
   flyerStorageId?: string | null;
   customIconStorageId?: string | null;
+  guestPortalImageStorageId?: string | null;
+  guestPortalLinkLabel?: string;
+  guestPortalLinkUrl?: string;
   eventDate: string;
   eventTime: string;
   eventTimezone: string;

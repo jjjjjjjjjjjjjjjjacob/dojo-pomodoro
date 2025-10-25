@@ -1,7 +1,6 @@
 "use client";
 import React, { use, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -24,7 +23,7 @@ import {
   FormControl,
   FormMessage,
 } from "@/components/ui/form";
-import { GuestInfoFields } from "@/components/guest-info-form";
+import { GuestInfoFields, NoteForHostsField } from "@/components/guest-info-form";
 import { Spinner } from "@/components/ui/spinner";
 import {
   ContextMenu,
@@ -262,10 +261,11 @@ export default function RsvpPage({
         setMessage("Missing list access. Please re-enter your password.");
         return;
       }
+      const eventCustomFields: CustomField[] = event?.customFields ?? [];
       const errs = validateRequiredWithFirstName(
         firstName,
         custom,
-        (event?.customFields || []).map((customField) => ({
+        eventCustomFields.map((customField) => ({
           key: customField.key,
           label: customField.label || customField.key,
           required: customField.required,
@@ -279,7 +279,7 @@ export default function RsvpPage({
             form.setError("firstName", { type: "required", message: e });
           }
         }
-        for (const customField of event?.customFields || []) {
+        for (const customField of eventCustomFields) {
           const label = customField.label || customField.key;
           const message = `${label} is required`;
           if (errs.includes(message)) {
@@ -309,17 +309,15 @@ export default function RsvpPage({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
       });
-      const filteredCustomFields = Object.fromEntries(
-        (event?.customFields || [])
-          .map((customField) => {
-            const value = custom[customField.key];
-            return value ? [customField.key, value] : null;
-          })
-          .filter(
-            (
-              entry,
-            ): entry is [string, string] => entry !== null,
-          ),
+      const filteredCustomFields = eventCustomFields.reduce<Record<string, string>>(
+        (accumulator, customField) => {
+          const value = custom[customField.key];
+          if (value) {
+            accumulator[customField.key] = value;
+          }
+          return accumulator;
+        },
+        {},
       );
       await upsertContact({
         phone: phone || undefined,
@@ -415,17 +413,7 @@ export default function RsvpPage({
                     isSignedIn={!!user}
                   />
 
-                  <div className="rounded border border-primary/30 p-3 space-y-2">
-                    <div className="font-medium text-xs text-primary">
-                      NOTE FOR HOSTS (optional)
-                    </div>
-                    <Textarea
-                      placeholder="Anything hosts should know"
-                      className="border border-primary/20 placeholder:text-primary/30 text-primary"
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                    />
-                  </div>
+                  <NoteForHostsField note={note} setNote={setNote} />
                   <div className="flex flex-wrap items-center justify-center gap-3">
                     <label
                       htmlFor="sms-opt-in"
