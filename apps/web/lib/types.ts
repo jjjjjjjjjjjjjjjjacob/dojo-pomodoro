@@ -86,6 +86,7 @@ export interface RSVP {
   eventId: Id<"events">;
   clerkUserId: string;
   listKey: string;
+  ticketStatus?: "not-issued" | "issued" | "disabled" | "redeemed";
   shareContact: boolean;
   note?: string;
   attendees?: number;
@@ -186,6 +187,7 @@ export interface HostRsvp {
   listKey: string;
   note?: string;
   status: RSVP["status"];
+  ticketStatus: "not-issued" | "issued" | "disabled" | "redeemed";
   attendees?: number;
   contact?: {
     email?: string;

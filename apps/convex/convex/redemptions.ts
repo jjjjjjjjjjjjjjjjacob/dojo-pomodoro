@@ -76,10 +76,24 @@ export const redeem = mutation({
     if (rec.disabledAt) throw new Error("Invalid code");
     if (rec.redeemedAt) return { status: "already" as const };
 
+    const now = Date.now();
     await ctx.db.patch(rec._id, {
-      redeemedAt: Date.now(),
+      redeemedAt: now,
       redeemedByClerkUserId: redeemerId,
     });
+
+    const relatedRsvp = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", rec.eventId).eq("clerkUserId", rec.clerkUserId),
+      )
+      .unique();
+    if (relatedRsvp) {
+      await ctx.db.patch(relatedRsvp._id, {
+        ticketStatus: "redeemed",
+        updatedAt: now,
+      });
+    }
     return { status: "ok" as const };
   },
 });
@@ -101,12 +115,26 @@ export const unredeem = mutation({
     if (!rec) throw new Error("Invalid code");
 
     const hist = rec.unredeemHistory ?? [];
-    hist.push({ at: Date.now(), byClerkUserId: redeemerId, reason });
+    const now = Date.now();
+    hist.push({ at: now, byClerkUserId: redeemerId, reason });
     await ctx.db.patch(rec._id, {
       redeemedAt: undefined,
       redeemedByClerkUserId: undefined,
       unredeemHistory: hist,
     });
+
+    const relatedRsvp = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", rec.eventId).eq("clerkUserId", rec.clerkUserId),
+      )
+      .unique();
+    if (relatedRsvp) {
+      await ctx.db.patch(relatedRsvp._id, {
+        ticketStatus: rec.disabledAt ? "disabled" : "issued",
+        updatedAt: now,
+      });
+    }
     return { status: "ok" as const };
   },
 });
@@ -226,8 +254,14 @@ export const toggleRedemptionStatus = mutation({
       throw new Error("Cannot enable ticket for denied RSVP");
     }
 
+    const now = Date.now();
     await ctx.db.patch(redemptionRecord._id, {
-      disabledAt: currentlyDisabled ? undefined : Date.now(),
+      disabledAt: currentlyDisabled ? undefined : now,
+    });
+
+    await ctx.db.patch(rsvpRecord._id, {
+      ticketStatus: currentlyDisabled ? "issued" : "disabled",
+      updatedAt: now,
     });
 
     return {
@@ -265,6 +299,12 @@ export const updateTicketStatus = mutation({
       .unique();
 
     const now = Date.now();
+    let nextTicketStatus: "not-issued" | "issued" | "disabled" | "redeemed" =
+      (rsvpRecord.ticketStatus as
+        | "not-issued"
+        | "issued"
+        | "disabled"
+        | "redeemed") ?? "not-issued";
 
     if (status === "issued") {
       if (!existingRedemption) {
@@ -293,20 +333,43 @@ export const updateTicketStatus = mutation({
           createdAt: now,
           unredeemHistory: [],
         });
+        nextTicketStatus = "issued";
       } else if (existingRedemption.disabledAt) {
         // Re-enable existing redemption
         await ctx.db.patch(existingRedemption._id, {
           disabledAt: undefined,
         });
+        nextTicketStatus = existingRedemption.redeemedAt
+          ? "redeemed"
+          : "issued";
+      } else if (existingRedemption.redeemedAt) {
+        nextTicketStatus = "redeemed";
+      } else {
+        nextTicketStatus = "issued";
       }
     } else if (status === "disabled" && existingRedemption && !existingRedemption.disabledAt) {
       // Disable existing redemption
       await ctx.db.patch(existingRedemption._id, {
         disabledAt: now,
       });
+      nextTicketStatus = "disabled";
     } else if (status === "not-issued" && existingRedemption) {
       // Delete redemption entirely
       await ctx.db.delete(existingRedemption._id);
+      nextTicketStatus = "not-issued";
+    } else if (status === "not-issued" && !existingRedemption) {
+      nextTicketStatus = "not-issued";
+    }
+
+    if (nextTicketStatus !== rsvpRecord.ticketStatus) {
+      await ctx.db.patch(rsvpRecord._id, {
+        ticketStatus: nextTicketStatus,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(rsvpRecord._id, {
+        updatedAt: now,
+      });
     }
 
     return { status: "ok" as const };
@@ -360,6 +423,14 @@ export const createForRSVP = mutation({
       unredeemHistory: [],
     });
 
+    const rsvpRecord = await ctx.db.get(args.rsvpId);
+    if (rsvpRecord) {
+      await ctx.db.patch(args.rsvpId, {
+        ticketStatus: "issued",
+        updatedAt: Date.now(),
+      });
+    }
+
     return redemptionId;
   },
 });
@@ -382,6 +453,10 @@ export const deleteForRSVP = mutation({
 
     if (redemption) {
       await ctx.db.delete(redemption._id);
+      await ctx.db.patch(args.rsvpId, {
+        ticketStatus: "not-issued",
+        updatedAt: Date.now(),
+      });
       return { deleted: true };
     }
     return { deleted: false };

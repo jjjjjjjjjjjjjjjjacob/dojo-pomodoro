@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { createClerkClient } from "@clerk/backend";
 import type { ActionCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Id, Doc } from "./_generated/dataModel";
 import type { UserIdentity } from "convex/server";
 import type { ExportContext } from "./exportsQueries";
 
@@ -24,6 +24,7 @@ type AdminIdentity = UserIdentity & {
 type ExportRsvpsCsvArgs = {
   eventId: Id<"events">;
   listKeys?: string[];
+  statusFilters?: Array<Doc<"rsvps">["status"]>;
   includeAttendees?: boolean;
   includeNote?: boolean;
   includeCustomFields?: boolean;
@@ -40,6 +41,7 @@ export const exportRsvpsCsv = action({
   args: {
     eventId: v.id("events"),
     listKeys: v.optional(v.array(v.string())),
+    statusFilters: v.optional(v.array(v.string())),
     includeAttendees: v.optional(v.boolean()),
     includeNote: v.optional(v.boolean()),
     includeCustomFields: v.optional(v.boolean()),
@@ -51,6 +53,7 @@ export const exportRsvpsCsv = action({
     {
       eventId,
       listKeys,
+      statusFilters,
       includeAttendees = true,
       includeNote = true,
       includeCustomFields = true,
@@ -65,7 +68,7 @@ export const exportRsvpsCsv = action({
 
     const {
       event,
-      approvedRsvps,
+      rsvps,
       listCredentials,
       usersByClerkUserId,
       profilesByClerkUserId,
@@ -74,6 +77,7 @@ export const exportRsvpsCsv = action({
       {
         eventId,
         listKeys,
+        statusFilters,
       },
     );
 
@@ -150,7 +154,7 @@ export const exportRsvpsCsv = action({
 
     const enrichedRsvps: ExportRsvpRow[] = [];
 
-    for (const rsvp of approvedRsvps) {
+    for (const rsvp of rsvps) {
       const userRecord = usersByClerkUserId[rsvp.clerkUserId];
       const firstName = userRecord?.firstName ?? "";
       const lastName = userRecord?.lastName ?? "";

@@ -102,6 +102,7 @@ export const submitRequest = mutation({
         eventId: args.eventId,
         clerkUserId,
         listKey: args.listKey,
+        ticketStatus: "not-issued",
         userName, // For search functionality
         note: args.note,
         shareContact: args.shareContact,
@@ -493,6 +494,17 @@ export const countForEventFiltered = query({
       redemptionFilter = "all",
     },
   ) => {
+    const normalizeTicketStatusFilter = (
+      filter: string,
+    ): "not-issued" | "issued" | "disabled" | "redeemed" | null => {
+      if (filter === "not-issued") return "not-issued";
+      if (filter === "issued" || filter === "disabled" || filter === "redeemed")
+        return filter;
+      return null;
+    };
+
+    const ticketStatusFilter = normalizeTicketStatusFilter(redemptionFilter);
+
     // If there's a guest search, fall back to manual counting
     // (aggregate doesn't support text search)
     if (guestSearch.trim()) {
@@ -504,6 +516,9 @@ export const countForEventFiltered = query({
           if (statusFilter !== "all") {
             searchQuery = searchQuery.eq("status", statusFilter);
           }
+          if (ticketStatusFilter && ticketStatusFilter !== "not-issued") {
+            searchQuery = searchQuery.eq("ticketStatus", ticketStatusFilter);
+          }
           // Note: Cannot filter by listKey in search index, will filter after
           return searchQuery;
         });
@@ -514,41 +529,52 @@ export const countForEventFiltered = query({
         results = results.filter((rsvp) => rsvp.listKey === listFilter);
       }
 
-      if (redemptionFilter === "all") {
-        return results.length;
-      }
-
-      // Filter by redemption status - need to check redemptions table
-      let filteredResults = results;
-      if (redemptionFilter !== "all") {
-        const redemptions = await Promise.all(
-          results.map(async (rsvp) =>
-            ctx.db
-              .query("redemptions")
-              .withIndex("by_event_user", (q) =>
-                q.eq("eventId", eventId).eq("clerkUserId", rsvp.clerkUserId),
-              )
-              .unique(),
-          ),
-        );
-
-        filteredResults = results.filter((rsvp, index) => {
-          const redemption = redemptions[index];
-          let redemptionStatus = "none";
-          if (redemption) {
-            if (redemption.disabledAt) redemptionStatus = "disabled";
-            else if (redemption.redeemedAt) redemptionStatus = "redeemed";
-            else redemptionStatus = "issued";
+      if (ticketStatusFilter) {
+        results = results.filter((rsvp) => {
+          const status =
+            (rsvp.ticketStatus as
+              | "not-issued"
+              | "issued"
+              | "disabled"
+              | "redeemed"
+              | undefined) ?? "not-issued";
+          if (ticketStatusFilter === "not-issued") {
+            return status === "not-issued";
           }
-
-          if (redemptionFilter === "not-issued") {
-            return redemptionStatus === "none";
-          }
-          return redemptionStatus === redemptionFilter;
+          return status === ticketStatusFilter;
         });
       }
 
-      return filteredResults.length;
+      return results.length;
+    }
+
+    if (ticketStatusFilter) {
+      let ticketStatusQuery = ctx.db
+        .query("rsvps")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId))
+        .filter((q) => {
+          if (ticketStatusFilter === "not-issued") {
+            return q.or(
+              q.eq(q.field("ticketStatus"), "not-issued"),
+              q.eq(q.field("ticketStatus"), undefined),
+            );
+          }
+          return q.eq(q.field("ticketStatus"), ticketStatusFilter);
+        });
+
+      if (statusFilter !== "all") {
+        ticketStatusQuery = ticketStatusQuery.filter((q) =>
+          q.eq(q.field("status"), statusFilter),
+        );
+      }
+      if (listFilter !== "all") {
+        ticketStatusQuery = ticketStatusQuery.filter((q) =>
+          q.eq(q.field("listKey"), listFilter),
+        );
+      }
+
+      const matching = await ticketStatusQuery.collect();
+      return matching.length;
     }
 
     // Use aggregate for efficient counting
@@ -564,57 +590,6 @@ export const countForEventFiltered = query({
 
     // For redemption filtering, we still need to check manually
     // since redemption status is in a separate table
-    if (redemptionFilter !== "all") {
-      // Get all RSVPs matching the current filters
-      let baseQuery = ctx.db
-        .query("rsvps")
-        .withIndex("by_event", (q) => q.eq("eventId", eventId));
-
-      if (statusFilter !== "all") {
-        baseQuery = baseQuery.filter((q) =>
-          q.eq(q.field("status"), statusFilter),
-        );
-      }
-      if (listFilter !== "all") {
-        // credentialId field has been removed from schema
-        // Filter by listKey only
-        baseQuery = baseQuery.filter((q: any) =>
-          q.eq(q.field("listKey"), listFilter),
-        );
-      }
-
-      const rsvps = await baseQuery.collect();
-
-      // Check redemption status for each
-      const redemptions = await Promise.all(
-        rsvps.map(async (rsvp) =>
-          ctx.db
-            .query("redemptions")
-            .withIndex("by_event_user", (q) =>
-              q.eq("eventId", eventId).eq("clerkUserId", rsvp.clerkUserId),
-            )
-            .unique(),
-        ),
-      );
-
-      const filteredRsvps = rsvps.filter((rsvp, index) => {
-        const redemption = redemptions[index];
-        let redemptionStatus = "none";
-        if (redemption) {
-          if (redemption.disabledAt) redemptionStatus = "disabled";
-          else if (redemption.redeemedAt) redemptionStatus = "redeemed";
-          else redemptionStatus = "issued";
-        }
-
-        if (redemptionFilter === "not-issued") {
-          return redemptionStatus === "none";
-        }
-        return redemptionStatus === redemptionFilter;
-      });
-
-      return filteredRsvps.length;
-    }
-
     return baseCount;
   },
 });
@@ -629,6 +604,7 @@ type EnrichedRsvp = {
   listKey: string;
   note?: string;
   status: string;
+  ticketStatus: "not-issued" | "issued" | "disabled" | "redeemed";
   attendees?: number;
   contact?: {
     email?: string;
@@ -668,6 +644,17 @@ export const listForEventPaginated = query({
       redemptionFilter = "all",
     },
   ): Promise<PaginatedRsvpResult> => {
+    const normalizeTicketStatusFilter = (
+      filter: string,
+    ): "not-issued" | "issued" | "disabled" | "redeemed" | null => {
+      if (filter === "not-issued") return "not-issued";
+      if (filter === "issued" || filter === "disabled" || filter === "redeemed")
+        return filter;
+      return null;
+    };
+
+    const ticketStatusFilter = normalizeTicketStatusFilter(redemptionFilter);
+
     // Choose the most efficient index based on filters
     let baseQuery: any = ctx.db.query("rsvps");
 
@@ -679,25 +666,35 @@ export const listForEventPaginated = query({
         if (statusFilter !== "all") {
           searchQuery = searchQuery.eq("status", statusFilter);
         }
-        // Note: Cannot filter by listKey in search index, will filter after pagination
+        if (ticketStatusFilter && ticketStatusFilter !== "not-issued") {
+          searchQuery = searchQuery.eq("ticketStatus", ticketStatusFilter);
+        }
         return searchQuery;
       });
     } else {
-      // Use indexes for efficient filtering - for now using basic indexes since we're filtering by listKey
+      baseQuery = baseQuery.withIndex("by_event", (q: any) =>
+        q.eq("eventId", eventId),
+      );
+
       if (statusFilter !== "all") {
-        baseQuery = baseQuery.withIndex("by_event_status", (q: any) =>
-          q.eq("eventId", eventId).eq("status", statusFilter),
-        );
-      } else {
-        baseQuery = baseQuery.withIndex("by_event", (q: any) =>
-          q.eq("eventId", eventId),
+        baseQuery = baseQuery.filter((q: any) =>
+          q.eq(q.field("status"), statusFilter),
         );
       }
 
-      // Apply listKey filter after index filtering
+      if (ticketStatusFilter) {
+        baseQuery = baseQuery.filter((q: any) => {
+          if (ticketStatusFilter === "not-issued") {
+            return q.or(
+              q.eq(q.field("ticketStatus"), "not-issued"),
+              q.eq(q.field("ticketStatus"), undefined),
+            );
+          }
+          return q.eq(q.field("ticketStatus"), ticketStatusFilter);
+        });
+      }
+
       if (listFilter !== "all") {
-        // credentialId field has been removed from schema
-        // Filter by listKey only
         baseQuery = baseQuery.filter((q: any) =>
           q.eq(q.field("listKey"), listFilter),
         );
@@ -742,9 +739,14 @@ export const listForEventPaginated = query({
       users.filter((u) => u).map((u) => [u!.clerkUserId, u]),
     );
 
-    // Batch fetch redemption data
+    // Batch fetch redemption data only for RSVPs with active codes
+    const rsvpsNeedingRedemption = paginatedResult.page.filter(
+      (rsvp: Doc<"rsvps">) =>
+        ((rsvp.ticketStatus as string | undefined) ?? "not-issued") !==
+        "not-issued",
+    );
     const redemptions = await Promise.all(
-      paginatedResult.page.map(async (rsvp: Doc<"rsvps">) =>
+      rsvpsNeedingRedemption.map(async (rsvp: Doc<"rsvps">) =>
         ctx.db
           .query("redemptions")
           .withIndex("by_event_user", (q) =>
@@ -760,12 +762,27 @@ export const listForEventPaginated = query({
     // Enrich with batched data (avoid N+1 queries)
     let enrichedPage = paginatedResult.page.map((rsvp: Doc<"rsvps">) => {
       const redemption = redemptionMap[rsvp.clerkUserId];
-      let redemptionStatus: "none" | "issued" | "redeemed" | "disabled" =
-        "none";
-      if (redemption) {
-        if (redemption.disabledAt) redemptionStatus = "disabled";
-        else if (redemption.redeemedAt) redemptionStatus = "redeemed";
-        else redemptionStatus = "issued";
+      const ticketStatus =
+        (rsvp.ticketStatus as
+          | "not-issued"
+          | "issued"
+          | "disabled"
+          | "redeemed") ?? "not-issued";
+      let redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
+      switch (ticketStatus) {
+        case "issued":
+          redemptionStatus = "issued";
+          break;
+        case "disabled":
+          redemptionStatus = "disabled";
+          break;
+        case "redeemed":
+          redemptionStatus = "redeemed";
+          break;
+        case "not-issued":
+        default:
+          redemptionStatus = "none";
+          break;
       }
 
       // credentialId field has been removed from schema
@@ -788,6 +805,7 @@ export const listForEventPaginated = query({
         listKey: rsvp.listKey || "",
         note: rsvp.note,
         status: rsvp.status,
+        ticketStatus,
         attendees: rsvp.attendees,
         contact: rsvp.shareContact
           ? {
@@ -802,23 +820,16 @@ export const listForEventPaginated = query({
       };
     });
 
-    // Apply redemption filter after enrichment
-    if (redemptionFilter !== "all") {
-      if (redemptionFilter === "not-issued") {
-        enrichedPage = enrichedPage.filter(
-          (rsvp: any) => rsvp.redemptionStatus === "none",
-        );
-      } else {
-        enrichedPage = enrichedPage.filter(
-          (rsvp: any) => rsvp.redemptionStatus === redemptionFilter,
-        );
-      }
-    }
-
     // Apply listKey filter after enrichment (needed for search queries)
     if (guestSearch.trim() && listFilter !== "all") {
       enrichedPage = enrichedPage.filter(
         (rsvp: EnrichedRsvp) => rsvp.listKey === listFilter,
+      );
+    }
+
+    if (guestSearch.trim() && ticketStatusFilter) {
+      enrichedPage = enrichedPage.filter(
+        (rsvp: any) => rsvp.ticketStatus === ticketStatusFilter,
       );
     }
 
@@ -1044,6 +1055,14 @@ export const createDirect = mutation({
     attendees: v.optional(v.number()),
     status: v.string(),
     createdAt: v.optional(v.number()),
+    ticketStatus: v.optional(
+      v.union(
+        v.literal("not-issued"),
+        v.literal("issued"),
+        v.literal("disabled"),
+        v.literal("redeemed"),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const now = args.createdAt || Date.now();
@@ -1051,6 +1070,7 @@ export const createDirect = mutation({
       eventId: args.eventId,
       clerkUserId: args.clerkUserId,
       listKey: args.listKey,
+      ticketStatus: args.ticketStatus ?? "not-issued",
       note: args.note,
       shareContact: args.shareContact,
       attendees: args.attendees,
@@ -1149,6 +1169,10 @@ export const updateRsvpComplete = mutation({
           .unique();
         if (existingRedemption && !existingRedemption.disabledAt) {
           await ctx.db.patch(existingRedemption._id, { disabledAt: now });
+          await ctx.db.patch(args.rsvpId, {
+            ticketStatus: "disabled",
+            updatedAt: now,
+          });
         }
       }
 
@@ -1369,6 +1393,38 @@ export const backfillRsvpAggregate = migrations.define({
   },
 });
 
+export const backfillTicketStatus = migrations.define({
+  table: "rsvps",
+  migrateOne: async (ctx, rsvpDoc) => {
+    if (rsvpDoc.ticketStatus !== undefined) {
+      return;
+    }
+
+    const redemption = await ctx.db
+      .query("redemptions")
+      .withIndex("by_event_user", (q: any) =>
+        q.eq("eventId", rsvpDoc.eventId).eq("clerkUserId", rsvpDoc.clerkUserId),
+      )
+      .unique();
+
+    let ticketStatus: "not-issued" | "issued" | "disabled" | "redeemed" =
+      "not-issued";
+    if (redemption) {
+      if (redemption.disabledAt) {
+        ticketStatus = "disabled";
+      } else if (redemption.redeemedAt) {
+        ticketStatus = "redeemed";
+      } else {
+        ticketStatus = "issued";
+      }
+    }
+
+    await ctx.db.patch(rsvpDoc._id, {
+      ticketStatus,
+    });
+  },
+});
+
 // Bulk update approval status for multiple RSVPs
 export const bulkUpdateApproval = mutation({
   args: {
@@ -1432,6 +1488,10 @@ export const bulkUpdateApproval = mutation({
             .unique();
           if (redemption && !redemption.disabledAt) {
             await ctx.db.patch(redemption._id, { disabledAt: now });
+            await ctx.db.patch(update.rsvpId, {
+              ticketStatus: "disabled",
+              updatedAt: now,
+            });
           }
         }
 

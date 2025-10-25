@@ -28,17 +28,7 @@ export const applyApproval = mutation({
     if (!hasHostRole) throw new Error("Forbidden: host role required");
 
     const now = Date.now();
-    // Get old state before update for aggregate sync
     const oldRsvp = await ctx.db.get(rsvpId);
-
-    // Update RSVP status
-    await ctx.db.patch(rsvpId, { status: "approved", updatedAt: now });
-
-    // Sync with aggregate
-    const newRsvp = await ctx.db.get(rsvpId);
-    if (oldRsvp && newRsvp) {
-      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
-    }
 
     // Upsert redemption
     const existingRedemption = await ctx.db
@@ -49,6 +39,7 @@ export const applyApproval = mutation({
       .unique();
 
     let outCode: string;
+    let ticketStatus: "issued" | "disabled" | "redeemed" = "issued";
     if (!existingRedemption) {
       // Generate code (use provided or fallback) and store in uppercase
       const rawCode = code || generateApprovalCode();
@@ -70,6 +61,19 @@ export const applyApproval = mutation({
         listKey: rsvp.listKey,
         disabledAt: undefined,
       });
+      ticketStatus = existingRedemption.redeemedAt ? "redeemed" : "issued";
+    }
+
+    await ctx.db.patch(rsvpId, {
+      status: "approved",
+      ticketStatus,
+      updatedAt: now,
+    });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvpId);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
     }
 
     // Record approval audit
@@ -122,14 +126,6 @@ export const approve = mutation({
     // Get old state before update for aggregate sync
     const oldRsvp = await ctx.db.get(rsvpId);
 
-    await ctx.db.patch(rsvpId, { status: "approved", updatedAt: now });
-
-    // Sync with aggregate
-    const newRsvp = await ctx.db.get(rsvpId);
-    if (oldRsvp && newRsvp) {
-      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
-    }
-
     // Create a redemption if one doesn't exist, or re-enable if disabled
     const existingRedemption = await ctx.db
       .query("redemptions")
@@ -139,6 +135,7 @@ export const approve = mutation({
       .unique();
 
     let redemptionCode: string;
+    let ticketStatus: "issued" | "redeemed" = "issued";
     if (!existingRedemption) {
       // Create new redemption
       redemptionCode = generateApprovalCode().toUpperCase();
@@ -156,12 +153,31 @@ export const approve = mutation({
     } else {
       // Re-enable existing redemption if it was disabled
       redemptionCode = existingRedemption.code;
+       // If redemption already redeemed keep status as redeemed
+      if (existingRedemption.redeemedAt) {
+        ticketStatus = "redeemed";
+      }
       if (existingRedemption.disabledAt) {
         await ctx.db.patch(existingRedemption._id, {
           disabledAt: undefined,
           listKey: rsvp.listKey, // Update list key in case it changed
         });
+        if (!existingRedemption.redeemedAt) {
+          ticketStatus = "issued";
+        }
       }
+    }
+
+    await ctx.db.patch(rsvpId, {
+      status: "approved",
+      ticketStatus,
+      updatedAt: now,
+    });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvpId);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
     }
 
     await ctx.db.insert("approvals", {
@@ -201,14 +217,6 @@ export const deny = mutation({
     // Get old state before update for aggregate sync
     const oldRsvp = await ctx.db.get(rsvpId);
 
-    await ctx.db.patch(rsvpId, { status: "denied", updatedAt: now });
-
-    // Sync with aggregate
-    const newRsvp = await ctx.db.get(rsvpId);
-    if (oldRsvp && newRsvp) {
-      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
-    }
-
     // Disable redemption if exists
     const existingRedemption = await ctx.db
       .query("redemptions")
@@ -216,8 +224,22 @@ export const deny = mutation({
         q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
       )
       .unique();
+    let ticketStatus: "disabled" | "not-issued" = "not-issued";
     if (existingRedemption && !existingRedemption.disabledAt) {
       await ctx.db.patch(existingRedemption._id, { disabledAt: now });
+      ticketStatus = "disabled";
+    }
+
+    await ctx.db.patch(rsvpId, {
+      status: "denied",
+      ticketStatus,
+      updatedAt: now,
+    });
+
+    // Sync with aggregate
+    const newRsvp = await ctx.db.get(rsvpId);
+    if (oldRsvp && newRsvp) {
+      await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
     }
 
     await ctx.db.insert("approvals", {

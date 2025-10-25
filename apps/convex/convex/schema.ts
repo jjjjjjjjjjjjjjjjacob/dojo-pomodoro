@@ -91,6 +91,7 @@ export default defineSchema({
     clerkUserId: v.string(),
     listKey: v.string(), // Primary reference to list credentials
     userName: v.optional(v.string()), // Denormalized from users table
+    ticketStatus: v.optional(v.string()), // 'not-issued' | 'issued' | 'disabled' | 'redeemed'
     shareContact: v.boolean(),
     note: v.optional(v.string()),
     attendees: v.optional(v.number()), // total number of attendees including RSVP person (default 1)
@@ -107,9 +108,11 @@ export default defineSchema({
     .index("by_event_user", ["eventId", "clerkUserId"])
     // NEW indexes for efficient filtering
     .index("by_event_status", ["eventId", "status"])
+    .index("by_event_ticketStatus", ["eventId", "ticketStatus"])
+    .index("by_event_status_ticketStatus", ["eventId", "status", "ticketStatus"])
     .searchIndex("search_text", {
       searchField: "userName",
-      filterFields: ["eventId", "status", "listKey"],
+      filterFields: ["eventId", "status", "listKey", "ticketStatus"],
     }),
 
   approvals: defineTable({

@@ -108,6 +108,18 @@ type PaginatedHostRsvpResult = {
 type ApprovalStatusOption = "pending" | "approved" | "denied";
 type TicketStatusOption = "issued" | "not-issued" | "disabled";
 type TicketDisplayStatus = TicketStatusOption | "redeemed";
+type ExportableApprovalStatusOption =
+  | "pending"
+  | "approved"
+  | "denied"
+  | "attending";
+
+const EXPORT_STATUS_OPTIONS: ExportableApprovalStatusOption[] = [
+  "pending",
+  "approved",
+  "denied",
+  "attending",
+];
 
 export default function RsvpsPage() {
   const router = useRouter();
@@ -215,6 +227,10 @@ export default function RsvpsPage() {
   const [selectedListsForExport, setSelectedListsForExport] = React.useState<
     string[]
   >([]);
+  const [selectedStatusesForExport, setSelectedStatusesForExport] =
+    React.useState<ExportableApprovalStatusOption[]>(
+      EXPORT_STATUS_OPTIONS,
+    );
   const [includeAttendees, setIncludeAttendees] = React.useState(true);
   const [includeNote, setIncludeNote] = React.useState(true);
   const [includeCustomFields, setIncludeCustomFields] = React.useState(true);
@@ -1067,7 +1083,6 @@ export default function RsvpsPage() {
         },
       },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       pendingChanges,
       updateRsvpCompleteMutation,
@@ -1563,11 +1578,17 @@ export default function RsvpsPage() {
       return false;
     }
 
+    if (selectedStatusesForExport.length === 0) {
+      toast.error("Select at least one status to export");
+      return false;
+    }
+
     setIsExportingCsv(true);
     try {
       const exportResult = await runExportRsvpsCsv({
         eventId: eventId as Id<"events">,
         listKeys: selectedListsForExport,
+        statusFilters: selectedStatusesForExport,
         includeAttendees,
         includeNote,
         includeCustomFields,
@@ -1609,6 +1630,7 @@ export default function RsvpsPage() {
     includePhone,
     runExportRsvpsCsv,
     selectedListsForExport,
+    selectedStatusesForExport,
   ]);
 
   return (
@@ -1749,6 +1771,53 @@ export default function RsvpsPage() {
 
               <div>
                 <label className="text-sm font-medium mb-2 block">
+                  Select Statuses
+                </label>
+                <div className="space-y-2">
+                  {EXPORT_STATUS_OPTIONS.map((statusOption) => {
+                    const label =
+                      statusOption === "attending"
+                        ? "Attending"
+                        : statusOption.charAt(0).toUpperCase() +
+                          statusOption.slice(1);
+                    return (
+                      <div key={statusOption} className="flex items-center">
+                        <Checkbox
+                          id={`status-${statusOption}`}
+                          checked={selectedStatusesForExport.includes(
+                            statusOption,
+                          )}
+                          onCheckedChange={(checked) => {
+                            setSelectedStatusesForExport((previous) => {
+                              if (checked === true) {
+                                if (previous.includes(statusOption)) {
+                                  return previous;
+                                }
+                                const next = [...previous, statusOption];
+                                return EXPORT_STATUS_OPTIONS.filter((option) =>
+                                  next.includes(option),
+                                );
+                              }
+                              return previous.filter(
+                                (option) => option !== statusOption,
+                              );
+                            });
+                          }}
+                        />
+                        <label
+                          htmlFor={`status-${statusOption}`}
+                          className="ml-2 text-sm cursor-pointer"
+                        >
+                          {label}
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">
                   Select Columns
                 </label>
                 <div className="space-y-2">
@@ -1825,7 +1894,8 @@ export default function RsvpsPage() {
                 disabled={
                   isLoading ||
                   isExportingCsv ||
-                  selectedListsForExport.length === 0
+                  selectedListsForExport.length === 0 ||
+                  selectedStatusesForExport.length === 0
                 }
                 className="w-full"
                 size="sm"
