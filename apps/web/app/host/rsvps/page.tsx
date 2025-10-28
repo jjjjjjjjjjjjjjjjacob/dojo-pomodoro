@@ -77,6 +77,7 @@ import {
   ChevronDown,
   MoreHorizontal,
   QrCode,
+  GripVertical,
   ToggleLeft,
   ToggleRight,
   X,
@@ -94,6 +95,7 @@ import {
   getPaginationRowModel,
   SortingState,
   useReactTable,
+  RowData,
 } from "@tanstack/react-table";
 import { cn, sanitizeFieldValue } from "@/lib/utils";
 import { formatEventTitleInline } from "@/lib/event-display";
@@ -113,6 +115,15 @@ type ExportableApprovalStatusOption =
   | "approved"
   | "denied"
   | "attending";
+
+const hasStringAccessorKey = <TData extends RowData>(
+  columnDefinition: ColumnDef<TData>,
+): columnDefinition is ColumnDef<TData> & { accessorKey: string } => {
+  const candidateAccessorKey = (
+    columnDefinition as { accessorKey?: unknown }
+  ).accessorKey;
+  return typeof candidateAccessorKey === "string";
+};
 
 const EXPORT_STATUS_OPTIONS: ExportableApprovalStatusOption[] = [
   "pending",
@@ -1423,16 +1434,358 @@ export default function RsvpsPage() {
     [baseCols, selectedRows, toggleSelectRow],
   );
 
+  const computedInitialColumnIdentifiers = React.useMemo(() => {
+    return initialCols
+      .map((column, columnIndex) => {
+        if (column.id) {
+          return column.id.toString();
+        }
+        if (hasStringAccessorKey(column)) {
+          return column.accessorKey;
+        }
+        return `column_${columnIndex}`;
+      })
+      .filter((identifier): identifier is string => identifier.length > 0);
+  }, [initialCols]);
+
+  const [columnOrder, setColumnOrder] = React.useState<string[]>(
+    () => computedInitialColumnIdentifiers,
+  );
+
+  React.useEffect(() => {
+    setColumnOrder((previousColumnOrder) => {
+      const filteredColumnOrder = previousColumnOrder.filter((identifier) =>
+        computedInitialColumnIdentifiers.includes(identifier),
+      );
+      const missingColumnIdentifiers = computedInitialColumnIdentifiers.filter(
+        (identifier) => !filteredColumnOrder.includes(identifier),
+      );
+
+      const isSameOrder =
+        missingColumnIdentifiers.length === 0 &&
+        filteredColumnOrder.length === previousColumnOrder.length &&
+        filteredColumnOrder.every(
+          (identifier, index) => identifier === previousColumnOrder[index],
+        );
+
+      if (isSameOrder) {
+        return previousColumnOrder;
+      }
+
+      return [...filteredColumnOrder, ...missingColumnIdentifiers];
+    });
+  }, [computedInitialColumnIdentifiers]);
+
   const table = useReactTable({
     data: rsvps,
     columns: initialCols,
-    state: { sorting },
+    state: { sorting, columnOrder },
     manualPagination: true, // Enable manual pagination
     onSortingChange: setSorting,
+    onColumnOrderChange: setColumnOrder,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     // Remove getPaginationRowModel() for manual pagination
   });
+
+  const [draggedColumnIdentifier, setDraggedColumnIdentifier] =
+    React.useState<string | null>(null);
+  const [dragHoverDetails, setDragHoverDetails] = React.useState<{
+    columnId: string;
+    position: "before" | "after";
+  } | null>(null);
+  const isDraggingColumn = draggedColumnIdentifier !== null;
+  const dragPreviewElementRef = React.useRef<HTMLDivElement | null>(null);
+  const dragPreviewFollowPointerRef = React.useRef(false);
+
+  const formatColumnIdentifier = React.useCallback((identifier: string) => {
+    if (!identifier) {
+      return "Column";
+    }
+    const withSpacing = identifier
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ");
+    return withSpacing
+      .split(" ")
+      .filter(Boolean)
+      .map(
+        (segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase(),
+      )
+      .join(" ");
+  }, []);
+
+  const removeDragPreviewElement = React.useCallback(() => {
+    const existingPreviewElement = dragPreviewElementRef.current;
+    if (existingPreviewElement && existingPreviewElement.parentNode) {
+      existingPreviewElement.parentNode.removeChild(existingPreviewElement);
+    }
+    dragPreviewElementRef.current = null;
+    dragPreviewFollowPointerRef.current = false;
+  }, []);
+
+  const updateDragPreviewPosition = React.useCallback(
+    (clientX: number | null | undefined, clientY: number | null | undefined) => {
+      if (!dragPreviewFollowPointerRef.current) {
+        return;
+      }
+      if (typeof clientX !== "number" || typeof clientY !== "number") {
+        return;
+      }
+      const previewElement = dragPreviewElementRef.current;
+      if (!previewElement) {
+        return;
+      }
+      const previewWidth = previewElement.offsetWidth || 0;
+      const previewHeight = previewElement.offsetHeight || 0;
+      previewElement.style.transform = `translate3d(${clientX - previewWidth / 2}px, ${clientY - previewHeight / 2}px, 0)`;
+    },
+    [],
+  );
+
+  const hasCoarsePointer = React.useCallback((): boolean => {
+    if (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0) {
+      return true;
+    }
+    if (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function"
+    ) {
+      try {
+        return window.matchMedia("(pointer: coarse)").matches;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }, []);
+
+  const createDragPreviewElement = React.useCallback(
+    (
+      event: React.DragEvent<HTMLTableHeaderCellElement>,
+      columnDisplayLabel: string,
+    ) => {
+      if (typeof document === "undefined" || typeof window === "undefined") {
+        return;
+      }
+
+      removeDragPreviewElement();
+
+      const headerElement = event.currentTarget;
+      const headerStyles = window.getComputedStyle(headerElement);
+      const resolvedBackgroundColor =
+        headerStyles.backgroundColor &&
+        headerStyles.backgroundColor !== "rgba(0, 0, 0, 0)"
+          ? headerStyles.backgroundColor
+          : "rgba(255, 255, 255, 0.96)";
+      const resolvedTextColor =
+        headerStyles.color && headerStyles.color.trim().length > 0
+          ? headerStyles.color
+          : "rgba(15, 23, 42, 0.9)";
+      const resolvedBorderColor =
+        headerStyles.borderColor && headerStyles.borderColor !== "rgba(0, 0, 0, 0)"
+          ? headerStyles.borderColor
+          : "rgba(148, 163, 184, 0.4)";
+
+      const previewLabel =
+        columnDisplayLabel.trim().length > 0
+          ? columnDisplayLabel
+          : formatColumnIdentifier(headerElement.id);
+
+      const previewElement = document.createElement("div");
+      previewElement.textContent = previewLabel;
+      previewElement.style.padding = "6px 14px";
+      previewElement.style.borderRadius = "9999px";
+      previewElement.style.background = resolvedBackgroundColor;
+      previewElement.style.color = resolvedTextColor;
+      previewElement.style.fontSize = "12px";
+      previewElement.style.fontWeight = "600";
+      previewElement.style.letterSpacing = "0.01em";
+      previewElement.style.border = `1px solid ${resolvedBorderColor}`;
+      previewElement.style.pointerEvents = "none";
+      previewElement.style.zIndex = "9999";
+      previewElement.style.fontFamily =
+        headerStyles.fontFamily && headerStyles.fontFamily.trim().length > 0
+          ? headerStyles.fontFamily
+          : "inherit";
+      previewElement.style.whiteSpace = "nowrap";
+      previewElement.style.display = "inline-flex";
+      previewElement.style.alignItems = "center";
+      previewElement.style.justifyContent = "center";
+      previewElement.style.position = "fixed";
+      previewElement.style.transform = "translate3d(-10000px, -10000px, 0)";
+
+      const shouldFollowPointer = hasCoarsePointer();
+      dragPreviewFollowPointerRef.current = shouldFollowPointer;
+
+      if (shouldFollowPointer) {
+        previewElement.style.left = "0";
+        previewElement.style.top = "0";
+      } else {
+        previewElement.style.top = "-1000px";
+        previewElement.style.left = "-1000px";
+      }
+
+      document.body.appendChild(previewElement);
+      dragPreviewElementRef.current = previewElement;
+
+      const previewWidth = previewElement.offsetWidth || 1;
+      const previewHeight = previewElement.offsetHeight || 1;
+
+      const dataTransfer = event.dataTransfer;
+      if (dataTransfer && typeof dataTransfer.setDragImage === "function") {
+        try {
+          dataTransfer.setDragImage(
+            previewElement,
+            previewWidth / 2,
+            previewHeight / 2,
+          );
+        } catch {
+          // Some browsers (iOS Safari) may throw - ignore and continue
+        }
+      }
+
+      if (shouldFollowPointer) {
+        updateDragPreviewPosition(
+          event.clientX ?? event.nativeEvent?.clientX ?? null,
+          event.clientY ?? event.nativeEvent?.clientY ?? null,
+        );
+      }
+    },
+    [
+      formatColumnIdentifier,
+      hasCoarsePointer,
+      removeDragPreviewElement,
+      updateDragPreviewPosition,
+    ],
+  );
+
+  const handleColumnDragStart = React.useCallback(
+    (
+      event: React.DragEvent<HTMLTableHeaderCellElement>,
+      columnIdentifier: string,
+      columnDisplayLabel: string,
+    ) => {
+      if (!columnIdentifier) {
+        return;
+      }
+      setDraggedColumnIdentifier(columnIdentifier);
+      setDragHoverDetails(null);
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", columnIdentifier);
+      }
+      createDragPreviewElement(event, columnDisplayLabel);
+      updateDragPreviewPosition(
+        event.clientX ?? event.nativeEvent?.clientX ?? null,
+        event.clientY ?? event.nativeEvent?.clientY ?? null,
+      );
+    },
+    [createDragPreviewElement, updateDragPreviewPosition],
+  );
+
+  const handleColumnDragOver = React.useCallback(
+    (
+      event: React.DragEvent<HTMLTableHeaderCellElement>,
+      targetColumnIdentifier: string,
+    ) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+      updateDragPreviewPosition(
+        event.clientX ?? event.nativeEvent?.clientX ?? null,
+        event.clientY ?? event.nativeEvent?.clientY ?? null,
+      );
+
+      if (
+        !draggedColumnIdentifier ||
+        draggedColumnIdentifier === targetColumnIdentifier
+      ) {
+        setDragHoverDetails(null);
+        return;
+      }
+
+      const targetElement = event.currentTarget as HTMLElement;
+      const targetBounds = targetElement.getBoundingClientRect();
+      const pointerOffset = event.clientX - targetBounds.left;
+      const position: "before" | "after" =
+        pointerOffset < targetBounds.width / 2 ? "before" : "after";
+
+      setDragHoverDetails({
+        columnId: targetColumnIdentifier,
+        position,
+      });
+    },
+    [draggedColumnIdentifier, updateDragPreviewPosition],
+  );
+
+  const handleColumnDrop = React.useCallback(
+    (
+      event: React.DragEvent<HTMLTableHeaderCellElement>,
+      targetColumnIdentifier: string,
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const activeColumnIdentifier = draggedColumnIdentifier;
+      if (!activeColumnIdentifier) {
+        setDragHoverDetails(null);
+        removeDragPreviewElement();
+        return;
+      }
+
+      if (activeColumnIdentifier === targetColumnIdentifier) {
+        setDraggedColumnIdentifier(null);
+        setDragHoverDetails(null);
+        removeDragPreviewElement();
+        return;
+      }
+
+      const dropPosition =
+        dragHoverDetails &&
+        dragHoverDetails.columnId === targetColumnIdentifier
+          ? dragHoverDetails.position
+          : "before";
+
+      setColumnOrder((previousColumnOrder) => {
+        if (
+          !previousColumnOrder.includes(activeColumnIdentifier) ||
+          !previousColumnOrder.includes(targetColumnIdentifier)
+        ) {
+          return previousColumnOrder;
+        }
+
+        const updatedOrder = previousColumnOrder.filter(
+          (identifier) => identifier !== activeColumnIdentifier,
+        );
+        const targetIndex = updatedOrder.indexOf(targetColumnIdentifier);
+        if (targetIndex === -1) {
+          return previousColumnOrder;
+        }
+        const insertionIndex =
+          dropPosition === "after" ? targetIndex + 1 : targetIndex;
+        updatedOrder.splice(insertionIndex, 0, activeColumnIdentifier);
+        return updatedOrder;
+      });
+
+      setDraggedColumnIdentifier(null);
+      setDragHoverDetails(null);
+      removeDragPreviewElement();
+    },
+    [draggedColumnIdentifier, dragHoverDetails, removeDragPreviewElement, setColumnOrder],
+  );
+
+  const handleColumnDragEnd = React.useCallback(() => {
+    setDraggedColumnIdentifier(null);
+    setDragHoverDetails(null);
+    removeDragPreviewElement();
+  }, [removeDragPreviewElement]);
+
+  React.useEffect(() => {
+    return () => {
+      removeDragPreviewElement();
+    };
+  }, [removeDragPreviewElement]);
 
   // Selection state management (computed values after table creation)
   const currentPageRows = table.getRowModel().rows;
@@ -2178,20 +2531,101 @@ export default function RsvpsPage() {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              {table.getHeaderGroups().map((hg) => (
-                <tr key={hg.id} className="text-left text-foreground/70">
-                  {hg.headers.map((h) => (
-                    <th
-                      key={h.id}
-                      className="px-2 py-1 cursor-pointer"
-                      onClick={h.column.getToggleSortingHandler()}
-                    >
-                      {flexRender(h.column.columnDef.header, h.getContext())}
-                      {{ asc: " ▲", desc: " ▼" }[
-                        h.column.getIsSorted() as string
-                      ] ?? null}
-                    </th>
-                  ))}
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr
+                  key={headerGroup.id}
+                  className="text-left text-foreground/70"
+                >
+                  {headerGroup.headers.map((header) => {
+                    const columnIdentifier =
+                      header.column.id ??
+                      (hasStringAccessorKey(header.column.columnDef)
+                        ? header.column.columnDef.accessorKey
+                        : header.id);
+                    const sortingHandler = header.column.getCanSort()
+                      ? header.column.getToggleSortingHandler()
+                      : undefined;
+                    const isDragSourceEnabled = columnIdentifier !== "select";
+                    const columnMeta = header.column
+                      .columnDef.meta as { label?: string } | undefined;
+                    const columnDisplayLabel =
+                      typeof header.column.columnDef.header === "string" &&
+                      header.column.columnDef.header.trim().length > 0
+                        ? header.column.columnDef.header
+                        : columnMeta?.label && columnMeta.label.trim().length > 0
+                          ? columnMeta.label
+                          : formatColumnIdentifier(columnIdentifier);
+
+                    return (
+                      <th
+                        key={header.id}
+                        className={cn(
+                          "px-2 py-1 select-none group border-b border-foreground/10",
+                          isDraggingColumn
+                            ? "cursor-grabbing"
+                            : "cursor-pointer",
+                          dragHoverDetails?.columnId === columnIdentifier &&
+                            dragHoverDetails.position === "before" &&
+                            "border-l-2 border-l-foreground/40",
+                          dragHoverDetails?.columnId === columnIdentifier &&
+                            dragHoverDetails.position === "after" &&
+                            "border-r-2 border-r-foreground/40",
+                          draggedColumnIdentifier === columnIdentifier &&
+                            "opacity-60",
+                        )}
+                        title={columnDisplayLabel}
+                        draggable={isDragSourceEnabled}
+                        onDragStart={
+                          isDragSourceEnabled
+                            ? (event) =>
+                                handleColumnDragStart(
+                                  event,
+                                  columnIdentifier,
+                                  columnDisplayLabel,
+                                )
+                            : undefined
+                        }
+                        onDragOver={(event) =>
+                          handleColumnDragOver(event, columnIdentifier)
+                        }
+                        onDrop={(event) =>
+                          handleColumnDrop(event, columnIdentifier)
+                        }
+                        onDragEnd={handleColumnDragEnd}
+                        onClick={(event) => {
+                          if (isDraggingColumn) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            return;
+                          }
+                          if (sortingHandler) {
+                            sortingHandler(event);
+                          }
+                        }}
+                      >
+                        <div className="flex items-center gap-1">
+                          {isDragSourceEnabled && (
+                            <GripVertical
+                              aria-hidden="true"
+                              className={cn(
+                                "h-3 w-3 text-muted-foreground transition-opacity",
+                                "opacity-0 group-hover:opacity-100",
+                              )}
+                            />
+                          )}
+                          <div className="flex items-center gap-1">
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                            {{ asc: " ▲", desc: " ▼" }[
+                              header.column.getIsSorted() as string
+                            ] ?? null}
+                          </div>
+                        </div>
+                      </th>
+                    );
+                  })}
                 </tr>
               ))}
             </thead>
