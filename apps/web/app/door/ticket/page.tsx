@@ -111,6 +111,7 @@ export default function TicketPage() {
               month: "long",
               day: "numeric",
               year: "numeric",
+              timeZone: featuredEvent.eventTimezone ?? "UTC",
             })} at {featuredEvent.location}
           </CardDescription>
         </CardHeader>

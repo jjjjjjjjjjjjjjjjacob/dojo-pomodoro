@@ -149,6 +149,7 @@ export default function GuestListPage() {
               month: "short",
               day: "numeric",
               year: "numeric",
+              timeZone: event.eventTimezone ?? "UTC",
             });
             return (
               <SelectOption key={event._id} value={event._id}>

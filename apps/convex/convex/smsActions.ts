@@ -11,6 +11,56 @@ import twilio from "twilio";
 import { formatPhoneNumberForSms, obfuscatePhoneNumber } from "./lib/phoneUtils";
 
 /**
+ * Determines if we're in development mode with SMS disabled
+ */
+function isDevWithSmsDisabled(): boolean {
+  return process.env.DEV_TWILIO_ENABLED === "false";
+}
+
+/**
+ * Validates Twilio credentials and throws error in production if missing
+ * Returns false if dev mode with SMS disabled (should skip gracefully)
+ */
+function validateTwilioCredentials(): { accountSid: string; authToken: string; fromNumber: string } | null {
+  const isDevDisabled = isDevWithSmsDisabled();
+  
+  if (isDevDisabled) {
+    // Dev mode with SMS disabled - warn but don't throw
+    console.warn("⚠️  SMS disabled in development (DEV_TWILIO_ENABLED=false). SMS will be skipped.");
+    return null;
+  }
+
+  // Production mode (or dev with SMS enabled) - validate credentials
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+  if (!accountSid || !authToken || !fromNumber) {
+    const missingKeys = [];
+    if (!accountSid) missingKeys.push("TWILIO_ACCOUNT_SID");
+    if (!authToken) missingKeys.push("TWILIO_AUTH_TOKEN");
+    if (!fromNumber) missingKeys.push("TWILIO_PHONE_NUMBER");
+    
+    throw new Error(
+      `Twilio credentials not configured. Missing environment variables: ${missingKeys.join(", ")}`
+    );
+  }
+
+  return { accountSid, authToken, fromNumber };
+}
+
+/**
+ * Calculate SMS cost based on message length
+ * Twilio charges per 160-character segment for US numbers
+ * ~$0.00645 per segment for US SMS
+ */
+function calculateSmsCost(messageLength: number): number {
+  const segments = Math.ceil(messageLength / 160);
+  const costPerSegment = 0.00645; // US SMS cost per segment
+  return segments * costPerSegment;
+}
+
+/**
  * Internal action to send SMS via Twilio
  * Only callable from other Convex functions, not from client
  */
@@ -19,29 +69,92 @@ export const sendSmsInternal = internalAction({
     phoneNumber: v.string(),
     message: v.string(),
     notificationId: v.optional(v.id("smsNotifications")),
+    mediaUrl: v.optional(v.string()), // URL for MMS image attachment
+    messageType: v.optional(v.string()), // 'Transactional' | 'Promotional'
   },
   handler: async (ctx, args) => {
-    // Validate environment variables
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+    // Validate credentials (throws error in production if missing, returns null in dev if disabled)
+    const credentials = validateTwilioCredentials();
+    
+    if (!credentials) {
+      // Dev mode with SMS disabled - update notification status and return gracefully
+      if (args.notificationId) {
+        await ctx.runMutation(internal.sms.updateNotificationStatus, {
+          notificationId: args.notificationId,
+          status: "failed",
+          errorMessage: "Twilio disabled in development (DEV_TWILIO_ENABLED=false)",
+        });
+      }
+      return {
+        success: false,
+        messageId: undefined,
+        phone: obfuscatePhoneNumber(args.phoneNumber),
+      };
+    }
 
-    if (!accountSid || !authToken || !fromNumber) {
-      throw new Error("Twilio credentials not configured");
+    const { accountSid, authToken, fromNumber } = credentials;
+
+    // Format phone number for international format
+    const formattedPhone = formatPhoneNumberForSms(args.phoneNumber);
+
+    // Check if user has opted out
+    const hasOptedOut = await ctx.runAction(internal.smsMonitoringActions.checkOptOutAction, {
+      phoneNumber: formattedPhone,
+    });
+
+    if (hasOptedOut) {
+      // User has opted out - update notification status and skip sending
+      if (args.notificationId) {
+        await ctx.runMutation(internal.sms.updateNotificationStatus, {
+          notificationId: args.notificationId,
+          status: "failed",
+          errorMessage: "User has opted out of SMS notifications",
+        });
+      }
+      return {
+        success: false,
+        messageId: undefined,
+        phone: obfuscatePhoneNumber(formattedPhone),
+        skipped: "opted_out",
+      };
     }
 
     // Create Twilio client
     const twilioClient = twilio(accountSid, authToken);
 
     try {
-      // Format phone number for international format
-      const formattedPhone = formatPhoneNumberForSms(args.phoneNumber);
-
-      // Send SMS via Twilio
-      const message = await twilioClient.messages.create({
+      // Send SMS/MMS via Twilio
+      const messageConfig: {
+        body: string;
+        from: string;
+        to: string;
+        mediaUrl?: string[];
+      } = {
         body: args.message,
         from: fromNumber,
         to: formattedPhone,
+      };
+      
+      // Add media URL for MMS if provided
+      if (args.mediaUrl) {
+        messageConfig.mediaUrl = [args.mediaUrl];
+      }
+
+      const message = await twilioClient.messages.create(messageConfig);
+
+      // Calculate message length and cost
+      const messageLength = args.message.length;
+      const estimatedCost = calculateSmsCost(messageLength);
+      const messageType = args.messageType || "Transactional";
+
+      // Log SMS usage
+      await ctx.runAction(internal.smsMonitoringActions.logSmsUsageAction, {
+        messageId: message.sid,
+        phoneNumber: formattedPhone,
+        messageLength,
+        messageType,
+        estimatedCost,
+        timestamp: Date.now(),
       });
 
       // Update notification status if ID provided
@@ -85,12 +198,31 @@ export const sendBulkSmsInternal = internalAction({
         phoneNumber: v.string(),
         clerkUserId: v.string(),
         notificationId: v.optional(v.id("smsNotifications")),
+        personalizedMessage: v.optional(v.string()),
       })
     ),
     message: v.string(),
     batchSize: v.optional(v.number()),
+    messageType: v.optional(v.string()), // 'Transactional' | 'Promotional'
   },
   handler: async (ctx, args) => {
+    // Validate credentials (throws error in production if missing, returns null in dev if disabled)
+    const credentials = validateTwilioCredentials();
+    
+    if (!credentials) {
+      // Dev mode with SMS disabled - return failure for all recipients
+      return {
+        totalRecipients: args.recipients.length,
+        successCount: 0,
+        failureCount: args.recipients.length,
+        results: args.recipients.map((recipient) => ({
+          clerkUserId: recipient.clerkUserId,
+          success: false,
+          error: "Twilio disabled in development (DEV_TWILIO_ENABLED=false)",
+        })),
+      };
+    }
+
     const batchSize = args.batchSize || 10; // Process 10 SMS at a time
     const results: Array<{
       clerkUserId: string;
@@ -108,8 +240,9 @@ export const sendBulkSmsInternal = internalAction({
         batch.map((recipient) =>
           ctx.runAction(internal.smsActions.sendSmsInternal, {
             phoneNumber: recipient.phoneNumber,
-            message: args.message,
+            message: recipient.personalizedMessage ?? args.message,
             notificationId: recipient.notificationId,
+            messageType: args.messageType,
           })
         )
       );
@@ -164,13 +297,15 @@ export const sendHelpResponse = internalAction({
     from: v.string(),
   },
   handler: async (ctx, args) => {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-
-    if (!accountSid || !authToken) {
-      console.error("Twilio credentials not configured");
+    // Validate credentials (throws error in production if missing, returns null in dev if disabled)
+    const credentials = validateTwilioCredentials();
+    
+    if (!credentials) {
+      // Dev mode with SMS disabled - skip gracefully
       return;
     }
+
+    const { accountSid, authToken } = credentials;
 
     try {
       const twilioClient = twilio(accountSid, authToken);

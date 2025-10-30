@@ -49,6 +49,7 @@ export type EventPatch = Partial<Pick<Doc<"events">,
   | "name"
   | "secondaryTitle"
   | "hosts"
+  | "productionCompany"
   | "location"
   | "flyerUrl"
   | "flyerStorageId"
@@ -64,6 +65,8 @@ export type EventPatch = Partial<Pick<Doc<"events">,
   | "customFields"
   | "themeBackgroundColor"
   | "themeTextColor"
+  | "approvalMessage"
+  | "qrCodeColor"
 >>;
 
 /**

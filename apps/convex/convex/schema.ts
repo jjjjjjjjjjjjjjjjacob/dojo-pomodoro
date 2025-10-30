@@ -28,7 +28,8 @@ export default defineSchema({
   events: defineTable({
     name: v.string(),
     secondaryTitle: v.optional(v.string()),
-    hosts: v.array(v.string()), // host emails (Clerk) or user IDs later
+    hosts: v.array(v.string()), // host names (comma-separated)
+    productionCompany: v.optional(v.string()), // production company name that overrides host names in consent messaging
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
@@ -56,6 +57,8 @@ export default defineSchema({
     ),
     themeBackgroundColor: v.optional(v.string()),
     themeTextColor: v.optional(v.string()),
+    approvalMessage: v.optional(v.string()), // custom approval message for SMS
+    qrCodeColor: v.optional(v.string()), // QR code color for SMS (hex color)
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -151,7 +154,7 @@ export default defineSchema({
     eventId: v.id("events"),
     recipientClerkUserId: v.string(),
     recipientPhoneObfuscated: v.string(), // ***-***-1234 format for display
-    type: v.string(), // 'approval' | 'blast' | 'reminder'
+    type: v.string(), // 'approval' | 'blast' | 'reminder' | 'sms_consent_enabled' | 'sms_consent_disabled'
     message: v.string(),
     status: v.string(), // 'pending' | 'sent' | 'failed'
     messageId: v.optional(v.string()), // AWS SNS MessageId

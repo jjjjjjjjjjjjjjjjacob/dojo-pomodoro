@@ -80,21 +80,22 @@ export default function EventPageClient({
 
   const dateText = useMemo(() => {
     const timestamp = event?.eventDate;
+    const timezone = event?.eventTimezone;
     if (!timestamp) return "";
     const date = new Date(timestamp);
-    // Use UTC methods to display the exact date that was stored, avoiding timezone shifts
+    // Always display in the event's timezone, not UTC or user's timezone
     const day = date.toLocaleDateString(undefined, {
       weekday: "long",
-      timeZone: "UTC",
+      timeZone: timezone ?? "UTC",
     });
     const formattedDate = date.toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",
       year: "2-digit",
-      timeZone: "UTC",
+      timeZone: timezone ?? "UTC",
     });
     return `${day} ${formattedDate.replace(/\//g, ".")}`;
-  }, [event?.eventDate]);
+  }, [event?.eventDate, event?.eventTimezone]);
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">

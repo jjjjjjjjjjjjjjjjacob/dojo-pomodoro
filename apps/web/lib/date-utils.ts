@@ -113,7 +113,46 @@ export function formatTimeForInput(date: Date): string {
 }
 
 /**
+ * Extracts date string (YYYY-MM-DD) from a timestamp, formatted in the specified timezone
+ */
+export function extractDateFromTimestamp(timestamp: number, timezone?: string): string {
+  const date = new Date(timestamp);
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone ?? "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((p) => p.type === "year")?.value || "0";
+  const month = parts.find((p) => p.type === "month")?.value || "0";
+  const day = parts.find((p) => p.type === "day")?.value || "0";
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Extracts time string (HH:MM) from a timestamp, formatted in the specified timezone
+ */
+export function extractTimeFromTimestamp(timestamp: number, timezone?: string): string {
+  const date = new Date(timestamp);
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone ?? "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const hour = parts.find((p) => p.type === "hour")?.value || "00";
+  const minute = parts.find((p) => p.type === "minute")?.value || "00";
+  return `${hour}:${minute}`;
+}
+
+/**
  * Creates a timestamp from date and time strings
+ * Interprets the date/time as being IN the specified timezone, then converts to UTC timestamp
+ * 
+ * Example: createTimestamp("2024-01-15", "19:00", "America/New_York")
+ * Returns: UTC timestamp for Jan 15, 2024 7:00 PM New York time
  */
 export function createTimestamp(dateString: string, timeString?: string, timezone?: string): number {
   const [year, month, day] = dateString.split("-").map(value => parseInt(value, 10));
@@ -121,7 +160,12 @@ export function createTimestamp(dateString: string, timeString?: string, timezon
   if (timeString) {
     const [hours, minutes] = timeString.split(":").map(value => parseInt(value, 10));
     if (timezone) {
-      const zonedDate = new Date(Date.UTC(year, month - 1, day, hours || 0, minutes || 0));
+      // Strategy: Use binary search or iterative approach to find the UTC timestamp
+      // that, when formatted in the target timezone, matches our desired local time
+      
+      // Start with a reasonable guess: UTC time equal to local time
+      let candidateUtc = new Date(Date.UTC(year, month - 1, day, hours || 0, minutes || 0));
+      
       const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
         year: "numeric",
@@ -131,51 +175,84 @@ export function createTimestamp(dateString: string, timeString?: string, timezon
         minute: "2-digit",
         hour12: false,
       });
-      const parts = formatter.formatToParts(zonedDate);
-      const yearPart = parts.find((part) => part.type === "year");
-      const monthPart = parts.find((part) => part.type === "month");
-      const dayPart = parts.find((part) => part.type === "day");
-      const hourPart = parts.find((part) => part.type === "hour");
-      const minutePart = parts.find((part) => part.type === "minute");
-      if (
-        yearPart &&
-        monthPart &&
-        dayPart &&
-        hourPart &&
-        minutePart
-      ) {
-        const utcDate = new Date(Date.UTC(
-          Number(yearPart.value),
-          Number(monthPart.value) - 1,
-          Number(dayPart.value),
-          Number(hourPart.value),
-          Number(minutePart.value)
-        ));
-        return utcDate.getTime();
+      
+      // Refine the candidate by checking what local time it represents
+      // and adjusting until it matches our target
+      for (let iteration = 0; iteration < 3; iteration++) {
+        const parts = formatter.formatToParts(candidateUtc);
+        const candidateYear = parseInt(parts.find((p) => p.type === "year")?.value || "0", 10);
+        const candidateMonth = parseInt(parts.find((p) => p.type === "month")?.value || "0", 10);
+        const candidateDay = parseInt(parts.find((p) => p.type === "day")?.value || "0", 10);
+        const candidateHour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+        const candidateMinute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+        
+        // Check if we've found the right date/time
+        if (
+          candidateYear === year &&
+          candidateMonth === month &&
+          candidateDay === day &&
+          candidateHour === (hours || 0) &&
+          candidateMinute === (minutes || 0)
+        ) {
+          return candidateUtc.getTime();
+        }
+        
+        // Calculate the difference and adjust
+        const hourDiff = (hours || 0) - candidateHour;
+        const minuteDiff = (minutes || 0) - candidateMinute;
+        const dayDiff = day - candidateDay;
+        
+        // Adjust by the difference (in milliseconds)
+        const adjustmentMs = (dayDiff * 24 * 60 + hourDiff * 60 + minuteDiff) * 60 * 1000;
+        candidateUtc = new Date(candidateUtc.getTime() + adjustmentMs);
       }
+      
+      // Final check - if still not matching, use the last candidate
+      return candidateUtc.getTime();
     }
     return new Date(Date.UTC(year, month - 1, day, hours || 0, minutes || 0)).getTime();
   } else {
     if (timezone) {
-      const zonedDate = new Date(Date.UTC(year, month - 1, day));
+      // For date-only, we want midnight in the timezone
+      let candidateUtc = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+      
       const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
       });
-      const parts = formatter.formatToParts(zonedDate);
-      const yearPart = parts.find((part) => part.type === "year");
-      const monthPart = parts.find((part) => part.type === "month");
-      const dayPart = parts.find((part) => part.type === "day");
-      if (yearPart && monthPart && dayPart) {
-        const utcDate = new Date(Date.UTC(
-          Number(yearPart.value),
-          Number(monthPart.value) - 1,
-          Number(dayPart.value)
-        ));
-        return utcDate.getTime();
+      
+      for (let iteration = 0; iteration < 3; iteration++) {
+        const parts = formatter.formatToParts(candidateUtc);
+        const candidateYear = parseInt(parts.find((p) => p.type === "year")?.value || "0", 10);
+        const candidateMonth = parseInt(parts.find((p) => p.type === "month")?.value || "0", 10);
+        const candidateDay = parseInt(parts.find((p) => p.type === "day")?.value || "0", 10);
+        const candidateHour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+        const candidateMinute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+        
+        if (
+          candidateYear === year &&
+          candidateMonth === month &&
+          candidateDay === day &&
+          candidateHour === 0 &&
+          candidateMinute === 0
+        ) {
+          return candidateUtc.getTime();
+        }
+        
+        const hourDiff = 0 - candidateHour;
+        const minuteDiff = 0 - candidateMinute;
+        const dayDiff = day - candidateDay;
+        
+        const adjustmentMs = (dayDiff * 24 * 60 + hourDiff * 60 + minuteDiff) * 60 * 1000;
+        candidateUtc = new Date(candidateUtc.getTime() + adjustmentMs);
       }
+      
+      return candidateUtc.getTime();
     }
     return new Date(Date.UTC(year, month - 1, day)).getTime();
   }

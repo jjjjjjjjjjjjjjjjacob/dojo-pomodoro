@@ -65,6 +65,7 @@ export default function NewEventClient() {
       name: "",
       secondaryTitle: "",
       hosts: "",
+      productionCompany: "",
       location: "",
       eventDate: "",
       eventTime: "19:00",
@@ -77,6 +78,8 @@ export default function NewEventClient() {
       maxAttendees: 1,
       themeBackgroundColor: EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
       themeTextColor: EVENT_THEME_DEFAULT_TEXT_COLOR,
+      approvalMessage: "",
+      qrCodeColor: "#000000",
     },
   });
 
@@ -129,9 +132,9 @@ export default function NewEventClient() {
     }
 
     try {
-      const hostEmails = values.hosts
+      const hostNames = values.hosts
         .split(",")
-        .map((email) => email.trim())
+        .map((name) => name.trim())
         .filter(Boolean);
       const timestamp = createTimestamp(
         values.eventDate,
@@ -146,6 +149,7 @@ export default function NewEventClient() {
         }))
         .filter((list) => list.listKey && list.password);
       const trimmedSecondaryTitle = values.secondaryTitle?.trim() ?? "";
+      const trimmedProductionCompany = values.productionCompany?.trim() ?? "";
       const normalizedThemeBackgroundColor =
         normalizeHexColorInput(values.themeBackgroundColor) ??
         EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
@@ -155,7 +159,8 @@ export default function NewEventClient() {
       await create({
         name: values.name.trim(),
         secondaryTitle: trimmedSecondaryTitle || undefined,
-        hosts: hostEmails,
+        hosts: hostNames,
+        productionCompany: trimmedProductionCompany || undefined,
         location: values.location.trim(),
         flyerStorageId: values.flyerStorageId ? (values.flyerStorageId as unknown as Id<"_storage"> | undefined) : undefined,
         customIconStorageId: values.customIconStorageId
@@ -185,6 +190,8 @@ export default function NewEventClient() {
         })),
         themeBackgroundColor: normalizedThemeBackgroundColor,
         themeTextColor: normalizedThemeTextColor,
+        approvalMessage: values.approvalMessage?.trim() || undefined,
+        qrCodeColor: normalizeHexColorInput(values.qrCodeColor) || undefined,
       });
       toast.success("Event created");
       router.replace("/host/events?created=1");

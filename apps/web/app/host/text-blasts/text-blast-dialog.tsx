@@ -66,6 +66,7 @@ export default function TextBlastDialog({
   const createDraftMutation = useMutation(api.textBlasts.createDraft);
   const updateDraftMutation = useMutation(api.textBlasts.updateDraft);
   const sendBlastAction = useAction(api.textBlasts.sendBlast);
+  const sendBlastDirectAction = useAction(api.textBlasts.sendBlastDirect);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>({
@@ -78,15 +79,41 @@ export default function TextBlastDialog({
   const [previewMode, setPreviewMode] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
+  // Fetch available lists with counts for the selected event
+  const availableListsWithCounts = useQuery(
+    api.textBlasts.getAvailableListsForEvent,
+    formData.eventId ? { eventId: formData.eventId as Id<"events"> } : "skip",
+  ) as Array<{ listKey: string; recipientCount: number; totalRsvps: number }> | undefined;
+
   const isEditMode = !!blastId;
   const selectedEvent = events?.find(event => event._id === formData.eventId);
 
-  // Get available lists for selected event
+  // Get available lists for selected event from query result
   const availableLists = useMemo(() => {
-    if (!selectedEvent) return [] as string[];
-    // Mock list - in real app, get from event or RSVP data
-    return ["vip", "ga", "premium"];
-  }, [selectedEvent]);
+    if (!availableListsWithCounts) return [];
+    return availableListsWithCounts.map(list => list.listKey);
+  }, [availableListsWithCounts]);
+
+  // Create a map of listKey to recipient count for quick lookup
+  const listCountMap = useMemo(() => {
+    if (!availableListsWithCounts) return new Map<string, number>();
+    return new Map(availableListsWithCounts.map(list => [list.listKey, list.recipientCount]));
+  }, [availableListsWithCounts]);
+
+  // Update recipient count when target lists change
+  useEffect(() => {
+    if (formData.targetLists.length === 0) {
+      setRecipientCount(0);
+      return;
+    }
+
+    let totalCount = 0;
+    for (const listKey of formData.targetLists) {
+      const count = listCountMap.get(listKey) || 0;
+      totalCount += count;
+    }
+    setRecipientCount(totalCount);
+  }, [formData.targetLists, listCountMap]);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -98,7 +125,7 @@ export default function TextBlastDialog({
           message: existingBlast.message,
           targetLists: existingBlast.targetLists,
         });
-        setRecipientCount(existingBlast.recipientCount);
+        // Recipient count will be calculated by the useEffect above when targetLists are set
         setCurrentStep(1);
       } else {
         setFormData({
@@ -182,14 +209,27 @@ export default function TextBlastDialog({
   };
 
   const handleSendBlast = async () => {
-    if (!blastId) {
-      toast.error("Please save as draft first");
+    if (!formData.eventId || !formData.name || !formData.message || formData.targetLists.length === 0) {
+      toast.error("Please complete all fields before sending");
       return;
     }
 
     setIsSending(true);
     try {
-      const result = await sendBlastAction({ blastId });
+      let result;
+      if (blastId && isEditMode) {
+        // Send existing draft
+        result = await sendBlastAction({ blastId });
+      } else {
+        // Send directly without saving draft first
+        result = await sendBlastDirectAction({
+          eventId: formData.eventId as Id<"events">,
+          name: formData.name,
+          message: formData.message,
+          targetLists: formData.targetLists,
+        });
+      }
+      
       if (result.success) {
         toast.success(
           `Text blast sent successfully! ${result.sentCount} messages delivered.`,
@@ -316,29 +356,47 @@ export default function TextBlastDialog({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Select Recipient Lists</Label>
-              <div className="grid gap-3">
-                {availableLists.map(listKey => (
-                  <div key={listKey} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={listKey}
-                      checked={formData.targetLists.includes(listKey)}
-                      onCheckedChange={(checked) =>
-                        handleTargetListChange(listKey, checked as boolean)
-                      }
-                    />
-                    <Label htmlFor={listKey} className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium capitalize">{listKey}</span>
-                        <Badge variant="outline">
-                          <Users className="h-3 w-3 mr-1" />
-                          ~50 recipients
-                        </Badge>
+              {availableLists.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  {formData.eventId 
+                    ? "No recipient lists available for this event. Make sure there are approved RSVPs for this event."
+                    : "Select an event to see available recipient lists."}
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {availableLists.map(listKey => {
+                    const listData = availableListsWithCounts?.find(l => l.listKey === listKey);
+                    const count = listData?.recipientCount || 0;
+                    const totalRsvps = listData?.totalRsvps || 0;
+                    return (
+                      <div key={listKey} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={listKey}
+                          checked={formData.targetLists.includes(listKey)}
+                          onCheckedChange={(checked) =>
+                            handleTargetListChange(listKey, checked as boolean)
+                          }
+                        />
+                        <Label htmlFor={listKey} className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium capitalize">{listKey}</span>
+                            <Badge variant="outline">
+                              <Users className="h-3 w-3 mr-1" />
+                              {count} {count === 1 ? "recipient" : "recipients"}
+                              {totalRsvps > 0 && count === 0 && (
+                                <span className="ml-1 text-xs text-muted-foreground">
+                                  ({totalRsvps} RSVP{totalRsvps !== 1 ? "s" : ""} without SMS consent/phone)
+                                </span>
+                              )}
+                            </Badge>
+                          </div>
+                        </Label>
                       </div>
-                    </Label>
-                  </div>
-                ))}
-              </div>
-              {formData.targetLists.length === 0 && (
+                    );
+                  })}
+                </div>
+              )}
+              {formData.targetLists.length === 0 && availableLists.length > 0 && (
                 <div className="text-sm text-muted-foreground">
                   Please select at least one recipient list.
                 </div>
@@ -352,7 +410,7 @@ export default function TextBlastDialog({
                     <span className="text-sm font-medium">Total Recipients</span>
                     <Badge>
                       <Users className="h-3 w-3 mr-1" />
-                      {recipientCount || "Calculating..."}
+                      {recipientCount}
                     </Badge>
                   </div>
                 </CardContent>
@@ -495,31 +553,29 @@ export default function TextBlastDialog({
                   Save Draft
                 </Button>
 
-                {isEditMode && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button disabled={!canSave || isSending}>
-                        <Send className="h-4 w-4 mr-2" />
-                        {isSending ? "Sending..." : "Send Now"}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Send Text Blast</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to send this text blast to {recipientCount} recipients?
-                          This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleSendBlast}>
-                          Send {recipientCount} Messages
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                )}
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button disabled={!canSave || isSending || recipientCount === 0}>
+                      <Send className="h-4 w-4 mr-2" />
+                      {isSending ? "Sending..." : "Send Now"}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Send Text Blast</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to send this text blast to {recipientCount} recipient{recipientCount !== 1 ? "s" : ""}?
+                        This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleSendBlast}>
+                        Send {recipientCount} Message{recipientCount !== 1 ? "s" : ""}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             )}
           </div>

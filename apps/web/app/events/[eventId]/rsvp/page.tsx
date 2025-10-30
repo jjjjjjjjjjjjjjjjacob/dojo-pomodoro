@@ -8,8 +8,17 @@ import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useUser, useClerk, UserProfile } from "@clerk/nextjs";
 import { toast } from "sonner";
-import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   validateRequired,
   validateRequiredWithFirstName,
@@ -47,6 +56,8 @@ import {
   UseFormReturn,
 } from "@/lib/types";
 import { useTracking } from "@/app/hooks/use-tracking";
+import { fetchSmsConsentIpAddress } from "@/lib/sms-consent";
+import { resolveEventMessagingBrandName } from "@/lib/event-display";
 
 export default function RsvpPage({
   params,
@@ -93,9 +104,32 @@ export default function RsvpPage({
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
-  const [smsConsentEnabled, setSmsConsentEnabled] = useState<boolean>(true);
+  const [smsConsentEnabled, setSmsConsentEnabled] = useState<boolean>(false);
   const [hasInitializedSmsConsent, setHasInitializedSmsConsent] =
     useState<boolean>(false);
+  const [smsConsentIpAddress, setSmsConsentIpAddress] = useState<
+    string | undefined
+  >(undefined);
+  const [hasConfirmedSmsOptIn, setHasConfirmedSmsOptIn] =
+    useState<boolean>(false);
+  const [hasAcknowledgedSmsOptOutPrompt, setHasAcknowledgedSmsOptOutPrompt] =
+    useState<boolean>(false);
+  const [smsConsentDialogMode, setSmsConsentDialogMode] = useState<
+    "confirm" | "encourage" | null
+  >(null);
+  const smsSenderDisplayName = useMemo(
+    () =>
+      resolveEventMessagingBrandName(
+        {
+          name: event?.name,
+          secondaryTitle: event?.secondaryTitle,
+          hosts: event?.hosts,
+          productionCompany: event?.productionCompany,
+        },
+        { fallback: event?.name?.trim() ?? "Event Host" },
+      ),
+    [event?.hosts, event?.name, event?.secondaryTitle, event?.productionCompany],
+  );
 
   const resolve = useAction(api.credentialsNode.resolveListByPassword);
   const upsertContact = useAction(api.profilesNode.upsertEncryptedContact);
@@ -253,8 +287,29 @@ export default function RsvpPage({
     );
   }, [status?.status, status?.listKey, listKey]);
 
+  const handleSmsConsentChange = React.useCallback(
+    async (checked: boolean | "indeterminate") => {
+      const isEnabled = checked === true;
+      setSmsConsentEnabled(isEnabled);
+      if (isEnabled) {
+        setHasConfirmedSmsOptIn(false);
+        setHasAcknowledgedSmsOptOutPrompt(false);
+        if (!smsConsentIpAddress) {
+          const ipAddress = await fetchSmsConsentIpAddress();
+          if (ipAddress) {
+            setSmsConsentIpAddress(ipAddress);
+          }
+        }
+      } else {
+        setHasConfirmedSmsOptIn(false);
+        setHasAcknowledgedSmsOptOutPrompt(false);
+      }
+    },
+    [smsConsentIpAddress],
+  );
+
   const updateProfileMeta = useMutation(api.users.updateProfileMeta);
-  const onSubmit = async () => {
+  const performSubmission = async () => {
     try {
       setMessage("");
       if (!listKey) {
@@ -323,6 +378,14 @@ export default function RsvpPage({
         phone: phone || undefined,
       });
 
+      let consentIpAddress = smsConsentIpAddress;
+      if (smsConsentEnabled && !consentIpAddress) {
+        consentIpAddress = await fetchSmsConsentIpAddress();
+        if (consentIpAddress) {
+          setSmsConsentIpAddress(consentIpAddress);
+        }
+      }
+
       await submitRsvp({
         eventId: eventId as Id<"events">,
         listKey,
@@ -330,7 +393,10 @@ export default function RsvpPage({
         shareContact: true,
         attendees: form.getValues("attendees") || 1,
         smsConsent: smsConsentEnabled,
-        smsConsentIpAddress: undefined, // Not needed for implicit consent
+        smsConsentIpAddress:
+          smsConsentEnabled && consentIpAddress
+            ? consentIpAddress
+            : undefined,
         customFields: filteredCustomFields,
       });
 
@@ -360,13 +426,57 @@ export default function RsvpPage({
     }
   };
 
+  const onSubmit = async () => {
+    if (smsConsentEnabled) {
+      if (!hasConfirmedSmsOptIn) {
+        setSmsConsentDialogMode("confirm");
+        return;
+      }
+    } else if (!hasAcknowledgedSmsOptOutPrompt) {
+      setSmsConsentDialogMode("encourage");
+      return;
+    }
+    await performSubmission();
+  };
+
+  const handleConfirmSmsOptIn = async () => {
+    setHasConfirmedSmsOptIn(true);
+    setSmsConsentDialogMode(null);
+    await performSubmission();
+  };
+
+  const handleEncourageEnable = async () => {
+    await handleSmsConsentChange(true);
+    setSmsConsentDialogMode("confirm");
+  };
+
+  const handleEncourageContinue = async () => {
+    setHasAcknowledgedSmsOptOutPrompt(true);
+    setSmsConsentDialogMode(null);
+    await performSubmission();
+  };
+
   useEffect(() => {
-    if (hasInitializedSmsConsent) return;
-    if (status?.smsConsent !== undefined) {
+    if (!status) return;
+    if (!hasInitializedSmsConsent && status.smsConsent !== undefined) {
       setSmsConsentEnabled(status.smsConsent);
       setHasInitializedSmsConsent(true);
     }
-  }, [status?.smsConsent, hasInitializedSmsConsent]);
+    if (status.smsConsent === true) {
+      setHasConfirmedSmsOptIn(true);
+      setHasAcknowledgedSmsOptOutPrompt(false);
+    }
+    if (status.smsConsent === false) {
+      setHasAcknowledgedSmsOptOutPrompt(true);
+      setHasConfirmedSmsOptIn(false);
+    }
+    if (
+      typeof status.smsConsentIpAddress === "string" &&
+      status.smsConsentIpAddress.length > 0
+    ) {
+      setSmsConsentIpAddress(status.smsConsentIpAddress);
+    }
+  }, [status, hasInitializedSmsConsent]);
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
@@ -414,19 +524,25 @@ export default function RsvpPage({
                   />
 
                   <NoteForHostsField note={note} setNote={setNote} />
-                  <div className="flex flex-wrap items-center justify-center gap-3">
+                  <div className="flex flex-col items-center gap-2">
                     <label
                       htmlFor="sms-opt-in"
-                      className="flex items-center gap-2 text-sm text-primary"
+                      className="flex items-start gap-2 text-sm text-primary max-w-xl"
                     >
                       <Checkbox
                         id="sms-opt-in"
                         checked={smsConsentEnabled}
-                        onCheckedChange={(checked) =>
-                          setSmsConsentEnabled(checked === true)}
-                        defaultChecked={smsConsentEnabled}
+                        onCheckedChange={handleSmsConsentChange}
+                        className="mt-0.5"
                       />
-                      <span>Opt in to SMS notifications</span>
+                      <span className="flex flex-col text-left gap-0.5">
+                        <span className="font-medium text-primary text-sm">
+                          I consent to receive SMS messages from {smsSenderDisplayName}.
+                        </span>
+                        <span className="text-[10px] text-muted-foreground leading-tight">
+                          RSVP updates, reminders, and offers via SMS. Sent by Jeans on behalf of {smsSenderDisplayName} using Dojo Pomodoro. Msg & data rates may apply. Reply STOP to cancel. Consent not required for purchase. <a href="/terms" className="underline">Terms</a> & <a href="/privacy" className="underline">Privacy</a>.
+                        </span>
+                      </span>
                     </label>
                     <Button
                       type="submit"
@@ -442,6 +558,76 @@ export default function RsvpPage({
                   </div>
                 </form>
               </Form>
+              <AlertDialog
+                open={smsConsentDialogMode === "confirm"}
+                onOpenChange={(open) => {
+                  if (!open) setSmsConsentDialogMode(null);
+                }}
+              >
+                <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-lg">Confirm SMS Updates</AlertDialogTitle>
+                    <AlertDialogDescription className="text-[11px] leading-tight break-words">
+                      RSVP updates, reminders, and offers via SMS. Sent by Jeans on behalf of {smsSenderDisplayName} using Dojo Pomodoro. Msg & data rates may apply. Reply STOP to cancel. Consent not required for purchase. <a href="/terms" className="underline break-words">Terms</a> & <a href="/privacy" className="underline break-words">Privacy</a>.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="flex flex-col sm:items-center sm:justify-center">
+                    <AlertDialogAction
+                      type="button"
+                      onClick={handleConfirmSmsOptIn}
+                      className="w-full sm:w-auto sm:order-2"
+                    >
+                      I Consent to SMS
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              <AlertDialog
+                open={smsConsentDialogMode === "encourage"}
+                onOpenChange={(open) => {
+                  if (!open) setSmsConsentDialogMode(null);
+                }}
+              >
+                <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
+                  <AlertDialogHeader className="space-y-3 text-left">
+                    <AlertDialogTitle className="text-lg font-semibold text-foreground break-words">
+                      Get Event Updates by SMS
+                    </AlertDialogTitle>
+                    <p className="text-sm text-foreground break-words">
+                      Turn on SMS updates and we will text you the moment your RSVP status changes, so you never have to refresh this page to see if you are approved.
+                    </p>
+                    <AlertDialogDescription className="text-[10px] leading-tight text-muted-foreground break-words">
+                      RSVP updates, reminders, and offers via SMS. Sent by Jeans on behalf of {smsSenderDisplayName} using Dojo Pomodoro. Msg & data rates may apply. Reply STOP to cancel. Consent not required for purchase. <a href="/terms" className="underline break-words">Terms</a> & <a href="/privacy" className="underline break-words">Privacy</a>.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+                    <AlertDialogCancel
+                      type="button"
+                      onClick={() => setSmsConsentDialogMode(null)}
+                      className="w-full sm:w-auto order-2 sm:order-1"
+                    >
+                      Back
+                    </AlertDialogCancel>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                    <AlertDialogAction
+                      type="button"
+                      onClick={handleEncourageContinue}
+                      className="w-full sm:w-auto border border-input bg-background text-primary hover:bg-accent hover:text-accent-foreground order-2"
+                    >
+                      No SMS
+                    </AlertDialogAction>
+                    <AlertDialogAction
+                      type="button"
+                      onClick={handleEncourageEnable}
+                      className="w-full sm:w-auto order-1"
+                    >
+                      Enable SMS
+                    </AlertDialogAction>
+                    </div>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               {deniedForThisList && (
                 <div className="text-sm text-red-500">
                   You were denied for this list. Try another password.

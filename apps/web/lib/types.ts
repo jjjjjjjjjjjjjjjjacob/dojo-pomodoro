@@ -37,6 +37,7 @@ export interface Event {
   name: string;
   secondaryTitle?: string;
   hosts: string[];
+  productionCompany?: string;
   location: string;
   flyerUrl?: string;
   flyerStorageId?: Id<"_storage">;
@@ -52,6 +53,8 @@ export interface Event {
   customFields?: CustomField[];
   themeBackgroundColor?: string;
   themeTextColor?: string;
+  approvalMessage?: string;
+  qrCodeColor?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -162,6 +165,8 @@ export interface UserEventSharing {
   eventSecondaryTitle?: string;
   eventDate: number | null;
   eventTimezone?: string;
+  eventHostNames: string[];
+  productionCompany?: string;
   listKey: string;
   smsConsent: boolean;
   shareContact: boolean;
@@ -272,6 +277,7 @@ export interface BaseEventFormValues extends Record<string, unknown> {
   name: string;
   secondaryTitle?: string;
   hosts: string;
+  productionCompany?: string;
   location: string;
   flyerStorageId?: string | null;
   customIconStorageId?: string | null;
@@ -284,6 +290,8 @@ export interface BaseEventFormValues extends Record<string, unknown> {
   maxAttendees?: number;
   themeBackgroundColor?: string;
   themeTextColor?: string;
+  approvalMessage?: string;
+  qrCodeColor?: string;
 }
 
 export interface EventFormData extends BaseEventFormValues {

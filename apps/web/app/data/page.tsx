@@ -75,6 +75,7 @@ export default function DataCollection() {
                         <li>Notes and special requests for hosts</li>
                         <li>Number of attendees in your party</li>
                         <li>SMS consent status and timestamp</li>
+                        <li>SMS consent IP address and opt-in method</li>
                       </ul>
                     </div>
                     <div>
@@ -83,8 +84,9 @@ export default function DataCollection() {
                         <li>Process RSVP requests and approvals</li>
                         <li>Generate digital tickets and QR codes</li>
                         <li>Manage event capacity and logistics</li>
-                        <li>Send event updates and reminders</li>
+                        <li>Send event updates and reminders from the event host you RSVP&apos;d to</li>
                         <li>Provide personalized event experiences</li>
+                        <li>Document express consent for compliance requirements</li>
                       </ul>
                     </div>
                   </div>
@@ -102,19 +104,24 @@ export default function DataCollection() {
                     <ul className="list-disc pl-6 space-y-2">
                       <li><strong>Encryption:</strong> All phone numbers are encrypted using AES-256 encryption</li>
                       <li><strong>Storage:</strong> Only encrypted phone numbers and obfuscated versions (***-***-1234) are stored</li>
-                      <li><strong>Access:</strong> Only authorized systems can decrypt phone numbers for message delivery</li>
-                      <li><strong>Deletion:</strong> Phone numbers are permanently deleted when consent is withdrawn</li>
+                      <li><strong>Access:</strong> Only authorized systems (the event host and Dojo Pomodoro messaging platform services) can decrypt phone numbers for message delivery</li>
+                      <li><strong>Deletion:</strong> Phone numbers are permanently deleted when consent is withdrawn, while minimal consent logs (timestamp and IP address) are retained for compliance</li>
                     </ul>
                   </div>
                   <div>
                     <h4 className="font-semibold mb-2">SMS Consent Tracking:</h4>
                     <ul className="list-disc pl-6 space-y-2">
+                      <li>Explicit opt-in captured through an unchecked consent checkbox on RSVP forms</li>
                       <li>Timestamp when consent was given or withdrawn</li>
                       <li>IP address for legal compliance and fraud prevention</li>
                       <li>Method of consent (RSVP form, direct opt-in, etc.)</li>
+                      <li>Associated event host (e.g., Neon District Events) for each consent</li>
                       <li>Opt-out history and reasons for legal compliance</li>
                     </ul>
                   </div>
+                  <p className="text-sm text-muted-foreground">
+                    SMS messages are sent by Jeans on behalf of the event host you RSVP&apos;d to (for example, Party Nights Presents or Max, Orson, Danya) using Dojo Pomodoro as a messaging platform service provider, and are delivered through Twilio SMS infrastructure.
+                  </p>
                 </div>
               </div>
             </section>
@@ -256,7 +263,7 @@ export default function DataCollection() {
                   <p className="mb-3">We only share data with trusted service providers who help us deliver our services:</p>
                   <ul className="list-disc pl-6 space-y-2 text-sm">
                     <li><strong>Clerk:</strong> User authentication and account management</li>
-                    <li><strong>Twilio:</strong> SMS message delivery (encrypted phone numbers only)</li>
+                    <li><strong>Twilio:</strong> SMS message delivery on behalf of the hosting business (encrypted phone numbers only)</li>
                     <li><strong>Convex:</strong> Secure database hosting and real-time features</li>
                     <li><strong>PostHog:</strong> Privacy-focused analytics (anonymized data only)</li>
                   </ul>

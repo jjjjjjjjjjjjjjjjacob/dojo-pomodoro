@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { CheckCircle2, CircleDashed } from "lucide-react";
 import { getEventThemeColors } from "@/lib/event-theme";
+import { resolveEventMessagingBrandName } from "@/lib/event-display";
+import { fetchSmsConsentIpAddress } from "@/lib/sms-consent";
 
 export default function StatusPage({
   params,
@@ -21,6 +23,9 @@ export default function StatusPage({
   const { isSignedIn, isLoaded } = useAuth();
   const updateSmsPreference = useMutation(api.rsvps.updateSmsPreference);
   const [isUpdatingSmsPreference, setIsUpdatingSmsPreference] = React.useState(false);
+  const [smsConsentIpAddress, setSmsConsentIpAddress] = React.useState<
+    string | undefined
+  >(undefined);
 
   // Only query when auth is loaded and user is signed in
   const statusQuery = useQuery(
@@ -37,6 +42,19 @@ export default function StatusPage({
     () => getEventThemeColors(event ?? null),
     [event],
   );
+  const smsSenderDisplayName = React.useMemo(
+    () =>
+      resolveEventMessagingBrandName(
+        {
+          name: event?.name,
+          secondaryTitle: event?.secondaryTitle,
+          hosts: event?.hosts,
+          productionCompany: event?.productionCompany,
+        },
+        { fallback: event?.name?.trim() ?? "Event Host" },
+      ),
+    [event?.hosts, event?.name, event?.secondaryTitle, event?.productionCompany],
+  );
   const guestPortalImageResponse = useConvexQuery(
     api.files.getUrl,
     event?.guestPortalImageStorageId
@@ -48,19 +66,39 @@ export default function StatusPage({
   const shouldShowGuestLink = guestPortalLinkLabel.length > 0 && guestPortalLinkUrl.length > 0;
   const guestPortalImageUrl = guestPortalImageResponse?.url ?? null;
 
+  React.useEffect(() => {
+    if (
+      typeof status?.smsConsentIpAddress === "string" &&
+      status.smsConsentIpAddress.length > 0
+    ) {
+      setSmsConsentIpAddress(status.smsConsentIpAddress);
+    }
+  }, [status?.smsConsentIpAddress]);
+
   const handleSmsPreferenceChange = async (desiredSmsConsent: boolean) => {
     if (!status?.rsvpId) return;
     try {
       setIsUpdatingSmsPreference(true);
+      let consentIpAddress = smsConsentIpAddress;
+      if (desiredSmsConsent && !consentIpAddress) {
+        consentIpAddress = await fetchSmsConsentIpAddress();
+        if (consentIpAddress) {
+          setSmsConsentIpAddress(consentIpAddress);
+        }
+      }
       await updateSmsPreference({
         rsvpId: status.rsvpId as Id<"rsvps">,
         smsConsent: desiredSmsConsent,
+        smsConsentIpAddress:
+          desiredSmsConsent && consentIpAddress
+            ? consentIpAddress
+            : undefined,
       });
       await statusQuery.refetch();
       toast.success(
         desiredSmsConsent
-          ? "SMS notifications enabled."
-          : "SMS notifications disabled.",
+          ? `SMS updates from ${smsSenderDisplayName} enabled.`
+          : `SMS from ${smsSenderDisplayName} disabled.`,
       );
     } catch (error) {
       const errorDetails = error as Error;
@@ -162,7 +200,7 @@ export default function StatusPage({
             </div>
           )}
           {status && (
-            <div className="flex flex-col gap-2 items-center text-sm text-primary">
+            <div className="flex flex-col gap-3 items-center text-sm text-primary">
               {status.smsConsent ? (
                 <div className="flex flex-col items-center gap-3">
                   <div
@@ -170,7 +208,7 @@ export default function StatusPage({
                     style={{ color: eventThemeColors.textColor }}
                   >
                     <CheckCircle2 className="h-4 w-4" />
-                    <span>SMS notifications enabled</span>
+                    <span>SMS from {smsSenderDisplayName} enabled</span>
                   </div>
                   <Button
                     type="button"
@@ -192,9 +230,12 @@ export default function StatusPage({
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-3">
-                  <div className="flex items-center gap-2 text-primary/80">
+                  <div
+                    className="flex items-center gap-2 text-sm font-medium"
+                    style={{ color: eventThemeColors.textColor }}
+                  >
                     <CircleDashed className="h-4 w-4" />
-                    <span>SMS notifications off</span>
+                    <span>SMS from {smsSenderDisplayName} disabled</span>
                   </div>
                   <Button
                     size="sm"
@@ -213,6 +254,9 @@ export default function StatusPage({
                   </Button>
                 </div>
               )}
+              <p className="text-[10px] text-muted-foreground text-center leading-tight max-w-sm">
+                RSVP updates, reminders, and offers via SMS. Sent by Jeans on behalf of {smsSenderDisplayName} using Dojo Pomodoro. Msg & data rates may apply. Reply STOP to cancel. Consent not required for purchase. <a href="/terms" className="underline">Terms</a> & <a href="/privacy" className="underline">Privacy</a>.
+              </p>
             </div>
           )}
           {status?.status === "denied" && (

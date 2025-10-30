@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import type { Event, TextBlast, TextBlastStatus } from "@/lib/types";
@@ -91,12 +91,14 @@ export default function TextBlastsPage() {
   const events = useQuery(api.events.listAll, {}) as Event[] | undefined;
   const duplicateBlastMutation = useMutation(api.textBlasts.duplicateBlast);
   const deleteBlastMutation = useMutation(api.textBlasts.deleteBlast);
+  const sendBlastAction = useAction(api.textBlasts.sendBlast);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [sortBy, setSortBy] = useState<SortOption>("date");
   const [selectedBlastForDialog, setSelectedBlastForDialog] = useState<Id<"textBlasts"> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [sendingBlastId, setSendingBlastId] = useState<Id<"textBlasts"> | null>(null);
 
   const eventsMap = useMemo(() => {
     const map = new Map<Id<"events">, Event>();
@@ -164,6 +166,28 @@ export default function TextBlastsPage() {
           ? error.message
           : "Failed to delete text blast",
       );
+    }
+  };
+
+  const handleSendBlast = async (blastId: Id<"textBlasts">) => {
+    setSendingBlastId(blastId);
+    try {
+      const result = await sendBlastAction({ blastId });
+      if (result.success) {
+        toast.success(
+          `Text blast sent successfully! ${result.sentCount} messages delivered.`,
+        );
+      } else {
+        toast.error(result.message || "Failed to send text blast");
+      }
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to send text blast",
+      );
+    } finally {
+      setSendingBlastId(null);
     }
   };
 
@@ -266,6 +290,35 @@ export default function TextBlastsPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {(blast.status === "draft" || blast.status === "failed") && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem
+                                onSelect={(e) => e.preventDefault()}
+                                disabled={sendingBlastId === blast._id}
+                              >
+                                <Send className="h-4 w-4 mr-2" />
+                                {sendingBlastId === blast._id ? "Sending..." : "Send Now"}
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Send Text Blast</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to send &ldquo;{blast.name}&rdquo; to {blast.recipientCount} recipient{blast.recipientCount !== 1 ? "s" : ""}?
+                                  {blast.status === "failed" && " This will retry the failed blast."}
+                                  This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleSendBlast(blast._id)}>
+                                  Send {blast.recipientCount} Message{blast.recipientCount !== 1 ? "s" : ""}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
                         <DropdownMenuItem
                           onClick={() => {
                             setSelectedBlastForDialog(blast._id);

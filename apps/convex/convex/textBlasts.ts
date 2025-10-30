@@ -25,11 +25,13 @@ export const createDraft = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    // Verify user is host of this event
+    // Verify user is host of this event (using org:admin role)
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
 
-    if (!event.hosts.includes(identity.email!)) {
+    const role = (identity as any).role;
+    const hasHostRole = role === "org:admin";
+    if (!hasHostRole) {
       throw new Error("Not authorized for this event");
     }
 
@@ -127,12 +129,68 @@ type BlastRecipient = {
   decryptedPhone: string;
   phoneObfuscated: string;
   listKey: string;
+  firstName?: string;
+  userName?: string;
 };
 
 type SmsRecipientPayload = {
   phoneNumber: string;
   clerkUserId: string;
   notificationId: Id<"smsNotifications">;
+  personalizedMessage: string;
+};
+
+type TemplateVariables = {
+  firstName: string;
+  eventName: string;
+  eventDate: string;
+  eventLocation: string;
+};
+
+const FIRST_NAME_FALLBACK = "there";
+
+const formatEventDateForSms = (timestamp: number, timezone?: string): string => {
+  if (!Number.isFinite(timestamp)) {
+    return "";
+  }
+  const date = new Date(timestamp);
+  return date.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    timeZone: timezone ?? "UTC",
+  }).replace(/\//g, ".");
+};
+
+const applyTemplateVariables = (template: string, variables: TemplateVariables): string => {
+  return template
+    .replace(/\{\{firstName\}\}/g, variables.firstName)
+    .replace(/\{\{eventName\}\}/g, variables.eventName)
+    .replace(/\{\{eventDate\}\}/g, variables.eventDate)
+    .replace(/\{\{eventLocation\}\}/g, variables.eventLocation);
+};
+
+const resolveRecipientFirstName = (recipient: BlastRecipient): string => {
+  const userFirstName = recipient.firstName?.trim();
+  if (userFirstName) return userFirstName;
+
+  const derivedFromUserName = recipient.userName?.trim().split(/\s+/)[0];
+  if (derivedFromUserName) return derivedFromUserName;
+
+  return FIRST_NAME_FALLBACK;
+};
+
+const formatEventTitleInlineForSms = (
+  event: Pick<Doc<"events">, "name" | "secondaryTitle"> | null,
+): string => {
+  const name = event?.name?.trim();
+  const secondaryTitle = event?.secondaryTitle?.trim();
+  if (name && secondaryTitle) {
+    return `${name}: ${secondaryTitle}`;
+  }
+  if (name) return name;
+  if (secondaryTitle) return secondaryTitle;
+  return "Event";
 };
 
 export const sendBlast = action({
@@ -155,9 +213,41 @@ export const sendBlast = action({
     if (blast.sentBy !== identity.subject) {
       throw new Error("Not authorized to send this text blast");
     }
-    if (blast.status !== "draft") {
+    // Allow sending drafts and failed blasts (failed blasts can be retried)
+    if (blast.status !== "draft" && blast.status !== "failed") {
       throw new Error("Text blast already sent or in progress");
     }
+
+    // Fetch recipients with decrypted phone numbers up front so the pre-check
+    // aligns with the actual send payload
+    const recipients = await ctx.runAction(
+      internal.textBlasts.getRecipientsWithPhonesInternal,
+      {
+        eventId: blast.eventId,
+        targetLists: blast.targetLists,
+      },
+    ) as BlastRecipient[];
+
+    if (recipients.length === 0) {
+      throw new Error(
+        "Cannot send text blast: No recipients found with SMS consent and phone numbers. " +
+        "Please check that: (1) RSVPs have SMS consent enabled, (2) Users have phone numbers saved in their profiles, " +
+        "and (3) Selected lists have approved/attending RSVPs."
+      );
+    }
+
+    const event = await ctx.runQuery(internal.textBlasts.getEventInternal, {
+      eventId: blast.eventId,
+    });
+    if (!event) {
+      throw new Error("Event not found");
+    }
+
+    const templateBase: Omit<TemplateVariables, "firstName"> = {
+      eventName: formatEventTitleInlineForSms(event),
+      eventDate: formatEventDateForSms(event.eventDate, event.eventTimezone),
+      eventLocation: event.location?.trim() ?? "",
+    };
 
     // Update status to sending
     await ctx.runMutation(internal.textBlasts.updateBlastStatus, {
@@ -167,48 +257,36 @@ export const sendBlast = action({
     });
 
     try {
-      // Get all recipients with their encrypted phone data
-      const recipients = await ctx.runAction(
-        internal.textBlasts.getRecipientsWithPhonesInternal,
-        {
-          eventId: blast.eventId,
-          targetLists: blast.targetLists,
-        },
-      ) as BlastRecipient[];
-
-      if (recipients.length === 0) {
-        await ctx.runMutation(internal.textBlasts.updateBlastStatus, {
-          blastId: args.blastId,
-          status: "failed",
-        });
-        throw new Error("No recipients found with phone numbers");
-      }
-
-      // Create SMS notification records for each recipient
-      const notificationIds: string[] = [];
+      // Create SMS notification records with personalized message content
+      const smsRecipients: SmsRecipientPayload[] = [];
       for (const recipient of recipients) {
+        const personalizedMessage = applyTemplateVariables(blast.message, {
+          ...templateBase,
+          firstName: resolveRecipientFirstName(recipient),
+        });
+
         const notificationId = await ctx.runMutation(internal.sms.createNotification, {
           eventId: blast.eventId,
           recipientClerkUserId: recipient.clerkUserId,
           recipientPhoneObfuscated: recipient.phoneObfuscated,
           type: "blast",
-          message: blast.message,
+          message: personalizedMessage,
         });
-        notificationIds.push(notificationId);
+
+        smsRecipients.push({
+          phoneNumber: recipient.decryptedPhone,
+          clerkUserId: recipient.clerkUserId,
+          notificationId: notificationId as Id<"smsNotifications">,
+          personalizedMessage,
+        });
       }
 
-      // Prepare recipients for bulk SMS sending
-      const smsRecipients: SmsRecipientPayload[] = recipients.map((recipient, index) => ({
-        phoneNumber: recipient.decryptedPhone,
-        clerkUserId: recipient.clerkUserId,
-        notificationId: notificationIds[index] as Id<"smsNotifications">,
-      }));
-
-      // Send bulk SMS
+      // Send bulk SMS - Twilio handles promotional messages via standard API
       const result = await ctx.runAction(internal.smsActions.sendBulkSmsInternal, {
         recipients: smsRecipients,
         message: blast.message,
         batchSize: 10, // Send 10 at a time
+        messageType: "Promotional",
       });
 
       // Update blast with final counts
@@ -237,6 +315,139 @@ export const sendBlast = action({
 });
 
 /**
+ * Send a text blast immediately without requiring a draft
+ * Accepts form data directly and creates/sends in one operation
+ */
+export const sendBlastDirect = action({
+  args: {
+    eventId: v.id("events"),
+    name: v.string(),
+    message: v.string(),
+    targetLists: v.array(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<SendBlastResult> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    // Verify user is host of this event (using org:admin role)
+    const event = await ctx.runQuery(internal.textBlasts.getEventInternal, {
+      eventId: args.eventId,
+    });
+    if (!event) throw new Error("Event not found");
+
+    const role = (identity as any).role;
+    const hasHostRole = role === "org:admin";
+    if (!hasHostRole) {
+      throw new Error("Not authorized for this event");
+    }
+
+    // Fetch recipients with decrypted phone numbers so the validation matches the send payload
+    const recipients = await ctx.runAction(
+      internal.textBlasts.getRecipientsWithPhonesInternal,
+      {
+        eventId: args.eventId,
+        targetLists: args.targetLists,
+      },
+    ) as BlastRecipient[];
+
+    // Pre-check: Validate recipients exist before attempting to send
+    if (recipients.length === 0) {
+      throw new Error(
+        "Cannot send text blast: No recipients found with SMS consent and phone numbers. " +
+        "Please check that: (1) RSVPs have SMS consent enabled, (2) Users have phone numbers saved in their profiles, " +
+        "and (3) Selected lists have approved/attending RSVPs."
+      );
+    }
+
+    const recipientCount = recipients.length;
+    const templateBase: Omit<TemplateVariables, "firstName"> = {
+      eventName: formatEventTitleInlineForSms(event),
+      eventDate: formatEventDateForSms(event.eventDate, event.eventTimezone),
+      eventLocation: event.location?.trim() ?? "",
+    };
+
+    // Create draft record first
+    const now = Date.now();
+    const blastId = await ctx.runMutation(internal.textBlasts.createBlastInternal, {
+      eventId: args.eventId,
+      name: args.name,
+      message: args.message,
+      targetLists: args.targetLists,
+      recipientCount,
+      sentBy: identity.subject,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Update status to sending
+    await ctx.runMutation(internal.textBlasts.updateBlastStatus, {
+      blastId,
+      status: "sending",
+      sentAt: now,
+    });
+
+    try {
+      // Create SMS notification records for each recipient
+      const smsRecipients: SmsRecipientPayload[] = [];
+      for (const recipient of recipients) {
+        const personalizedMessage = applyTemplateVariables(args.message, {
+          ...templateBase,
+          firstName: resolveRecipientFirstName(recipient),
+        });
+
+        const notificationId = await ctx.runMutation(internal.sms.createNotification, {
+          eventId: args.eventId,
+          recipientClerkUserId: recipient.clerkUserId,
+          recipientPhoneObfuscated: recipient.phoneObfuscated,
+          type: "blast",
+          message: personalizedMessage,
+        });
+
+        smsRecipients.push({
+          phoneNumber: recipient.decryptedPhone,
+          clerkUserId: recipient.clerkUserId,
+          notificationId: notificationId as Id<"smsNotifications">,
+          personalizedMessage,
+        });
+      }
+
+      // Send bulk SMS - Twilio handles promotional messages via standard API
+      const result = await ctx.runAction(internal.smsActions.sendBulkSmsInternal, {
+        recipients: smsRecipients,
+        message: args.message,
+        batchSize: 10, // Send 10 at a time
+        messageType: "Promotional",
+      });
+
+      // Update blast with final counts
+      await ctx.runMutation(internal.textBlasts.updateBlastCounts, {
+        blastId,
+        sentCount: result.successCount,
+        failedCount: result.failureCount,
+        status: result.successCount > 0 ? "sent" : "failed",
+      });
+
+      return {
+        success: true,
+        totalRecipients: result.totalRecipients,
+        sentCount: result.successCount,
+        failedCount: result.failureCount,
+      };
+    } catch (error: any) {
+      // Mark blast as failed
+      await ctx.runMutation(internal.textBlasts.updateBlastStatus, {
+        blastId,
+        status: "failed",
+      });
+      throw new Error(`Failed to send text blast: ${error.message}`);
+    }
+  },
+});
+
+/**
  * Get text blasts for a specific event
  */
 export const getBlastsByEvent = query({
@@ -252,9 +463,13 @@ export const getBlastsByEvent = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    // Verify user is host of this event
+    // Verify user is host of this event (using org:admin role)
     const event = await ctx.db.get(args.eventId);
-    if (!event || !event.hosts.includes(identity.email!)) {
+    if (!event) throw new Error("Event not found");
+
+    const role = (identity as any).role;
+    const hasHostRole = role === "org:admin";
+    if (!hasHostRole) {
       throw new Error("Not authorized for this event");
     }
 
@@ -325,6 +540,113 @@ export const getBlastById = query({
     }
 
     return blast;
+  },
+});
+
+/**
+ * Get available recipient lists for an event with counts
+ * Returns distinct listKeys with recipient counts for each list
+ */
+export const getAvailableListsForEvent = query({
+  args: {
+    eventId: v.id("events"),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{ listKey: string; recipientCount: number; totalRsvps: number }>> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    // Verify user is host of this event (using org:admin role)
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+
+    const role = (identity as any).role;
+    const hasHostRole = role === "org:admin";
+    if (!hasHostRole) {
+      throw new Error("Not authorized for this event");
+    }
+
+    // Get all approved or attending RSVPs for this event
+    // Query for both approved and attending statuses
+    const approvedRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "approved")
+      )
+      .collect();
+
+    const attendingRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "attending")
+      )
+      .collect();
+
+    // Combine both sets of RSVPs
+    const rsvps = [...approvedRsvps, ...attendingRsvps];
+    
+    // Debug logging
+    console.log(`Found ${approvedRsvps.length} approved RSVPs and ${attendingRsvps.length} attending RSVPs for event ${args.eventId}`);
+    if (rsvps.length > 0) {
+      console.log(`Sample RSVP: listKey=${rsvps[0].listKey}, smsConsent=${rsvps[0].smsConsent}, clerkUserId=${rsvps[0].clerkUserId}`);
+    }
+
+    // Group by listKey - collect all lists first, then count eligible recipients
+    const listUserMap = new Map<string, Set<string>>();
+    const listSmsConsentMap = new Map<string, Set<string>>();
+
+    // First pass: collect all listKeys and users with SMS consent
+    for (const rsvp of rsvps) {
+      // Ensure listKey exists (it's required in schema, but double-check)
+      if (!rsvp.listKey) {
+        console.warn(`RSVP ${rsvp._id} missing listKey, skipping`);
+        continue;
+      }
+
+      // Track all lists (even without SMS consent)
+      if (!listUserMap.has(rsvp.listKey)) {
+        listUserMap.set(rsvp.listKey, new Set());
+        listSmsConsentMap.set(rsvp.listKey, new Set());
+      }
+      listUserMap.get(rsvp.listKey)!.add(rsvp.clerkUserId);
+      
+      // Track users with SMS consent separately
+      if (rsvp.smsConsent === true) {
+        listSmsConsentMap.get(rsvp.listKey)!.add(rsvp.clerkUserId);
+      }
+    }
+
+    // Second pass: count unique users with SMS consent AND phone numbers per list
+    const result: Array<{ listKey: string; recipientCount: number; totalRsvps: number }> = [];
+
+    // Process ALL lists that have approved RSVPs (not just those with SMS consent)
+    for (const [listKey, allUserIds] of listUserMap.entries()) {
+      // Get users with SMS consent for this list
+      const smsConsentUserIds = listSmsConsentMap.get(listKey) || new Set();
+      
+      let count = 0;
+      for (const clerkUserId of smsConsentUserIds) {
+        const profile = await ctx.db
+          .query("profiles")
+          .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
+          .unique();
+
+        if (profile?.phoneEnc) {
+          count++;
+        }
+      }
+      // Include all lists with approved RSVPs, even if recipientCount is 0
+      // Log for debugging
+      console.log(`List ${listKey}: ${allUserIds.size} total RSVPs, ${smsConsentUserIds.size} with SMS consent, ${count} with phone numbers`);
+      result.push({ listKey, recipientCount: count, totalRsvps: allUserIds.size });
+    }
+
+    // Sort by listKey for consistent ordering
+    result.sort((a, b) => a.listKey.localeCompare(b.listKey));
+
+    return result;
   },
 });
 
@@ -408,6 +730,47 @@ export const getBlastInternal = internalQuery({
 });
 
 /**
+ * Internal query to get event details
+ */
+export const getEventInternal = internalQuery({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.eventId);
+  },
+});
+
+/**
+ * Internal mutation to create a blast record
+ */
+export const createBlastInternal = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    name: v.string(),
+    message: v.string(),
+    targetLists: v.array(v.string()),
+    recipientCount: v.number(),
+    sentBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("textBlasts", {
+      eventId: args.eventId,
+      name: args.name,
+      message: args.message,
+      targetLists: args.targetLists,
+      recipientCount: args.recipientCount,
+      sentCount: 0,
+      failedCount: 0,
+      sentBy: args.sentBy,
+      status: "draft",
+      createdAt: args.createdAt,
+      updatedAt: args.updatedAt,
+    });
+  },
+});
+
+/**
  * Internal mutation to update blast status
  */
 type UpdateBlastStatusArgs = {
@@ -472,17 +835,34 @@ export const countRecipientsInternal = internalQuery({
     targetLists: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    // Get all approved RSVPs for this event
-    const rsvps = await ctx.db
+    // Get all approved or attending RSVPs for this event
+    const approvedRsvps = await ctx.db
       .query("rsvps")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .filter((q) => q.eq(q.field("status"), "approved"))
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "approved")
+      )
       .collect();
 
-    // Filter by target lists
-    const filteredRsvps = rsvps.filter((rsvp) =>
-      args.targetLists.includes(rsvp.listKey)
+    const attendingRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "attending")
+      )
+      .collect();
+
+    // Combine both sets
+    const rsvps = [...approvedRsvps, ...attendingRsvps];
+
+    const normalizedTargetListKeys = new Set(
+      args.targetLists.map((listKey) => listKey.toLowerCase()),
     );
+
+    // Filter by target lists (case-insensitive) and SMS consent
+    const filteredRsvps = rsvps.filter((rsvp) => {
+      const rsvpListKeyNormalized = rsvp.listKey?.toLowerCase();
+      if (!rsvpListKeyNormalized) return false;
+      return normalizedTargetListKeys.has(rsvpListKeyNormalized) && rsvp.smsConsent === true;
+    });
 
     // Count unique users with phone numbers
     const uniqueUserIds = new Set(filteredRsvps.map((rsvp) => rsvp.clerkUserId));
@@ -521,40 +901,138 @@ export const getRecipientsWithPhonesInternal = internalAction({
       targetLists: args.targetLists,
     });
 
+    console.log(`[getRecipientsWithPhonesInternal] Found ${rsvps.length} RSVPs with SMS consent for lists: ${args.targetLists.join(", ")}`);
+
     const recipients: BlastRecipient[] = [];
     const processedUsers = new Set<string>();
+    let skippedNoConsent = 0;
+    let skippedNoPhone = 0;
+    let skippedDuplicate = 0;
+
+    // Import Clerk client for fallback phone lookup
+    const { createClerkClient } = await import("@clerk/backend");
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    let clerkClient: ReturnType<typeof createClerkClient> | null = null;
+
+    // Helper function to resolve phone number with fallbacks
+    const resolvePhoneNumber = async (
+      clerkUserId: string,
+      profile: any,
+      userRecord: Doc<"users"> | null,
+    ): Promise<string | null> => {
+      let decryptedPhone: string | null = null;
+      
+      // First try: decrypt from profile.phoneEnc
+      if (profile?.phoneEnc) {
+        try {
+          decryptedPhone = await ctx.runAction(internal.profilesNode.decryptPhoneInternal, {
+            phoneEnc: profile.phoneEnc,
+          });
+          if (decryptedPhone) return decryptedPhone;
+        } catch (error) {
+          console.error(`[getRecipientsWithPhonesInternal] Failed to decrypt phone for user ${clerkUserId}:`, error);
+        }
+      }
+
+      // Second try: fetch from Clerk API
+      if (!decryptedPhone && clerkSecretKey) {
+        try {
+          if (!clerkClient) {
+            clerkClient = createClerkClient({ secretKey: clerkSecretKey });
+          }
+          const clerkUser = await clerkClient.users.getUser(clerkUserId);
+          const preferredPhone =
+            (clerkUser.primaryPhoneNumberId &&
+              clerkUser.phoneNumbers.find(
+                (phone) => phone.id === clerkUser.primaryPhoneNumberId,
+              )?.phoneNumber) ||
+            clerkUser.phoneNumbers[0]?.phoneNumber;
+          if (preferredPhone) {
+            return preferredPhone;
+          }
+        } catch (error) {
+          console.error(`[getRecipientsWithPhonesInternal] Failed to fetch phone from Clerk for user ${clerkUserId}:`, error);
+        }
+      }
+
+      // Third try: check users table
+      if (!userRecord) {
+        const fetchedUser = await ctx.runQuery(internal.textBlasts.getUserByClerkUserIdInternal, {
+          clerkUserId,
+        });
+        if (fetchedUser?.phone) {
+          return fetchedUser.phone;
+        }
+      } else if (userRecord.phone) {
+        return userRecord.phone;
+      }
+
+      return null;
+    };
 
     for (const rsvp of rsvps) {
       // Skip if we already processed this user
-      if (processedUsers.has(rsvp.clerkUserId)) continue;
+      if (processedUsers.has(rsvp.clerkUserId)) {
+        skippedDuplicate++;
+        continue;
+      }
       processedUsers.add(rsvp.clerkUserId);
+
+      // Check SMS consent - only send to users who have consented
+      // Note: This should already be filtered by getApprovedRsvpsForListsInternal, but double-check
+      if (rsvp.smsConsent !== true) {
+        skippedNoConsent++;
+        console.warn(`[getRecipientsWithPhonesInternal] RSVP ${rsvp._id} does not have SMS consent`);
+        continue;
+      }
 
       // Get user's profile
       const profile = await ctx.runQuery(internal.profiles.getByClerkUserIdInternal, {
         clerkUserId: rsvp.clerkUserId,
       });
 
-      if (profile?.phoneEnc) {
-        try {
-          // Decrypt phone number
-          const decryptedPhone = await ctx.runAction(internal.profilesNode.decryptPhoneInternal, {
-            phoneEnc: profile.phoneEnc,
-          });
+      const userRecord = await ctx.runQuery(internal.textBlasts.getUserByClerkUserIdInternal, {
+        clerkUserId: rsvp.clerkUserId,
+      });
 
-          recipients.push({
-            clerkUserId: rsvp.clerkUserId,
-            decryptedPhone,
-            phoneObfuscated: profile.phoneObfuscated || "***-***-****",
-            listKey: rsvp.listKey,
-          });
-        } catch (error) {
-          console.error(`Failed to decrypt phone for user ${rsvp.clerkUserId}:`, error);
-          // Skip this recipient
-        }
+      // Try to resolve phone number with fallbacks
+      const decryptedPhone = await resolvePhoneNumber(rsvp.clerkUserId, profile, userRecord);
+
+      if (!decryptedPhone) {
+        skippedNoPhone++;
+        console.warn(`[getRecipientsWithPhonesInternal] User ${rsvp.clerkUserId} does not have a phone number in profile, Clerk, or users table`);
+        continue;
       }
+
+      const firstNameFromUserRecord = userRecord?.firstName?.trim();
+      const firstNameFromUserName = rsvp.userName?.trim().split(/\s+/)[0];
+
+      recipients.push({
+        clerkUserId: rsvp.clerkUserId,
+        decryptedPhone,
+        phoneObfuscated: profile?.phoneObfuscated || "***-***-****",
+        listKey: rsvp.listKey,
+        firstName: firstNameFromUserRecord || firstNameFromUserName || undefined,
+        userName: rsvp.userName ?? undefined,
+      });
     }
 
+    console.log(`[getRecipientsWithPhonesInternal] Final count: ${recipients.length} recipients. Skipped: ${skippedNoConsent} no consent, ${skippedNoPhone} no phone, ${skippedDuplicate} duplicates`);
+
     return recipients;
+  },
+});
+
+/**
+ * Internal query to get user by Clerk user ID
+ */
+export const getUserByClerkUserIdInternal = internalQuery({
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
+      .unique();
   },
 });
 
@@ -567,12 +1045,37 @@ export const getApprovedRsvpsForListsInternal = internalQuery({
     targetLists: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    const rsvps = await ctx.db
+    // Get all approved or attending RSVPs for this event
+    const approvedRsvps = await ctx.db
       .query("rsvps")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .filter((q) => q.eq(q.field("status"), "approved"))
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "approved")
+      )
       .collect();
 
-    return rsvps.filter((rsvp) => args.targetLists.includes(rsvp.listKey));
+    const attendingRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "attending")
+      )
+      .collect();
+
+    // Combine both sets
+    const rsvps = [...approvedRsvps, ...attendingRsvps];
+
+    const normalizedTargetListKeys = new Set(
+      args.targetLists.map((listKey) => listKey.toLowerCase()),
+    );
+
+    // Filter by target lists (case-insensitive) and SMS consent
+    const filteredRsvps = rsvps.filter((rsvp) => {
+      const rsvpListKeyNormalized = rsvp.listKey?.toLowerCase();
+      if (!rsvpListKeyNormalized) return false;
+      return normalizedTargetListKeys.has(rsvpListKeyNormalized) && rsvp.smsConsent === true;
+    });
+
+    console.log(`[getApprovedRsvpsForListsInternal] Found ${rsvps.length} approved/attending RSVPs, ${filteredRsvps.length} with SMS consent and matching target lists`);
+
+    return filteredRsvps;
   },
 });

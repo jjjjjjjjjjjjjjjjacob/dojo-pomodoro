@@ -10,19 +10,21 @@ import { Spinner } from "@/components/ui/spinner";
 import { formatEventTitleInline } from "@/lib/event-display";
 import type { UserTicket, RSVP } from "@/lib/types";
 
-function formatDate(eventDate: number) {
+function formatDate(eventDate: number, timezone?: string) {
   return new Date(eventDate).toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: timezone ?? "UTC",
   });
 }
 
-function formatTime(eventDate: number) {
+function formatTime(eventDate: number, timezone?: string) {
   return new Date(eventDate).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    timeZone: timezone ?? "UTC",
   });
 }
 
@@ -131,11 +133,11 @@ function TicketCard({ ticket }: { ticket: UserTicket }) {
           <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
             <div className="flex items-center gap-1">
               <Calendar className="h-4 w-4" />
-              {formatDate(event.eventDate)}
+              {formatDate(event.eventDate, event.eventTimezone)}
             </div>
             <div className="flex items-center gap-1">
               <Clock className="h-4 w-4" />
-              {formatTime(event.eventDate)}
+              {formatTime(event.eventDate, event.eventTimezone)}
             </div>
           </div>
           <div className="flex items-center gap-1 text-sm text-muted-foreground mb-3">

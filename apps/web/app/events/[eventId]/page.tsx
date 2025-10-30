@@ -22,12 +22,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       };
     }
 
-    // Format the date as MM.DD.YYYY
+    // Format the date as MM.DD.YYYY in the event's timezone
     const eventDate = new Date(event.eventDate);
+    const eventTimezone = event.eventTimezone ?? "UTC";
     const formattedDate = eventDate.toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",
       year: "numeric",
+      timeZone: eventTimezone,
     }).replace(/\//g, ".");
 
     const title = `Dojo Pomodoro | ${event.location} ${formattedDate}`;
@@ -36,7 +38,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       weekday: "long",
       year: "numeric",
       month: "long",
-      day: "numeric"
+      day: "numeric",
+      timeZone: eventTimezone,
     })} at ${event.location}`;
 
     // Get flyer image URL if available

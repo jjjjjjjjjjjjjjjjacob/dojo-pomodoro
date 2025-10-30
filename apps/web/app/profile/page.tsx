@@ -24,6 +24,8 @@ import { formatEventDateTime } from "@/lib/utils";
 import { toast } from "sonner";
 import type { UserEventSharing } from "@/lib/types";
 import type { Id } from "@convex/_generated/dataModel";
+import { fetchSmsConsentIpAddress } from "@/lib/sms-consent";
+import { resolveEventMessagingBrandName } from "@/lib/event-display";
 
 export default function ProfilePage() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -39,6 +41,34 @@ export default function ProfilePage() {
   const [isSavingSharedFields, setIsSavingSharedFields] =
     React.useState<boolean>(false);
   const [smsUpdatingRsvpId, setSmsUpdatingRsvpId] = React.useState<string | null>(null);
+  const exampleHostName = React.useMemo(() => {
+    if (!sharedEvents || sharedEvents.length === 0) {
+      return "Neon District Events";
+    }
+    for (const entry of sharedEvents) {
+      const brandName = resolveEventMessagingBrandName(
+        {
+          name: entry.eventName,
+          secondaryTitle: entry.eventSecondaryTitle,
+          eventHostNames: entry.eventHostNames,
+          productionCompany: entry.productionCompany,
+        },
+        { fallback: entry.eventName ?? "Neon District Events" },
+      );
+      if (brandName?.trim()) {
+        return brandName.trim();
+      }
+    }
+    return resolveEventMessagingBrandName(
+      {
+        name: sharedEvents[0]?.eventName,
+        secondaryTitle: sharedEvents[0]?.eventSecondaryTitle,
+        eventHostNames: sharedEvents[0]?.eventHostNames,
+        productionCompany: sharedEvents[0]?.productionCompany,
+      },
+      { fallback: sharedEvents[0]?.eventName ?? "Neon District Events" },
+    );
+  }, [sharedEvents]);
 
   const editingEvent = React.useMemo(() => {
     if (!editingRsvpId || !sharedEvents) return undefined;
@@ -57,14 +87,31 @@ export default function ProfilePage() {
   const handleSmsToggle = async (sharedEvent: UserEventSharing) => {
     setSmsUpdatingRsvpId(sharedEvent.rsvpId);
     try {
+      let consentIpAddress: string | undefined;
+      if (!sharedEvent.smsConsent) {
+        consentIpAddress = await fetchSmsConsentIpAddress();
+      }
+      const smsSenderDisplayNameForToast = resolveEventMessagingBrandName(
+        {
+          name: sharedEvent.eventName,
+          secondaryTitle: sharedEvent.eventSecondaryTitle,
+          eventHostNames: sharedEvent.eventHostNames,
+          productionCompany: sharedEvent.productionCompany,
+        },
+        { fallback: sharedEvent.eventName ?? "Event Host" },
+      );
       await updateSmsPreference({
         rsvpId: sharedEvent.rsvpId as Id<"rsvps">,
         smsConsent: !sharedEvent.smsConsent,
+        smsConsentIpAddress:
+          !sharedEvent.smsConsent && consentIpAddress
+            ? consentIpAddress
+            : undefined,
       });
       toast.success(
         !sharedEvent.smsConsent
-          ? "SMS notifications enabled for this event."
-          : "SMS notifications disabled for this event.",
+          ? `SMS from ${smsSenderDisplayNameForToast} enabled.`
+          : `SMS from ${smsSenderDisplayNameForToast} disabled.`,
       );
     } catch (error) {
       const errorDetails = error as Error;
@@ -274,7 +321,19 @@ export default function ProfilePage() {
               </p>
             ) : (
               <div className="space-y-4">
+                <p className="text-[10px] text-muted-foreground leading-tight">
+                  RSVP updates, reminders, and offers via SMS. Sent by Jeans on behalf of each event host using Dojo Pomodoro. Msg & data rates may apply. Reply STOP to cancel.
+                </p>
                 {sharedEvents?.map((sharedEvent) => {
+                  const smsSenderDisplayName = resolveEventMessagingBrandName(
+                    {
+                      name: sharedEvent.eventName,
+                      secondaryTitle: sharedEvent.eventSecondaryTitle,
+                      eventHostNames: sharedEvent.eventHostNames,
+                      productionCompany: sharedEvent.productionCompany,
+                    },
+                    { fallback: sharedEvent.eventName ?? "Event Host" },
+                  );
                   const sharedFieldValues =
                     sharedEvent.customFields.filter((field) => field.value && field.value.length > 0);
                   return (
@@ -305,6 +364,11 @@ export default function ProfilePage() {
                                 sharedEvent.eventDate,
                                 sharedEvent.eventTimezone,
                               )}
+                            </p>
+                          )}
+                          {smsSenderDisplayName && (
+                            <p className="text-xs text-muted-foreground">
+                              SMS sender: {smsSenderDisplayName} (delivered via Dojo Pomodoro)
                             </p>
                           )}
                         </div>

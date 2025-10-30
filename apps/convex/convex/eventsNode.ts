@@ -38,6 +38,7 @@ export const create = action({
     name: v.string(),
     secondaryTitle: v.optional(v.string()),
     hosts: v.array(v.string()),
+    productionCompany: v.optional(v.string()),
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
@@ -70,6 +71,8 @@ export const create = action({
     ),
     themeBackgroundColor: v.optional(v.string()),
     themeTextColor: v.optional(v.string()),
+    approvalMessage: v.optional(v.string()),
+    qrCodeColor: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     const now = Date.now();
@@ -185,6 +188,7 @@ export const create = action({
       name: args.name,
       secondaryTitle: args.secondaryTitle,
       hosts: args.hosts,
+      productionCompany: args.productionCompany,
       location: args.location,
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
@@ -198,6 +202,8 @@ export const create = action({
       customFields: args.customFields,
       themeBackgroundColor: normalizedThemeBackgroundColor,
       themeTextColor: normalizedThemeTextColor,
+      approvalMessage: args.approvalMessage,
+      qrCodeColor: normalizeOptionalHexColor(args.qrCodeColor, "QR code color"),
       creds: derivedCredentials,
     });
     return result;
@@ -212,6 +218,7 @@ export const update = action({
         name: v.optional(v.string()),
         secondaryTitle: v.optional(v.string()),
         hosts: v.optional(v.array(v.string())),
+        productionCompany: v.optional(v.string()),
         location: v.optional(v.string()),
         flyerStorageId: v.optional(v.id("_storage")),
         customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
@@ -237,6 +244,8 @@ export const update = action({
         ),
         themeBackgroundColor: v.optional(v.string()),
         themeTextColor: v.optional(v.string()),
+        approvalMessage: v.optional(v.string()),
+        qrCodeColor: v.optional(v.string()),
       }),
     ),
     lists: v.optional(
@@ -266,6 +275,15 @@ export const update = action({
         sanitizedPatch.themeTextColor = normalizeOptionalHexColor(
           patch.themeTextColor,
           "Text color",
+        );
+      }
+      if (patch.approvalMessage !== undefined) {
+        sanitizedPatch.approvalMessage = patch.approvalMessage.trim() || undefined;
+      }
+      if (patch.qrCodeColor !== undefined) {
+        sanitizedPatch.qrCodeColor = normalizeOptionalHexColor(
+          patch.qrCodeColor,
+          "QR code color",
         );
       }
       if (patch.customIconStorageId !== undefined) {

@@ -1,0 +1,8 @@
+{
+  "setup-worktree": [
+    "bun ci",
+    "cp $ROOT_WORKTREE_PATH/.env.local .env.local",
+    "cp $ROOT_WORKTREE_PATH/apps/web/.env.local apps/web/.env.local",
+    "cp $ROOT_WORKTREE_PATH/apps/convex/.env.local apps/convex/.env.local"
+  ]
+}

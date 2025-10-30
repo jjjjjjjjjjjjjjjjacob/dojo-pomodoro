@@ -39,6 +39,16 @@ export const testTwilioSms = action({
     error?: string;
     timestamp: string;
   }> => {
+    // Check if Twilio is enabled in development
+    const devTwilioEnabled = process.env.DEV_TWILIO_ENABLED === "true";
+    if (!devTwilioEnabled) {
+      return {
+        success: false,
+        error: "Twilio SMS disabled in development (DEV_TWILIO_ENABLED=false). Set DEV_TWILIO_ENABLED=true to enable.",
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     try {
       // Test simple SMS sending
       const result = await ctx.runAction(internal.smsActions.sendSmsInternal, {
@@ -113,6 +123,15 @@ export const testPhoneFormatting = action({
 export const testTwilioAccount = action({
   args: {},
   handler: async () => {
+    // Check if Twilio is enabled in development
+    const devTwilioEnabled = process.env.DEV_TWILIO_ENABLED === "true";
+    if (!devTwilioEnabled) {
+      return {
+        success: false,
+        error: "Twilio SMS disabled in development (DEV_TWILIO_ENABLED=false). Set DEV_TWILIO_ENABLED=true to enable."
+      };
+    }
+
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -164,12 +183,21 @@ export const checkTwilioStatus = action({
     testPhoneNumber: v.string(),
   },
   handler: async (ctx, args: { testPhoneNumber: string }) => {
+    // Check if Twilio is enabled in development
+    const devTwilioEnabled = process.env.DEV_TWILIO_ENABLED === "true";
+    if (!devTwilioEnabled) {
+      return { 
+        success: false,
+        error: "Twilio SMS disabled in development (DEV_TWILIO_ENABLED=false). Set DEV_TWILIO_ENABLED=true to enable." 
+      };
+    }
+
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
     if (!accountSid || !authToken || !fromNumber) {
-      return { error: "Twilio credentials not configured" };
+      return { success: false, error: "Twilio credentials not configured" };
     }
 
     const twilioClient = twilio(accountSid, authToken);

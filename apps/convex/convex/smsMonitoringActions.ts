@@ -65,6 +65,26 @@ export const removeOptOutAction = internalAction({
 });
 
 /**
+ * Check if a phone number has opted out (accepts unhashed phone)
+ */
+export const checkOptOutAction = internalAction({
+  args: {
+    phoneNumber: v.string(),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    // Hash phone number for privacy
+    const hashedPhone: string = await ctx.runAction(internal.smsMonitoringActions.hashPhoneNumber, {
+      phoneNumber: args.phoneNumber,
+    });
+
+    // Check if opted out
+    return await ctx.runQuery(internal.smsMonitoring.checkOptOut, {
+      phoneNumber: hashedPhone,
+    });
+  },
+});
+
+/**
  * Log SMS usage with phone number hashing
  */
 export const logSmsUsageAction = internalAction({

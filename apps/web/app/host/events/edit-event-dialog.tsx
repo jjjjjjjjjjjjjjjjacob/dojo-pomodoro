@@ -29,7 +29,11 @@ import {
   CredentialResponse,
   ApplicationError,
 } from "@/lib/types";
-import { createTimestamp } from "@/lib/date-utils";
+import {
+  createTimestamp,
+  extractDateFromTimestamp,
+  extractTimeFromTimestamp,
+} from "@/lib/date-utils";
 import {
   EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
   EVENT_THEME_DEFAULT_TEXT_COLOR,
@@ -40,6 +44,7 @@ type EventUpdatePatch = {
   name?: string;
   secondaryTitle?: string;
   hosts?: string[];
+  productionCompany?: string;
   location?: string;
   flyerUrl?: string;
   flyerStorageId?: Id<"_storage">;
@@ -55,6 +60,8 @@ type EventUpdatePatch = {
   customFields?: Event["customFields"];
   themeBackgroundColor?: string;
   themeTextColor?: string;
+  approvalMessage?: string;
+  qrCodeColor?: string;
 };
 
 export default function EditEventDialog({
@@ -73,31 +80,24 @@ export default function EditEventDialog({
   const [internalOpen, setInternalOpen] = React.useState(false);
   const open = externalOpen !== undefined ? externalOpen : internalOpen;
   const setOpen = externalOnOpenChange || setInternalOpen;
-  const defaultDate = React.useMemo(() => {
-    try {
-      const date = new Date(event.eventDate);
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-      const day = String(date.getUTCDate()).padStart(2, "0");
-      return `${year}-${month}-${day}`;
-    } catch {
-      return "";
-    }
-  }, [event.eventDate]);
-  const defaultTime = React.useMemo(() => {
-    try {
-      const date = new Date(event.eventDate);
-      const hours = String(date.getUTCHours()).padStart(2, "0");
-      const minutes = String(date.getUTCMinutes()).padStart(2, "0");
-      return `${hours}:${minutes}`;
-    } catch {
-      return "";
-    }
-  }, [event.eventDate]);
   const defaultTimezone = React.useMemo(
     () => event.eventTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
     [event.eventTimezone],
   );
+  const defaultDate = React.useMemo(() => {
+    try {
+      return extractDateFromTimestamp(event.eventDate, defaultTimezone);
+    } catch {
+      return "";
+    }
+  }, [event.eventDate, defaultTimezone]);
+  const defaultTime = React.useMemo(() => {
+    try {
+      return extractTimeFromTimestamp(event.eventDate, defaultTimezone);
+    } catch {
+      return "";
+    }
+  }, [event.eventDate, defaultTimezone]);
   const normalizedEventBackgroundColor =
     normalizeHexColorInput(event.themeBackgroundColor) ??
     EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
@@ -109,6 +109,7 @@ export default function EditEventDialog({
       name: event.name || "",
       secondaryTitle: event.secondaryTitle ?? "",
       hosts: (event.hosts || []).join(", "),
+      productionCompany: event.productionCompany ?? "",
       location: event.location || "",
       flyerStorageId: event.flyerStorageId ?? null,
       customIconStorageId: event.customIconStorageId ?? null,
@@ -121,6 +122,8 @@ export default function EditEventDialog({
       maxAttendees: event.maxAttendees ?? 1,
       themeBackgroundColor: normalizedEventBackgroundColor,
       themeTextColor: normalizedEventTextColor,
+      approvalMessage: event.approvalMessage ?? "",
+      qrCodeColor: normalizeHexColorInput(event.qrCodeColor) ?? "#000000",
     },
   });
   const [flyerStorageId, setFlyerStorageId] = React.useState<string | null>(
@@ -193,6 +196,10 @@ export default function EditEventDialog({
       if (JSON.stringify(hostArray) !== JSON.stringify(event.hosts)) {
         patch.hosts = hostArray;
       }
+      const trimmedProductionCompany = values.productionCompany?.trim() ?? "";
+      if (trimmedProductionCompany !== (event.productionCompany ?? "")) {
+        patch.productionCompany = trimmedProductionCompany || undefined;
+      }
       const trimmedLocation = values.location.trim();
       if (trimmedLocation && trimmedLocation !== event.location) {
         patch.location = trimmedLocation;
@@ -227,6 +234,15 @@ export default function EditEventDialog({
         EVENT_THEME_DEFAULT_TEXT_COLOR;
       if (nextThemeTextColor !== normalizedEventTextColor) {
         patch.themeTextColor = nextThemeTextColor;
+      }
+      const trimmedApprovalMessage = values.approvalMessage?.trim() ?? "";
+      if (trimmedApprovalMessage !== (event.approvalMessage ?? "")) {
+        patch.approvalMessage = trimmedApprovalMessage || undefined;
+      }
+      const nextQrCodeColor = normalizeHexColorInput(values.qrCodeColor) ?? "#000000";
+      const normalizedEventQrCodeColor = normalizeHexColorInput(event.qrCodeColor) ?? "#000000";
+      if (nextQrCodeColor !== normalizedEventQrCodeColor) {
+        patch.qrCodeColor = nextQrCodeColor;
       }
       const trimmedGuestPortalLinkLabel =
         values.guestPortalLinkLabel?.trim() ?? "";

@@ -50,7 +50,7 @@ export default function PrivacyPolicy() {
               <h2 className="text-2xl font-semibold text-primary mb-4">2. How We Use Your Information</h2>
               <ul className="list-disc pl-6 space-y-2">
                 <li><strong>Service Delivery:</strong> Process RSVPs, manage events, send notifications</li>
-                <li><strong>Communication:</strong> Send event updates, confirmations, and important notices via SMS/email</li>
+                <li><strong>Communication:</strong> Send event updates, confirmations, occasional marketing offers, and important notices via SMS/email from the specific event host you opted in to (e.g., Party Nights Presents). Messages are sent by Jeans on behalf of the event host using Dojo Pomodoro as a messaging platform service provider when you provide explicit consent</li>
                 <li><strong>Platform Improvement:</strong> Analyze usage patterns to enhance user experience</li>
                 <li><strong>Security:</strong> Detect fraud, prevent abuse, and maintain platform security</li>
                 <li><strong>Legal Compliance:</strong> Meet regulatory requirements and respond to legal requests</li>
@@ -63,11 +63,13 @@ export default function PrivacyPolicy() {
                 <h3 className="text-xl font-semibold text-primary mb-3">Text Message Privacy</h3>
                 <ul className="list-disc pl-6 space-y-2">
                   <li>Phone numbers are encrypted using industry-standard AES-256 encryption</li>
-                  <li>SMS messages are sent through Twilio, a SOC 2 compliant service provider</li>
+                  <li>SMS messages are sent by Jeans on behalf of the event host (for example, Party Nights Presents or Max, Orson, Danya) using Dojo Pomodoro as a messaging platform service provider, and are delivered through Twilio, a SOC 2 compliant SMS infrastructure provider</li>
                   <li>We store only obfuscated phone numbers for display purposes (e.g., ***-***-1234)</li>
                   <li>Message content is not stored beyond delivery confirmation</li>
                   <li>Opt-out requests are processed immediately and permanently honored</li>
+                  <li>SMS consent is logged with the timestamp and originating IP address for compliance purposes</li>
                   <li>SMS consent can be withdrawn at any time by texting STOP</li>
+                  <li>You can manage SMS preferences from your RSVP status page or profile at any time</li>
                 </ul>
               </div>
             </section>
@@ -104,8 +106,8 @@ export default function PrivacyPolicy() {
                   <p className="text-sm text-muted-foreground">Manages user accounts and authentication securely</p>
                 </div>
                 <div className="border rounded-lg p-4">
-                  <h4 className="font-semibold text-primary">Twilio (SMS)</h4>
-                  <p className="text-sm text-muted-foreground">Delivers SMS notifications and manages opt-outs</p>
+                  <h4 className="font-semibold text-primary">Twilio (SMS Infrastructure)</h4>
+                  <p className="text-sm text-muted-foreground">Provides SMS delivery infrastructure. Messages are sent by Jeans on behalf of the event host using Dojo Pomodoro as the messaging platform, with Twilio handling the technical delivery</p>
                 </div>
                 <div className="border rounded-lg p-4">
                   <h4 className="font-semibold text-primary">PostHog (Analytics)</h4>
@@ -139,7 +141,7 @@ export default function PrivacyPolicy() {
               <ul className="list-disc pl-6 space-y-2">
                 <li><strong>Account Data:</strong> Retained while your account is active</li>
                 <li><strong>Event Data:</strong> Maintained for historical records and analytics</li>
-                <li><strong>SMS Data:</strong> Phone numbers deleted when consent is withdrawn</li>
+                <li><strong>SMS Data:</strong> Phone numbers are deleted when consent is withdrawn, while minimal consent records (timestamp, IP address, and the event host associated with consent) are retained for legal compliance</li>
                 <li><strong>Analytics Data:</strong> Anonymized and aggregated for long-term insights</li>
                 <li><strong>Legal Requirements:</strong> Some data may be retained longer for compliance purposes</li>
               </ul>

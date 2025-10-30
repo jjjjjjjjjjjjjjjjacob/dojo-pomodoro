@@ -15,6 +15,7 @@ export const insertWithCreds = mutation({
     name: v.string(),
     secondaryTitle: v.optional(v.string()),
     hosts: v.array(v.string()),
+    productionCompany: v.optional(v.string()),
     location: v.string(),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
@@ -40,6 +41,8 @@ export const insertWithCreds = mutation({
     ),
     themeBackgroundColor: v.optional(v.string()),
     themeTextColor: v.optional(v.string()),
+    approvalMessage: v.optional(v.string()),
+    qrCodeColor: v.optional(v.string()),
     creds: v.array(
       v.object({
         listKey: v.string(),
@@ -59,6 +62,7 @@ export const insertWithCreds = mutation({
       name: args.name,
       secondaryTitle: args.secondaryTitle,
       hosts: args.hosts,
+      productionCompany: args.productionCompany,
       location: args.location,
       flyerUrl: args.flyerUrl,
       flyerStorageId: args.flyerStorageId,
@@ -72,6 +76,8 @@ export const insertWithCreds = mutation({
       customFields: args.customFields,
       themeBackgroundColor: args.themeBackgroundColor,
       themeTextColor: args.themeTextColor,
+      approvalMessage: args.approvalMessage,
+      qrCodeColor: args.qrCodeColor,
       createdAt: now,
       updatedAt: now,
     });
@@ -92,6 +98,7 @@ export const update = mutation({
     name: v.optional(v.string()),
     secondaryTitle: v.optional(v.string()),
     hosts: v.optional(v.array(v.string())),
+    productionCompany: v.optional(v.string()),
     location: v.optional(v.string()),
     flyerUrl: v.optional(v.string()),
     flyerStorageId: v.optional(v.id("_storage")),
@@ -117,6 +124,8 @@ export const update = mutation({
     ),
     themeBackgroundColor: v.optional(v.string()),
     themeTextColor: v.optional(v.string()),
+    approvalMessage: v.optional(v.string()),
+    qrCodeColor: v.optional(v.string()),
     customIconStorageId: v.optional(v.union(v.id("_storage"), v.null())),
   },
   handler: async (ctx, args) => {
@@ -128,6 +137,7 @@ export const update = mutation({
       "name",
       "secondaryTitle",
       "hosts",
+      "productionCompany",
       "location",
       "flyerUrl",
       "flyerStorageId",
@@ -142,6 +152,8 @@ export const update = mutation({
       "customFields",
       "themeBackgroundColor",
       "themeTextColor",
+      "approvalMessage",
+      "qrCodeColor",
     ] as const;
 
     for (const fieldKey of updateableFields) {

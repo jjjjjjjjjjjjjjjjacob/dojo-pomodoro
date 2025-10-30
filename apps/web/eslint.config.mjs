@@ -5,6 +5,9 @@ const compat = new FlatCompat({
 });
 
 const config = [
+  {
+    ignores: ["**/.next/**"],
+  },
   ...compat.config({
     extends: ["next/core-web-vitals"],
     rules: {

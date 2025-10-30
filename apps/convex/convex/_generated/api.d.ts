@@ -25,6 +25,7 @@ import type * as lib_cascadeHelpers from "../lib/cascadeHelpers.js";
 import type * as lib_codeGenerators from "../lib/codeGenerators.js";
 import type * as lib_passwordUtils from "../lib/passwordUtils.js";
 import type * as lib_phoneUtils from "../lib/phoneUtils.js";
+import type * as lib_qrCodeGenerator from "../lib/qrCodeGenerator.js";
 import type * as lib_rsvpAggregate from "../lib/rsvpAggregate.js";
 import type * as lib_types from "../lib/types.js";
 import type * as migrations from "../migrations.js";
@@ -77,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   "lib/codeGenerators": typeof lib_codeGenerators;
   "lib/passwordUtils": typeof lib_passwordUtils;
   "lib/phoneUtils": typeof lib_phoneUtils;
+  "lib/qrCodeGenerator": typeof lib_qrCodeGenerator;
   "lib/rsvpAggregate": typeof lib_rsvpAggregate;
   "lib/types": typeof lib_types;
   migrations: typeof migrations;

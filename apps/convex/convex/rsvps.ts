@@ -97,6 +97,24 @@ export const submitRequest = mutation({
       .filter((q) => q.eq(q.field("clerkUserId"), clerkUserId))
       .unique();
 
+    let smsConsentChange: "enabled" | "disabled" | null = null;
+    if (!existing) {
+      if (args.smsConsent === true) {
+        smsConsentChange = "enabled";
+      }
+    } else {
+      if (args.smsConsent === true && existing.smsConsent !== true) {
+        smsConsentChange = "enabled";
+      } else if (args.smsConsent === false && existing.smsConsent === true) {
+        smsConsentChange = "disabled";
+      }
+    }
+
+    const sanitizedSmsConsentIpAddress =
+      args.smsConsent === true && typeof args.smsConsentIpAddress === "string"
+        ? args.smsConsentIpAddress.slice(0, 256)
+        : undefined;
+
     if (!existing) {
       const rsvpId = await ctx.db.insert("rsvps", {
         eventId: args.eventId,
@@ -110,7 +128,7 @@ export const submitRequest = mutation({
         smsConsent: args.smsConsent,
         smsConsentTimestamp: args.smsConsent !== undefined ? now : undefined,
         smsConsentIpAddress:
-          args.smsConsent === true ? args.smsConsentIpAddress : undefined,
+          args.smsConsent === true ? sanitizedSmsConsentIpAddress : undefined,
         customFieldValues:
           sanitizedCustomFieldValues &&
           Object.keys(sanitizedCustomFieldValues).length > 0
@@ -145,7 +163,7 @@ export const submitRequest = mutation({
           args.smsConsent !== undefined ? now : existing.smsConsentTimestamp,
         smsConsentIpAddress:
           args.smsConsent === true
-            ? args.smsConsentIpAddress
+            ? sanitizedSmsConsentIpAddress ?? existing.smsConsentIpAddress
             : existing.smsConsentIpAddress,
         customFieldValues:
           sanitizedCustomFieldValues !== undefined
@@ -165,14 +183,22 @@ export const submitRequest = mutation({
       }
     }
 
+    if (smsConsentChange) {
+      await ctx.scheduler.runAfter(0, api.notifications.sendSmsConsentStatusMessage, {
+        eventId: args.eventId,
+        clerkUserId,
+        consentEnabled: smsConsentChange === "enabled",
+      });
+    }
+
     return { ok: true as const };
   },
 });
 
 /**
- * Internal query to check if a user has consented to SMS for a specific event
- * Used by SMS infrastructure to verify consent before sending messages
- * NOTE: Consent is now implicit through Terms of Service acceptance upon account creation
+ * Internal query to check if a user has consented to SMS for a specific event.
+ * Used by SMS infrastructure to verify consent before sending messages.
+ * NOTE: Consent is recorded per RSVP when the guest explicitly opts in.
  */
 export const checkSmsConsentForUserEvent = internalQuery({
   args: {
@@ -187,18 +213,49 @@ export const checkSmsConsentForUserEvent = internalQuery({
       )
       .unique();
 
-    // Check if user has an account (implicit consent through Terms of Service)
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
-      .unique();
-
-    // Return consent status - true if user has account and RSVP (implicit consent through ToS)
+    const hasConsented = rsvp?.smsConsent === true;
     return {
-      hasConsented: !!(user && rsvp), // Has account + RSVP = implicit consent
-      consentTimestamp: rsvp?.smsConsentTimestamp || user?.createdAt,
+      hasConsented,
+      consentTimestamp: rsvp?.smsConsentTimestamp ?? null,
       consentIpAddress: rsvp?.smsConsentIpAddress,
       rsvpStatus: rsvp?.status,
+    };
+  },
+});
+
+export const getApprovedRsvpWithRedemption = internalQuery({
+  args: {
+    eventId: v.id("events"),
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, { eventId, clerkUserId }) => {
+    const rsvp = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", eventId).eq("clerkUserId", clerkUserId),
+      )
+      .unique();
+
+    if (!rsvp || (rsvp.status !== "approved" && rsvp.status !== "attending")) {
+      return null;
+    }
+
+    const redemption = await ctx.db
+      .query("redemptions")
+      .withIndex("by_event_user", (q) =>
+        q.eq("eventId", eventId).eq("clerkUserId", clerkUserId),
+      )
+      .unique();
+
+    if (!redemption) {
+      return null;
+    }
+
+    return {
+      rsvpId: rsvp._id,
+      listKey: rsvp.listKey,
+      shareContact: rsvp.shareContact,
+      redemptionCode: redemption.code,
     };
   },
 });
@@ -252,6 +309,8 @@ export const listForCurrentUser = query({
         eventSecondaryTitle: event?.secondaryTitle,
         eventDate: event?.eventDate ?? null,
         eventTimezone: event?.eventTimezone,
+        eventHostNames: event?.hosts ?? [],
+        productionCompany: event?.productionCompany,
         listKey: rsvp.listKey,
         smsConsent: rsvp.smsConsent ?? false,
         shareContact: rsvp.shareContact,
@@ -267,12 +326,23 @@ export const updateSmsPreference = mutation({
     rsvpId: v.optional(v.id("rsvps")),
     smsConsent: v.boolean(),
     applyToAll: v.optional(v.boolean()),
+    smsConsentIpAddress: v.optional(v.string()),
   },
-  handler: async (ctx, { rsvpId, smsConsent, applyToAll }) => {
+  handler: async (
+    ctx,
+    { rsvpId, smsConsent, applyToAll, smsConsentIpAddress },
+  ) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
     const clerkUserId = identity.subject;
     const now = Date.now();
+    const sanitizedSmsConsentIpAddress =
+      smsConsent && typeof smsConsentIpAddress === "string"
+        ? smsConsentIpAddress.slice(0, 256)
+        : undefined;
+
+    const notificationsByEvent = new Map<Id<"events">, boolean>();
+    let updatedCount = 0;
 
     if (applyToAll || !rsvpId) {
       const rsvps = await ctx.db
@@ -284,26 +354,51 @@ export const updateSmsPreference = mutation({
           ctx.db.patch(rsvp._id, {
             smsConsent,
             smsConsentTimestamp: now,
-            smsConsentIpAddress: undefined,
+            smsConsentIpAddress: smsConsent
+              ? sanitizedSmsConsentIpAddress ?? rsvp.smsConsentIpAddress
+              : rsvp.smsConsentIpAddress,
             updatedAt: now,
           }),
         ),
       );
-      return { updated: rsvps.length };
+      rsvps.forEach((rsvp) => {
+        if (rsvp.smsConsent !== smsConsent) {
+          notificationsByEvent.set(rsvp.eventId, smsConsent);
+        }
+      });
+      updatedCount = rsvps.length;
+    } else {
+      const rsvp = await ctx.db.get(rsvpId);
+      if (!rsvp) throw new NotFoundError("RSVP");
+      if (rsvp.clerkUserId !== clerkUserId) throw new Error("Forbidden");
+      if (rsvp.smsConsent === smsConsent) return { updated: 0 };
+
+      await ctx.db.patch(rsvpId, {
+        smsConsent,
+        smsConsentTimestamp: now,
+        smsConsentIpAddress: smsConsent
+          ? sanitizedSmsConsentIpAddress ?? rsvp.smsConsentIpAddress
+          : rsvp.smsConsentIpAddress,
+        updatedAt: now,
+      });
+      notificationsByEvent.set(rsvp.eventId, smsConsent);
+      updatedCount = 1;
     }
 
-    const rsvp = await ctx.db.get(rsvpId);
-    if (!rsvp) throw new NotFoundError("RSVP");
-    if (rsvp.clerkUserId !== clerkUserId) throw new Error("Forbidden");
-    if (rsvp.smsConsent === smsConsent) return { updated: 0 };
+    if (notificationsByEvent.size > 0) {
+      await Promise.all(
+        Array.from(notificationsByEvent.entries()).map(
+          ([eventId, consentEnabled]) =>
+            ctx.scheduler.runAfter(0, api.notifications.sendSmsConsentStatusMessage, {
+              eventId,
+              clerkUserId,
+              consentEnabled,
+            }),
+        ),
+      );
+    }
 
-    await ctx.db.patch(rsvpId, {
-      smsConsent,
-      smsConsentTimestamp: now,
-      smsConsentIpAddress: undefined,
-      updatedAt: now,
-    });
-    return { updated: 1 };
+    return { updated: updatedCount };
   },
 });
 
@@ -865,6 +960,7 @@ export const statusForUserEvent = query({
       shareContact: chosen.shareContact,
       customFieldValues: chosen.customFieldValues ?? undefined,
       smsConsent: chosen.smsConsent ?? false,
+      smsConsentIpAddress: chosen.smsConsentIpAddress ?? undefined,
       generateQR: listCredential?.generateQR ?? false,
     } as const;
   },
@@ -1159,6 +1255,25 @@ export const updateRsvpComplete = mutation({
           rsvpId: args.rsvpId,
           status: "issued",
         });
+        
+        // Get redemption code for SMS notification
+        const redemption = await ctx.db
+          .query("redemptions")
+          .withIndex("by_event_user", (q) =>
+            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
+          )
+          .unique();
+        
+        // Schedule SMS notification if contact sharing is allowed and redemption exists
+        if (redemption && rsvp.shareContact && rsvp.listKey) {
+          await ctx.scheduler.runAfter(0, api.notifications.sendApprovalSms, {
+            eventId: rsvp.eventId,
+            clerkUserId: rsvp.clerkUserId,
+            listKey: rsvp.listKey,
+            code: redemption.code,
+            shareContact: rsvp.shareContact,
+          });
+        }
       } else if (args.approvalStatus === "denied") {
         // Auto-disable redemption when denying
         const existingRedemption = await ctx.db

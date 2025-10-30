@@ -131,10 +131,19 @@ export const handleIncomingSms = httpAction(async (ctx, request) => {
 
     } else if (helpKeywords.includes(messageBody)) {
       // Send help response via Twilio action
-      await ctx.runAction(internal.smsActions.sendHelpResponse, {
-        to: from,
-        from: to || "",
-      });
+      // The action will handle dev/production logic internally
+      try {
+        await ctx.runAction(internal.smsActions.sendHelpResponse, {
+          to: from,
+          from: to || "",
+        });
+      } catch (error) {
+        // In production, missing credentials will throw - log and continue
+        // In dev with SMS disabled, it will return gracefully
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error("Failed to send help response:", errorMessage);
+        // Don't throw - webhook should still return 200 even if help response fails
+      }
     }
 
     return new Response("OK", { status: 200 });

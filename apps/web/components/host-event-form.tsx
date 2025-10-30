@@ -55,15 +55,16 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
   customFieldsSection,
   footer,
 }: HostEventFormProps<FormValues>) {
-  const selectedEventTime =
-    (form.watch("eventTime" as Path<FormValues>) as string | undefined) ??
-    "19:00";
-  const selectedEventTimezone =
-    (form.watch("eventTimezone" as Path<FormValues>) as string | undefined) ??
-    Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const selectedEventDate = form.watch(
-    "eventDate" as Path<FormValues>,
-  ) as string | undefined;
+  // Get values from form - these should always be set via form defaults when editing
+  // Only fallback to defaults if form hasn't been initialized yet (shouldn't happen in practice)
+  const selectedEventTime = form.watch("eventTime" as Path<FormValues>) as string | undefined;
+  const selectedEventTimezone = form.watch("eventTimezone" as Path<FormValues>) as string | undefined;
+  const selectedEventDate = form.watch("eventDate" as Path<FormValues>) as string | undefined;
+  
+  // Provide fallbacks only for display purposes - these shouldn't be used if form is properly initialized
+  const displayTime = selectedEventTime ?? "19:00";
+  const displayTimezone = selectedEventTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const displayDate = selectedEventDate;
 
   return (
     <Form {...form}>
@@ -236,10 +237,40 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
                 const { value, onChange, ref, ...rest } = field
                 return (
                   <FormItem>
-                    <FormLabel>Host Emails (comma-separated)</FormLabel>
+                    <FormLabel>Host Names (comma-separated)</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="host1@example.com, host2@example.com"
+                        placeholder="Host Name 1, Host Name 2"
+                        value={(value as string | undefined) ?? ""}
+                        onChange={onChange}
+                        ref={ref}
+                        {...rest}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
+            />
+            <FormField
+              control={form.control}
+              name={"productionCompany" as Path<FormValues>}
+              render={({ field }) => {
+                const { value, onChange, ref, ...rest } = field
+                return (
+                  <FormItem>
+                    <FormLabel>
+                      Production Company{" "}
+                      <span className="text-sm text-muted-foreground">
+                        (optional)
+                      </span>
+                    </FormLabel>
+                    <FormDescription>
+                      Overrides host names in consent messaging and SMS notifications.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        placeholder="Production Company Name"
                         value={(value as string | undefined) ?? ""}
                         onChange={onChange}
                         ref={ref}
@@ -371,9 +402,9 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
                   <FormLabel>Date, Time & Timezone</FormLabel>
                   <FormControl>
                     <DateTimePicker
-                      date={selectedEventDate}
-                      time={selectedEventTime}
-                      timezone={selectedEventTimezone}
+                      date={displayDate}
+                      time={displayTime}
+                      timezone={displayTimezone}
                       onDateChange={(value) => field.onChange(value)}
                       onTimeChange={(value) =>
                         form.setValue(
@@ -453,6 +484,80 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
                 </FormControl>
               </FormItem>
             )}
+          />
+        </div>
+
+        <div className="rounded-lg border bg-card p-4 space-y-4">
+          <h3 className="font-medium text-sm text-muted-foreground">
+            SMS APPROVAL MESSAGES
+          </h3>
+          <FormField
+            control={form.control}
+            name={"approvalMessage" as Path<FormValues>}
+            render={({ field }) => {
+              const { value, onChange, ref, ...rest } = field
+              const eventName = form.watch("name" as Path<FormValues>) as string | undefined;
+              const defaultMessage = eventName 
+                ? `You have been approved for ${eventName.toUpperCase()}. We're looking forward to seeing you.`
+                : "You have been approved. We're looking forward to seeing you.";
+              const displayValue = (value as string | undefined) || "";
+              return (
+                <FormItem>
+                  <FormLabel>
+                    Approval Message{" "}
+                    <span className="text-sm text-muted-foreground">
+                      (optional)
+                    </span>
+                  </FormLabel>
+                  <FormDescription>
+                    Custom message sent when guests are approved. If not set, uses default message.
+                  </FormDescription>
+                  <FormControl>
+                    <textarea
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder={defaultMessage}
+                      value={displayValue}
+                      onChange={onChange}
+                      ref={ref}
+                      {...rest}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )
+            }}
+          />
+          <FormField
+            control={form.control}
+            name={"qrCodeColor" as Path<FormValues>}
+            render={({ field }) => {
+              const { value, onChange } = field
+              return (
+                <FormItem>
+                  <FormLabel>
+                    QR Code Color{" "}
+                    <span className="text-sm text-muted-foreground">
+                      (optional)
+                    </span>
+                  </FormLabel>
+                  <FormDescription>
+                    Color for QR codes sent via SMS. Defaults to black if not set.
+                  </FormDescription>
+                  <FormControl>
+                    <Input
+                      type="color"
+                      value={
+                        (typeof value === "string" ? value : undefined) ??
+                          "#000000"
+                      }
+                      onChange={(event) => onChange(event.target.value)}
+                      className="h-10 w-full cursor-pointer p-1"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )
+            }}
           />
         </div>
 
