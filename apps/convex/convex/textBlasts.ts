@@ -385,6 +385,7 @@ export const sendBlastDirect = action({
     targetLists: v.array(v.string()),
     recipientFilter: v.optional(v.string()),
     includeQrCodes: v.optional(v.boolean()),
+    selectedRsvpIds: v.optional(v.array(v.id("rsvps"))), // Filter to specific RSVP IDs for testing
   },
   handler: async (
     ctx,
@@ -412,6 +413,7 @@ export const sendBlastDirect = action({
         eventId: args.eventId,
         targetLists: args.targetLists,
         recipientFilter: args.recipientFilter,
+        selectedRsvpIds: args.selectedRsvpIds,
       },
     ) as BlastRecipient[];
 
@@ -643,6 +645,107 @@ export const getBlastById = query({
     }
 
     return blast;
+  },
+});
+
+/**
+ * Get RSVPs with names for text blast recipient selection
+ * Returns RSVPs filtered by target lists and SMS consent
+ */
+export const getRecipientsForSelection = query({
+  args: {
+    eventId: v.id("events"),
+    targetLists: v.array(v.string()),
+    recipientFilter: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{ rsvpId: Id<"rsvps">; name: string; listKey: string }>> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    // Verify user is host of this event
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+
+    const role = (identity as any).role;
+    const hasHostRole = role === "org:admin";
+    if (!hasHostRole) {
+      throw new Error("Not authorized for this event");
+    }
+
+    // Get approved/attending RSVPs matching target lists
+    const approvedRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "approved")
+      )
+      .collect();
+
+    const attendingRsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event_status", (q) => 
+        q.eq("eventId", args.eventId).eq("status", "attending")
+      )
+      .collect();
+
+    let rsvps = [...approvedRsvps, ...attendingRsvps];
+
+    const normalizedTargetListKeys = new Set(
+      args.targetLists.map((listKey) => listKey.toLowerCase()),
+    );
+
+    // Filter by target lists and SMS consent
+    let filteredRsvps = rsvps.filter((rsvp) => {
+      const rsvpListKeyNormalized = rsvp.listKey?.toLowerCase();
+      if (!rsvpListKeyNormalized) return false;
+      return normalizedTargetListKeys.has(rsvpListKeyNormalized) && rsvp.smsConsent === true;
+    });
+
+    // Apply recipient filter if specified
+    if (args.recipientFilter === "approved_no_approval_sms") {
+      const filteredWithApprovalSmsStatus = await Promise.all(
+        filteredRsvps.map(async (rsvp) => {
+          const approvalSms = await ctx.db
+            .query("smsNotifications")
+            .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+            .filter((q) =>
+              q.and(
+                q.eq(q.field("recipientClerkUserId"), rsvp.clerkUserId),
+                q.eq(q.field("type"), "approval"),
+                q.eq(q.field("status"), "sent")
+              )
+            )
+            .first();
+          return approvalSms ? null : rsvp;
+        })
+      );
+      filteredRsvps = filteredWithApprovalSmsStatus.filter((rsvp): rsvp is typeof filteredRsvps[0] => rsvp !== null);
+    }
+
+    // Enrich with user names
+    const enriched = await Promise.all(
+      filteredRsvps.map(async (rsvp) => {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", rsvp.clerkUserId))
+          .unique();
+        const firstName = user?.firstName;
+        const lastName = user?.lastName;
+        const name = [firstName, lastName].filter(Boolean).join(" ") || rsvp.userName || "Unknown";
+        return {
+          rsvpId: rsvp._id,
+          name,
+          listKey: rsvp.listKey,
+        };
+      })
+    );
+
+    // Sort by name
+    enriched.sort((a, b) => a.name.localeCompare(b.name));
+
+    return enriched;
   },
 });
 
@@ -1029,6 +1132,7 @@ export const getRecipientsWithPhonesInternal = internalAction({
     eventId: v.id("events"),
     targetLists: v.array(v.string()),
     recipientFilter: v.optional(v.string()), // 'all' | 'approved_no_approval_sms'
+    selectedRsvpIds: v.optional(v.array(v.id("rsvps"))), // Filter to specific RSVP IDs if provided
   },
   handler: async (
     ctx,
@@ -1039,6 +1143,7 @@ export const getRecipientsWithPhonesInternal = internalAction({
       eventId: args.eventId,
       targetLists: args.targetLists,
       recipientFilter: args.recipientFilter,
+      selectedRsvpIds: args.selectedRsvpIds,
     });
 
     console.log(`[getRecipientsWithPhonesInternal] Found ${rsvps.length} RSVPs with SMS consent for lists: ${args.targetLists.join(", ")}`);
@@ -1209,6 +1314,7 @@ export const getApprovedRsvpsForListsInternal = internalQuery({
     eventId: v.id("events"),
     targetLists: v.array(v.string()),
     recipientFilter: v.optional(v.string()), // 'all' | 'approved_no_approval_sms'
+    selectedRsvpIds: v.optional(v.array(v.id("rsvps"))), // Filter to specific RSVP IDs if provided
   },
   handler: async (ctx, args) => {
     // Get all approved or attending RSVPs for this event
@@ -1267,7 +1373,13 @@ export const getApprovedRsvpsForListsInternal = internalQuery({
       filteredRsvps = filteredWithApprovalSmsStatus.filter((rsvp): rsvp is typeof filteredRsvps[0] => rsvp !== null);
     }
 
-    console.log(`[getApprovedRsvpsForListsInternal] Found ${rsvps.length} approved/attending RSVPs, ${filteredRsvps.length} with SMS consent and matching target lists${args.recipientFilter ? ` (filter: ${args.recipientFilter})` : ""}`);
+    // If specific RSVP IDs are provided, filter to only those RSVPs
+    if (args.selectedRsvpIds && args.selectedRsvpIds.length > 0) {
+      const selectedRsvpIdsSet = new Set(args.selectedRsvpIds);
+      filteredRsvps = filteredRsvps.filter((rsvp) => selectedRsvpIdsSet.has(rsvp._id));
+    }
+
+    console.log(`[getApprovedRsvpsForListsInternal] Found ${rsvps.length} approved/attending RSVPs, ${filteredRsvps.length} with SMS consent and matching target lists${args.recipientFilter ? ` (filter: ${args.recipientFilter})` : ""}${args.selectedRsvpIds && args.selectedRsvpIds.length > 0 ? ` (${args.selectedRsvpIds.length} selected)` : ""}`);
 
     return filteredRsvps;
   },

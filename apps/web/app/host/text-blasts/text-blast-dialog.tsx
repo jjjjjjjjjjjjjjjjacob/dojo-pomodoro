@@ -20,6 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectOption } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Event, TextBlast, TextBlastStatus } from "@/lib/types";
 import {
   AlertDialog,
@@ -33,9 +34,10 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import { Send, Save, Eye, Users, MessageSquare } from "lucide-react";
+import { Send, Save, Eye, Users, MessageSquare, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { formatEventTitleInline } from "@/lib/event-display";
+import { cn } from "@/lib/utils";
 
 interface TextBlastDialogProps {
   isOpen: boolean;
@@ -50,6 +52,7 @@ interface FormData {
   targetLists: string[];
   recipientFilter: string;
   includeQrCodes: boolean;
+  selectedRsvpIds: Id<"rsvps">[]; // For testing: filter to specific recipients
 }
 
 const SMS_CHAR_LIMIT = 160;
@@ -78,16 +81,31 @@ export default function TextBlastDialog({
     targetLists: [],
     recipientFilter: "all",
     includeQrCodes: false,
+    selectedRsvpIds: [],
   });
   const [recipientCount, setRecipientCount] = useState(0);
   const [previewMode, setPreviewMode] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [recipientSearchQuery, setRecipientSearchQuery] = useState("");
+  const [isRecipientPopoverOpen, setIsRecipientPopoverOpen] = useState(false);
 
   // Fetch available lists with counts for the selected event
   const availableListsWithCounts = useQuery(
     api.textBlasts.getAvailableListsForEvent,
     formData.eventId ? { eventId: formData.eventId as Id<"events"> } : "skip",
   ) as Array<{ listKey: string; recipientCount: number; totalRsvps: number }> | undefined;
+
+  // Fetch recipients for selection (when target lists are selected)
+  const recipientsForSelection = useQuery(
+    api.textBlasts.getRecipientsForSelection,
+    formData.eventId && formData.targetLists.length > 0
+      ? {
+          eventId: formData.eventId as Id<"events">,
+          targetLists: formData.targetLists,
+          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+        }
+      : "skip",
+  ) as Array<{ rsvpId: Id<"rsvps">; name: string; listKey: string }> | undefined;
 
   const isEditMode = !!blastId;
   const selectedEvent = events?.find(event => event._id === formData.eventId);
@@ -104,23 +122,27 @@ export default function TextBlastDialog({
     return new Map(availableListsWithCounts.map(list => [list.listKey, list.recipientCount]));
   }, [availableListsWithCounts]);
 
-  // Update recipient count when target lists or filter change
+  // Update recipient count when target lists, filter, or selected RSVPs change
   useEffect(() => {
     if (formData.targetLists.length === 0) {
       setRecipientCount(0);
       return;
     }
 
-    // We need to query the backend for accurate counts with filter
-    // For now, we'll use the listCountMap which doesn't account for filter
-    // The actual count will be validated on send
+    // If specific RSVPs are selected, use that count
+    if (formData.selectedRsvpIds.length > 0) {
+      setRecipientCount(formData.selectedRsvpIds.length);
+      return;
+    }
+
+    // Otherwise, use the listCountMap
     let totalCount = 0;
     for (const listKey of formData.targetLists) {
       const count = listCountMap.get(listKey) || 0;
       totalCount += count;
     }
     setRecipientCount(totalCount);
-  }, [formData.targetLists, formData.recipientFilter, listCountMap]);
+  }, [formData.targetLists, formData.recipientFilter, formData.selectedRsvpIds, listCountMap]);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -133,6 +155,7 @@ export default function TextBlastDialog({
           targetLists: existingBlast.targetLists,
           recipientFilter: existingBlast.recipientFilter || "all",
           includeQrCodes: existingBlast.includeQrCodes ?? false,
+          selectedRsvpIds: [],
         });
         // Recipient count will be calculated by the useEffect above when targetLists are set
         setCurrentStep(1);
@@ -144,11 +167,14 @@ export default function TextBlastDialog({
           targetLists: [],
           recipientFilter: "all",
           includeQrCodes: false,
+          selectedRsvpIds: [],
         });
         setRecipientCount(0);
         setCurrentStep(1);
       }
       setPreviewMode(false);
+      setRecipientSearchQuery("");
+      setIsRecipientPopoverOpen(false);
     }
   }, [isOpen, existingBlast]);
 
@@ -244,6 +270,7 @@ export default function TextBlastDialog({
           targetLists: formData.targetLists,
           recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
           includeQrCodes: formData.includeQrCodes,
+          selectedRsvpIds: formData.selectedRsvpIds.length > 0 ? formData.selectedRsvpIds : undefined,
         });
       }
       
@@ -472,6 +499,136 @@ export default function TextBlastDialog({
                 </CardContent>
               </Card>
             )}
+
+            <div className="space-y-2">
+              <Label>Test Recipients (Optional)</Label>
+              <p className="text-xs text-muted-foreground">
+                Select specific recipients to safely test your text blast. If none are selected, all recipients matching the lists above will be used.
+              </p>
+              {formData.targetLists.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  Select recipient lists above to enable recipient selection
+                </div>
+              ) : recipientsForSelection && recipientsForSelection.length > 0 ? (
+                <>
+                  <Popover open={isRecipientPopoverOpen} onOpenChange={setIsRecipientPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-between"
+                        type="button"
+                      >
+                        <span className="truncate">
+                          {formData.selectedRsvpIds.length === 0
+                            ? "Select recipients to test..."
+                            : `${formData.selectedRsvpIds.length} recipient${formData.selectedRsvpIds.length !== 1 ? "s" : ""} selected`}
+                        </span>
+                        <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <div className="p-2">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search by name..."
+                            value={recipientSearchQuery}
+                            onChange={(e) => setRecipientSearchQuery(e.target.value)}
+                            className="pl-8"
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto">
+                        {(() => {
+                          const filteredRecipients = recipientsForSelection.filter(
+                            (recipient) =>
+                              recipient.name.toLowerCase().includes(recipientSearchQuery.toLowerCase())
+                          );
+                          return filteredRecipients.length === 0 ? (
+                            <div className="p-4 text-center text-sm text-muted-foreground">
+                              No recipients found
+                            </div>
+                          ) : (
+                            filteredRecipients.map((recipient) => {
+                              const isSelected = formData.selectedRsvpIds.includes(recipient.rsvpId);
+                              return (
+                                <div
+                                  key={recipient.rsvpId}
+                                  className="flex items-center space-x-2 px-2 py-1.5 hover:bg-accent cursor-pointer"
+                                  onClick={() => {
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      selectedRsvpIds: isSelected
+                                        ? prev.selectedRsvpIds.filter((id) => id !== recipient.rsvpId)
+                                        : [...prev.selectedRsvpIds, recipient.rsvpId],
+                                    }));
+                                  }}
+                                >
+                                  <Checkbox checked={isSelected} />
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium">{recipient.name}</div>
+                                    <div className="text-xs text-muted-foreground capitalize">
+                                      {recipient.listKey}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          );
+                        })()}
+                      </div>
+                      {formData.selectedRsvpIds.length > 0 && (
+                        <div className="border-t p-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => {
+                              setFormData((prev) => ({ ...prev, selectedRsvpIds: [] }));
+                            }}
+                          >
+                            Clear Selection
+                          </Button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                  {formData.selectedRsvpIds.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {formData.selectedRsvpIds.map((rsvpId) => {
+                        const recipient = recipientsForSelection?.find((r) => r.rsvpId === rsvpId);
+                        if (!recipient) return null;
+                        return (
+                          <Badge
+                            key={rsvpId}
+                            variant="secondary"
+                            className="flex items-center gap-1"
+                          >
+                            {recipient.name}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  selectedRsvpIds: prev.selectedRsvpIds.filter((id) => id !== rsvpId),
+                                }));
+                              }}
+                              className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No recipients available for the selected lists
+                </div>
+              )}
+            </div>
           </div>
         );
 
@@ -531,6 +688,11 @@ export default function TextBlastDialog({
                   {formData.includeQrCodes && (
                     <p className="text-xs text-muted-foreground mt-1">
                       QR Code Images: Enabled
+                    </p>
+                  )}
+                  {formData.selectedRsvpIds.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Test Mode: {formData.selectedRsvpIds.length} specific recipient{formData.selectedRsvpIds.length !== 1 ? "s" : ""} selected
                     </p>
                   )}
                 </div>

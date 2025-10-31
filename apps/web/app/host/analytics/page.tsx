@@ -35,6 +35,9 @@ import {
   TicketCheck,
   Clock,
   UserCheck,
+  MessageSquare,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { Select, SelectOption } from "@/components/ui/select";
 import { useState } from "react";
@@ -58,6 +61,16 @@ export default function AnalyticsPage() {
     enabled: !!isSignedIn,
   });
   const eventPerformance = eventPerformanceQuery.data;
+  const smsStatsQuery = useQuery({
+    ...convexQuery(api.dashboard.getSmsStats, {}),
+    enabled: !!isSignedIn,
+  });
+  const smsStats = smsStatsQuery.data;
+  const smsTrendsQuery = useQuery({
+    ...convexQuery(api.dashboard.getSmsTrends, {}),
+    enabled: !!isSignedIn,
+  });
+  const smsTrends = smsTrendsQuery.data;
   if (!dashboardStats) {
     return <AnalyticsSkeleton />;
   }
@@ -124,6 +137,42 @@ export default function AnalyticsPage() {
       color: "hsl(var(--chart-3))",
     },
   };
+
+  const smsChartConfig = {
+    sent: {
+      label: "Sent",
+      color: "hsl(var(--chart-2))",
+    },
+    failed: {
+      label: "Failed",
+      color: "hsl(var(--chart-3))",
+    },
+    total: {
+      label: "Total",
+      color: "hsl(var(--primary))",
+    },
+  };
+
+  // Prepare SMS status distribution data
+  const smsStatusData = smsStats
+    ? [
+        {
+          name: "Sent",
+          value: smsStats.sentSms,
+          color: "hsl(var(--chart-2))",
+        },
+        {
+          name: "Failed",
+          value: smsStats.failedSms,
+          color: "hsl(var(--chart-3))",
+        },
+        {
+          name: "Pending",
+          value: smsStats.pendingSms,
+          color: "hsl(var(--primary))",
+        },
+      ].filter((item) => item.value > 0)
+    : [];
 
   return (
     <div className="flex-1 space-y-4">
@@ -217,6 +266,61 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* SMS Metrics Grid */}
+      {smsStats && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">SMS Success Rate</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{smsStats.successRate}%</div>
+              <p className="text-xs text-muted-foreground">
+                Messages successfully sent
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total SMS Sent</CardTitle>
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{smsStats.totalSms}</div>
+              <p className="text-xs text-muted-foreground">
+                All time messages sent
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Failed SMS</CardTitle>
+              <XCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{smsStats.failedSms}</div>
+              <p className="text-xs text-muted-foreground">
+                Messages that failed to send
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Recent SMS</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{smsStats.recentSms}</div>
+              <p className="text-xs text-muted-foreground">Messages this month</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Charts Section */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -388,6 +492,99 @@ export default function AnalyticsPage() {
           </ChartContainer>
         </CardContent>
       </Card>
+
+      {/* SMS Charts Section */}
+      {smsStats && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* SMS Status Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle>SMS Status Distribution</CardTitle>
+                <CardDescription>
+                  Breakdown of SMS delivery status across all messages
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={smsStatusData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) =>
+                        `${name} ${(percent * 100).toFixed(0)}%`
+                      }
+                      outerRadius={80}
+                      dataKey="value"
+                    >
+                      {smsStatusData.map((entry, index) => (
+                        <Cell key={`sms-cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <ChartTooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* SMS Trends */}
+            <Card>
+              <CardHeader>
+                <CardTitle>SMS Trends Over Time</CardTitle>
+                <CardDescription>
+                  Daily SMS sent/failed over the last 30 days
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={smsChartConfig}>
+                  <AreaChart
+                    accessibilityLayer
+                    data={smsTrends || []}
+                    margin={{
+                      left: 12,
+                      right: 12,
+                    }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="formattedDate"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      domain={[0, "dataMax"]}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                    <Area
+                      dataKey="sent"
+                      type="natural"
+                      fill="var(--color-sent)"
+                      fillOpacity={0.4}
+                      stroke="var(--color-sent)"
+                      stackId="a"
+                    />
+                    <Area
+                      dataKey="failed"
+                      type="natural"
+                      fill="var(--color-failed)"
+                      fillOpacity={0.4}
+                      stroke="var(--color-failed)"
+                      stackId="a"
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

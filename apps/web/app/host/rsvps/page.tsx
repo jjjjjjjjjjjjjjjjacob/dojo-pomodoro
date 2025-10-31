@@ -363,6 +363,7 @@ export default function RsvpsPage() {
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "guest", desc: false },
   ]);
+  const [columnSizing, setColumnSizing] = React.useState<Record<string, number>>({});
   const [pendingChanges, setPendingChanges] = React.useState<
     Record<
       string,
@@ -455,6 +456,10 @@ export default function RsvpsPage() {
     return currentEvent.customFields.map((field) => ({
       id: `custom_${field.key}`,
       header: field.label.replace(/:\s*$/, "").trim(), // Remove trailing colon and spaces
+      enableResizing: true,
+      size: 150,
+      minSize: 100,
+      maxSize: 300,
       accessorFn: (row: HostRsvp) => {
         if (!row.customFieldValues) return "";
 
@@ -585,6 +590,10 @@ export default function RsvpsPage() {
       {
         id: "guest",
         header: "Guest",
+        enableResizing: true,
+        size: 150,
+        minSize: 100,
+        maxSize: 300,
         accessorFn: (rsvp: HostRsvp) => {
           const displayName = `${rsvp.firstName || ""} ${rsvp.lastName || ""}`.trim();
           return (
@@ -609,6 +618,10 @@ export default function RsvpsPage() {
         id: "listKey",
         header: "List",
         accessorKey: "listKey",
+        enableResizing: true,
+        size: 80,
+        minSize: 60,
+        maxSize: 150,
         cell: ({ row }) => {
           const rsvp = row.original;
           const currentListKey = rsvp.listKey;
@@ -707,6 +720,10 @@ export default function RsvpsPage() {
         id: "attendees",
         header: "Attendees",
         accessorFn: (rsvp: HostRsvp): number => rsvp.attendees ?? 1,
+        enableResizing: true,
+        size: 90,
+        minSize: 70,
+        maxSize: 120,
         cell: ({ row }) => {
           const attendees = row.original.attendees ?? 1;
           return <span className="text-sm">{attendees}</span>;
@@ -715,6 +732,10 @@ export default function RsvpsPage() {
       {
         id: "smsConsent",
         header: "SMS Consent",
+        enableResizing: true,
+        size: 120,
+        minSize: 100,
+        maxSize: 150,
         accessorFn: (rsvp: HostRsvp): string => {
           return rsvp.smsConsent === true ? "Yes" : rsvp.smsConsent === false ? "No" : "—";
         },
@@ -743,6 +764,10 @@ export default function RsvpsPage() {
         id: "noteForHosts",
         header: "Note for Hosts",
         accessorKey: "note",
+        enableResizing: true,
+        size: 200,
+        minSize: 150,
+        maxSize: 400,
         cell: ({ row }) => {
           const noteForHosts = row.original.note?.trim();
           if (!noteForHosts) {
@@ -772,6 +797,10 @@ export default function RsvpsPage() {
         id: "createdAt",
         header: "Created",
         accessorKey: "createdAt",
+        enableResizing: true,
+        size: 120,
+        minSize: 100,
+        maxSize: 150,
         cell: ({ row }) => {
           const timestamp = row.original.createdAt;
           const date = new Date(timestamp);
@@ -794,6 +823,10 @@ export default function RsvpsPage() {
         id: "approvalStatus",
         header: "Approval",
         accessorKey: "status",
+        enableResizing: true,
+        size: 110,
+        minSize: 90,
+        maxSize: 150,
         cell: ({ row }) => {
           const rsvp = row.original;
           const originalApprovalStatus = normalizeApprovalStatus(rsvp.status);
@@ -912,6 +945,10 @@ export default function RsvpsPage() {
         id: "ticketStatus",
         header: "Ticket",
         accessorFn: (rsvp: HostRsvp) => rsvp.redemptionStatus,
+        enableResizing: true,
+        size: 110,
+        minSize: 90,
+        maxSize: 150,
         cell: ({ row }) => {
           const rsvp = row.original;
           const originalTicketStatus = normalizeTicketStatus(
@@ -1069,6 +1106,10 @@ export default function RsvpsPage() {
       {
         id: "actions",
         header: "Action",
+        enableResizing: true,
+        size: 100,
+        minSize: 80,
+        maxSize: 150,
         cell: ({ row }) => {
           const rsvp = row.original;
           const changes = pendingChanges[rsvp.id];
@@ -1512,6 +1553,10 @@ export default function RsvpsPage() {
       {
         id: "select",
         header: "Select",
+        enableResizing: false,
+        size: 60,
+        minSize: 50,
+        maxSize: 70,
         cell: ({ row }) => (
           <Checkbox
             checked={selectedRows.has(row.original.id)}
@@ -1573,10 +1618,12 @@ export default function RsvpsPage() {
   const table = useReactTable({
     data: rsvps,
     columns: initialCols,
-    state: { sorting, columnOrder },
+    state: { sorting, columnOrder, columnSizing },
     manualPagination: true, // Enable manual pagination
     onSortingChange: setSorting,
     onColumnOrderChange: setColumnOrder,
+    onColumnSizingChange: setColumnSizing,
+    enableColumnResizing: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     // Remove getPaginationRowModel() for manual pagination
@@ -2723,7 +2770,7 @@ export default function RsvpsPage() {
         <TableSkeleton rows={10} columns={8} />
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-sm" style={{ tableLayout: "fixed" }}>
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr
@@ -2754,7 +2801,7 @@ export default function RsvpsPage() {
                       <th
                         key={header.id}
                         className={cn(
-                          "px-2 py-1 select-none group border-b border-foreground/10",
+                          "px-2 py-1 select-none group border-b border-foreground/10 relative",
                           isDraggingColumn
                             ? "cursor-grabbing"
                             : "cursor-pointer",
@@ -2767,37 +2814,57 @@ export default function RsvpsPage() {
                           draggedColumnIdentifier === columnIdentifier &&
                             "opacity-60",
                         )}
+                        style={{
+                          width: header.getSize(),
+                          minWidth: header.column.columnDef.minSize,
+                          maxWidth: header.column.columnDef.maxSize,
+                        }}
                         title={columnDisplayLabel}
-                        draggable={isDragSourceEnabled}
-                        onDragStart={
-                          isDragSourceEnabled
-                            ? (event) =>
-                                handleColumnDragStart(
-                                  event,
-                                  columnIdentifier,
-                                  columnDisplayLabel,
-                                )
-                            : undefined
-                        }
-                        onDragOver={(event) =>
-                          handleColumnDragOver(event, columnIdentifier)
-                        }
-                        onDrop={(event) =>
-                          handleColumnDrop(event, columnIdentifier)
-                        }
-                        onDragEnd={handleColumnDragEnd}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          handleColumnDragOver(event, columnIdentifier);
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          handleColumnDrop(event, columnIdentifier);
+                        }}
                         onClick={(event) => {
                           if (isDraggingColumn) {
                             event.preventDefault();
                             event.stopPropagation();
                             return;
                           }
+                          
                           if (sortingHandler) {
                             sortingHandler(event);
                           }
                         }}
                       >
-                        <div className="flex items-center gap-1">
+                        <div 
+                          className="flex items-center gap-1"
+                          draggable={isDragSourceEnabled}
+                          onDragStart={
+                            isDragSourceEnabled
+                              ? (event) => {
+                                  // Get the header element since we're dragging from a div
+                                  const headerElement = event.currentTarget.closest('th') as HTMLTableHeaderCellElement | null;
+                                  if (!headerElement) return;
+                                  
+                                  // Create a synthetic event with the header element as currentTarget
+                                  const syntheticEvent = {
+                                    ...event,
+                                    currentTarget: headerElement,
+                                  } as React.DragEvent<HTMLTableHeaderCellElement>;
+                                  handleColumnDragStart(
+                                    syntheticEvent,
+                                    columnIdentifier,
+                                    columnDisplayLabel,
+                                  );
+                                }
+                              : undefined
+                          }
+                          onDragEnd={handleColumnDragEnd}
+                        >
                           {isDragSourceEnabled && (
                             <GripVertical
                               aria-hidden="true"
@@ -2858,6 +2925,11 @@ export default function RsvpsPage() {
                             cell.column.id !== "actions" &&
                             "cursor-pointer",
                         )}
+                        style={{
+                          width: cell.column.getSize(),
+                          minWidth: cell.column.columnDef.minSize,
+                          maxWidth: cell.column.columnDef.maxSize,
+                        }}
                         onClick={
                           cell.column.id !== "select" &&
                           cell.column.id !== "listKey" &&

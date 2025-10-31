@@ -236,3 +236,119 @@ export const getRecentActivity = query({
   },
 });
 
+export const getSmsStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    // Get all SMS notifications
+    const notifications = await ctx.db.query("smsNotifications").collect();
+
+    // Calculate stats
+    const totalSms = notifications.length;
+    const sentSms = notifications.filter((n) => n.status === "sent").length;
+    const failedSms = notifications.filter((n) => n.status === "failed").length;
+    const pendingSms = notifications.filter((n) => n.status === "pending").length;
+
+    // Calculate success rate
+    const totalProcessed = sentSms + failedSms;
+    const successRate =
+      totalProcessed > 0 ? (sentSms / totalProcessed) * 100 : 0;
+
+    // Count by type
+    const byType: Record<string, number> = {};
+    notifications.forEach((notification) => {
+      byType[notification.type] = (byType[notification.type] || 0) + 1;
+    });
+
+    // Calculate trends (last 30 days)
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+    const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000;
+
+    const recentSms = notifications.filter(
+      (n) => n.createdAt > thirtyDaysAgo,
+    ).length;
+    const previousMonthSms = notifications.filter(
+      (n) => n.createdAt > sixtyDaysAgo && n.createdAt <= thirtyDaysAgo,
+    ).length;
+
+    const smsTrend =
+      previousMonthSms > 0
+        ? ((recentSms - previousMonthSms) / previousMonthSms) * 100
+        : recentSms > 0
+          ? 100
+          : 0;
+
+    return {
+      totalSms,
+      sentSms,
+      failedSms,
+      pendingSms,
+      successRate: Math.round(successRate * 10) / 10,
+      smsTrend: Math.round(smsTrend * 10) / 10,
+      recentSms,
+      byType,
+    };
+  },
+});
+
+export const getSmsTrends = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const notifications = await ctx.db.query("smsNotifications").collect();
+
+    // Group SMS by day for the last 30 days
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+    const dailyData: Record<string, { sent: number; failed: number }> = {};
+
+    // Initialize all days with 0
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(now - i * 24 * 60 * 60 * 1000);
+      const dateKey = date.toISOString().split("T")[0];
+      dailyData[dateKey] = { sent: 0, failed: 0 };
+    }
+
+    // Count SMS by day
+    notifications
+      .filter((n) => n.createdAt > thirtyDaysAgo)
+      .forEach((notification) => {
+        const date = new Date(notification.createdAt);
+        const dateKey = date.toISOString().split("T")[0];
+        if (dailyData[dateKey]) {
+          if (notification.status === "sent") {
+            dailyData[dateKey].sent++;
+          } else if (notification.status === "failed") {
+            dailyData[dateKey].failed++;
+          }
+        }
+      });
+
+    // Convert to array format for charts
+    const trends = Object.entries(dailyData)
+      .map(([date, counts]) => ({
+        date,
+        sent: counts.sent,
+        failed: counts.failed,
+        total: counts.sent + counts.failed,
+        formattedDate: new Date(date).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }),
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    return trends;
+  },
+});
+

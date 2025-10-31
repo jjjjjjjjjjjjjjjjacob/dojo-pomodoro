@@ -11,6 +11,7 @@ import {
   User,
   MessageSquare,
   DoorOpen,
+  FileText,
 } from "lucide-react";
 
 import {
@@ -53,6 +54,12 @@ export const navigationItems = [
     title: "Text Blasts",
     url: "/host/text-blasts",
     icon: MessageSquare,
+    isActive: false,
+  },
+  {
+    title: "Texts",
+    url: "/host/texts",
+    icon: FileText,
     isActive: false,
   },
   {
