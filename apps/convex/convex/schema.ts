@@ -173,6 +173,8 @@ export default defineSchema({
     name: v.string(),
     message: v.string(),
     targetLists: v.array(v.string()), // ['vip', 'ga', etc.]
+    recipientFilter: v.optional(v.string()), // 'all' | 'approved_no_approval_sms'
+    includeQrCodes: v.optional(v.boolean()), // Whether to include QR code images in MMS
     recipientCount: v.number(),
     sentCount: v.number(),
     failedCount: v.number(),

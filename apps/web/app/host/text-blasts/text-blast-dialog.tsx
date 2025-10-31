@@ -48,6 +48,8 @@ interface FormData {
   name: string;
   message: string;
   targetLists: string[];
+  recipientFilter: string;
+  includeQrCodes: boolean;
 }
 
 const SMS_CHAR_LIMIT = 160;
@@ -74,6 +76,8 @@ export default function TextBlastDialog({
     name: "",
     message: "",
     targetLists: [],
+    recipientFilter: "all",
+    includeQrCodes: false,
   });
   const [recipientCount, setRecipientCount] = useState(0);
   const [previewMode, setPreviewMode] = useState(false);
@@ -100,20 +104,23 @@ export default function TextBlastDialog({
     return new Map(availableListsWithCounts.map(list => [list.listKey, list.recipientCount]));
   }, [availableListsWithCounts]);
 
-  // Update recipient count when target lists change
+  // Update recipient count when target lists or filter change
   useEffect(() => {
     if (formData.targetLists.length === 0) {
       setRecipientCount(0);
       return;
     }
 
+    // We need to query the backend for accurate counts with filter
+    // For now, we'll use the listCountMap which doesn't account for filter
+    // The actual count will be validated on send
     let totalCount = 0;
     for (const listKey of formData.targetLists) {
       const count = listCountMap.get(listKey) || 0;
       totalCount += count;
     }
     setRecipientCount(totalCount);
-  }, [formData.targetLists, listCountMap]);
+  }, [formData.targetLists, formData.recipientFilter, listCountMap]);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -124,6 +131,8 @@ export default function TextBlastDialog({
           name: existingBlast.name,
           message: existingBlast.message,
           targetLists: existingBlast.targetLists,
+          recipientFilter: existingBlast.recipientFilter || "all",
+          includeQrCodes: existingBlast.includeQrCodes ?? false,
         });
         // Recipient count will be calculated by the useEffect above when targetLists are set
         setCurrentStep(1);
@@ -133,6 +142,8 @@ export default function TextBlastDialog({
           name: "",
           message: "",
           targetLists: [],
+          recipientFilter: "all",
+          includeQrCodes: false,
         });
         setRecipientCount(0);
         setCurrentStep(1);
@@ -187,6 +198,8 @@ export default function TextBlastDialog({
           name: formData.name,
           message: formData.message,
           targetLists: formData.targetLists,
+          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+          includeQrCodes: formData.includeQrCodes,
         });
         toast.success("Text blast updated successfully");
       } else {
@@ -199,6 +212,8 @@ export default function TextBlastDialog({
           name: formData.name,
           message: formData.message,
           targetLists: formData.targetLists,
+          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+          includeQrCodes: formData.includeQrCodes,
         });
         toast.success("Text blast draft saved successfully");
       }
@@ -227,6 +242,8 @@ export default function TextBlastDialog({
           name: formData.name,
           message: formData.message,
           targetLists: formData.targetLists,
+          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+          includeQrCodes: formData.includeQrCodes,
         });
       }
       
@@ -306,7 +323,7 @@ export default function TextBlastDialog({
               </div>
               <Textarea
                 id="message"
-                placeholder="Your message here... Use {{firstName}}, {{eventName}}, {{eventDate}}, {{eventLocation}} for personalization"
+                placeholder="Your message here... Use {{firstName}}, {{eventName}}, {{eventDate}}, {{eventLocation}}, {{qrCodeUrl}} for personalization"
                 value={formData.message}
                 onChange={(e) =>
                   setFormData(prev => ({ ...prev, message: e.target.value }))
@@ -315,7 +332,7 @@ export default function TextBlastDialog({
                 className={isMessageTooLong ? "border-destructive" : ""}
               />
               <div className="text-xs text-muted-foreground">
-                Available variables: &#123;&#123;firstName&#125;&#125;, &#123;&#123;eventName&#125;&#125;, &#123;&#123;eventDate&#125;&#125;, &#123;&#123;eventLocation&#125;&#125;
+                Available variables: &#123;&#123;firstName&#125;&#125;, &#123;&#123;eventName&#125;&#125;, &#123;&#123;eventDate&#125;&#125;, &#123;&#123;eventLocation&#125;&#125;, &#123;&#123;qrCodeUrl&#125;&#125;
               </div>
               {isMessageTooLong && (
                 <div className="text-xs text-destructive">
@@ -354,6 +371,45 @@ export default function TextBlastDialog({
       case 2:
         return (
           <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Recipient Filter</Label>
+              <Select
+                value={formData.recipientFilter}
+                onValueChange={(value) =>
+                  setFormData(prev => ({ ...prev, recipientFilter: value }))
+                }
+              >
+                <SelectOption value="all">All Approved/Attending</SelectOption>
+                <SelectOption value="approved_no_approval_sms">
+                  Approved but No Approval SMS Sent
+                </SelectOption>
+              </Select>
+              <div className="text-xs text-muted-foreground">
+                {formData.recipientFilter === "approved_no_approval_sms" 
+                  ? "Send to users who have been approved but haven't received their approval notification yet."
+                  : "Send to all approved and attending RSVPs with SMS consent."}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="includeQrCodes"
+                  checked={formData.includeQrCodes}
+                  onCheckedChange={(checked) =>
+                    setFormData(prev => ({ ...prev, includeQrCodes: checked === true }))
+                  }
+                />
+                <Label htmlFor="includeQrCodes" className="cursor-pointer">
+                  Include QR Code Images
+                </Label>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                When enabled, QR code images will be generated and sent as MMS attachments for recipients with redemption codes. 
+                Use &#123;&#123;qrCodeUrl&#125;&#125; in your message to include the QR code URL in the text.
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label>Select Recipient Lists</Label>
               {availableLists.length === 0 ? (
@@ -465,6 +521,18 @@ export default function TextBlastDialog({
                   <p className="text-sm text-muted-foreground mt-1">
                     {recipientCount} total recipients
                   </p>
+                  {formData.recipientFilter !== "all" && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Filter: {formData.recipientFilter === "approved_no_approval_sms" 
+                        ? "Approved but No Approval SMS Sent"
+                        : formData.recipientFilter}
+                    </p>
+                  )}
+                  {formData.includeQrCodes && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      QR Code Images: Enabled
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>

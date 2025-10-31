@@ -86,6 +86,7 @@ import {
   Download,
   Share,
   Eye,
+  Columns,
 } from "lucide-react";
 import {
   ColumnDef,
@@ -96,6 +97,8 @@ import {
   SortingState,
   useReactTable,
   RowData,
+  HeaderContext,
+  CellContext,
 } from "@tanstack/react-table";
 import { cn, sanitizeFieldValue } from "@/lib/utils";
 import { formatEventTitleInline } from "@/lib/event-display";
@@ -248,6 +251,70 @@ export default function RsvpsPage() {
   const [includePhone, setIncludePhone] = React.useState(true);
   const [isExportingCsv, setIsExportingCsv] = React.useState(false);
   const runExportRsvpsCsv = useAction(api.exports.exportRsvpsCsv);
+
+  // Column visibility state
+  const [columnVisibilityOpen, setColumnVisibilityOpen] = React.useState(false);
+  
+  // Get all available column IDs (static + dynamic custom fields)
+  const getAllAvailableColumnIds = React.useCallback((): string[] => {
+    const staticColumnIds = [
+      "select",
+      "guest",
+      "listKey",
+      "attendees",
+      "smsConsent",
+      "noteForHosts",
+      "createdAt",
+      "approvalStatus",
+      "ticketStatus",
+      "actions",
+    ];
+    const customFieldColumnIds =
+      currentEvent?.customFields?.map((field) => `custom_${field.key}`) || [];
+    return [...staticColumnIds, ...customFieldColumnIds];
+  }, [currentEvent?.customFields]);
+
+  // Initialize visible columns: all except "noteForHosts"
+  const [visibleColumns, setVisibleColumns] = React.useState<Set<string>>(
+    () => {
+      const allColumnIds = [
+        "select",
+        "guest",
+        "listKey",
+        "attendees",
+        "smsConsent",
+        "createdAt",
+        "approvalStatus",
+        "ticketStatus",
+        "actions",
+      ];
+      return new Set(allColumnIds);
+    },
+  );
+
+  // Update visible columns when custom fields change
+  React.useEffect(() => {
+    setVisibleColumns((previousVisibleColumns) => {
+      const allColumnIds = getAllAvailableColumnIds();
+      const updatedVisibleColumns = new Set(previousVisibleColumns);
+      
+      // Add new custom field columns (they'll be visible by default)
+      allColumnIds.forEach((columnId) => {
+        if (columnId.startsWith("custom_")) {
+          updatedVisibleColumns.add(columnId);
+        }
+      });
+      
+      // Remove columns that no longer exist
+      Array.from(updatedVisibleColumns).forEach((columnId) => {
+        if (!allColumnIds.includes(columnId)) {
+          updatedVisibleColumns.delete(columnId);
+        }
+      });
+      
+      return updatedVisibleColumns;
+    });
+  }, [getAllAvailableColumnIds]);
 
   React.useEffect(() => {
     if (listCredentials && selectedListsForExport.length === 0) {
@@ -643,6 +710,33 @@ export default function RsvpsPage() {
         cell: ({ row }) => {
           const attendees = row.original.attendees ?? 1;
           return <span className="text-sm">{attendees}</span>;
+        },
+      },
+      {
+        id: "smsConsent",
+        header: "SMS Consent",
+        accessorFn: (rsvp: HostRsvp): string => {
+          return rsvp.smsConsent === true ? "Yes" : rsvp.smsConsent === false ? "No" : "—";
+        },
+        cell: ({ row }) => {
+          const consent = row.original.smsConsent;
+          if (consent === true) {
+            return (
+              <Badge variant="success" className="text-xs">
+                Yes
+              </Badge>
+            );
+          } else if (consent === false) {
+            return (
+              <Badge variant="secondary" className="text-xs">
+                No
+              </Badge>
+            );
+          } else {
+            return (
+              <span className="text-sm text-muted-foreground">—</span>
+            );
+          }
         },
       },
       {
@@ -1858,43 +1952,54 @@ export default function RsvpsPage() {
     return () => document.removeEventListener("keydown", handleKeydown);
   }, [toggleSelectAllCurrent]);
 
-  // Create the final columns with proper header checkbox
+  // Create the final columns with proper header checkbox, filtered by visibility
   const finalCols = React.useMemo<ColumnDef<HostRsvp>[]>(
-    () => [
-      {
-        id: "select",
-        header: ({ table }) => (
-          <Checkbox
-            checked={allSelected || someSelected ? true : false}
-            onCheckedChange={toggleSelectAllCurrent}
-            aria-label="Select all"
-            className="ml-2"
-            ref={(el: HTMLButtonElement | null) => {
-              if (el) {
-                // For button-based checkbox, we need to find the actual input element
-                const input = el.querySelector(
-                  'input[type="checkbox"]',
-                ) as HTMLInputElement;
-                if (input) {
-                  input.indeterminate = someSelected;
+    () => {
+      const allCols = [
+        {
+          id: "select",
+          header: ({ table }: HeaderContext<HostRsvp, unknown>) => (
+            <Checkbox
+              checked={allSelected || someSelected ? true : false}
+              onCheckedChange={toggleSelectAllCurrent}
+              aria-label="Select all"
+              className="ml-2"
+              ref={(el: HTMLButtonElement | null) => {
+                if (el) {
+                  // For button-based checkbox, we need to find the actual input element
+                  const input = el.querySelector(
+                    'input[type="checkbox"]',
+                  ) as HTMLInputElement;
+                  if (input) {
+                    input.indeterminate = someSelected;
+                  }
                 }
-              }
-            }}
-          />
-        ),
-        cell: ({ row }) => (
-          <Checkbox
-            checked={selectedRows.has(row.original.id)}
-            onCheckedChange={() => toggleSelectRow(row.original.id)}
-            aria-label="Select row"
-            className="ml-2"
-          />
-        ),
-        enableSorting: false,
-        enableHiding: false,
-      },
-      ...baseCols,
-    ],
+              }}
+            />
+          ),
+          cell: ({ row }: CellContext<HostRsvp, unknown>) => (
+            <Checkbox
+              checked={selectedRows.has(row.original.id)}
+              onCheckedChange={() => toggleSelectRow(row.original.id)}
+              aria-label="Select row"
+              className="ml-2"
+            />
+          ),
+          enableSorting: false,
+          enableHiding: false,
+        },
+        ...baseCols,
+      ];
+      
+      // Filter columns based on visibility (always show select column)
+      return allCols.filter((col) => {
+        const columnId = col.id;
+        if (columnId === "select") {
+          return true; // Always show select column
+        }
+        return columnId ? visibleColumns.has(columnId) : true;
+      });
+    },
     [
       baseCols,
       selectedRows,
@@ -1902,6 +2007,7 @@ export default function RsvpsPage() {
       someSelected,
       toggleSelectAllCurrent,
       toggleSelectRow,
+      visibleColumns,
     ],
   );
 
@@ -1919,6 +2025,37 @@ export default function RsvpsPage() {
     rsvpsPaginated === undefined ||
     currentEvent === undefined ||
     totalCount === undefined;
+
+  // Helper function to get column display name
+  const getColumnDisplayName = React.useCallback(
+    (columnId: string): string => {
+      if (columnId.startsWith("custom_")) {
+        const fieldKey = columnId.replace("custom_", "");
+        const field = currentEvent?.customFields?.find(
+          (f) => f.key === fieldKey,
+        );
+        return field
+          ? field.label.replace(/:\s*$/, "").trim()
+          : formatColumnIdentifier(columnId);
+      }
+      
+      const columnMap: Record<string, string> = {
+        select: "Select",
+        guest: "Guest",
+        listKey: "List",
+        attendees: "Attendees",
+        smsConsent: "SMS Consent",
+        noteForHosts: "Note for Hosts",
+        createdAt: "Created",
+        approvalStatus: "Approval",
+        ticketStatus: "Ticket",
+        actions: "Action",
+      };
+      
+      return columnMap[columnId] || formatColumnIdentifier(columnId);
+    },
+    [currentEvent?.customFields, formatColumnIdentifier],
+  );
 
   const handleExportCsv = React.useCallback(async (): Promise<boolean> => {
     if (!eventId) {
@@ -2035,6 +2172,12 @@ export default function RsvpsPage() {
                   >
                     <Download className="h-4 w-4 mr-2" />
                     Export CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setColumnVisibilityOpen(true)}
+                  >
+                    <Columns className="h-4 w-4 mr-2" />
+                    Columns
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -2324,6 +2467,57 @@ export default function RsvpsPage() {
           <SelectOption value="disabled">Disabled</SelectOption>
           <SelectOption value="not-issued">None</SelectOption>
         </Select>
+        <span className="mx-2 h-6 w-px bg-foreground/20" />
+        <Popover open={columnVisibilityOpen} onOpenChange={setColumnVisibilityOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8">
+              <Columns className="h-4 w-4 mr-2" />
+              Columns
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium text-sm mb-2">Show Columns</h4>
+              </div>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {getAllAvailableColumnIds()
+                  .filter((columnId) => columnId !== "select") // Don't show select column in list
+                  .map((columnId) => {
+                    const displayName = getColumnDisplayName(columnId);
+                    const isVisible = visibleColumns.has(columnId);
+                    return (
+                      <div key={columnId} className="flex items-center">
+                        <Checkbox
+                          id={`column-${columnId}`}
+                          checked={isVisible}
+                          onCheckedChange={(checked) => {
+                            setVisibleColumns((previousVisibleColumns) => {
+                              const updatedVisibleColumns = new Set(
+                                previousVisibleColumns,
+                              );
+                              if (checked === true) {
+                                updatedVisibleColumns.add(columnId);
+                              } else {
+                                updatedVisibleColumns.delete(columnId);
+                              }
+                              return updatedVisibleColumns;
+                            });
+                          }}
+                        />
+                        <label
+                          htmlFor={`column-${columnId}`}
+                          className="ml-2 text-sm cursor-pointer"
+                        >
+                          {displayName}
+                        </label>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
         {hasActiveFilters && (
           <Button
             size="sm"

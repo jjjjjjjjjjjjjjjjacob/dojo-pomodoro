@@ -199,6 +199,7 @@ export const sendBulkSmsInternal = internalAction({
         clerkUserId: v.string(),
         notificationId: v.optional(v.id("smsNotifications")),
         personalizedMessage: v.optional(v.string()),
+        mediaUrl: v.optional(v.string()),
       })
     ),
     message: v.string(),
@@ -242,6 +243,7 @@ export const sendBulkSmsInternal = internalAction({
             phoneNumber: recipient.phoneNumber,
             message: recipient.personalizedMessage ?? args.message,
             notificationId: recipient.notificationId,
+            mediaUrl: recipient.mediaUrl,
             messageType: args.messageType,
           })
         )

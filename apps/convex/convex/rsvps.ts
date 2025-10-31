@@ -912,6 +912,7 @@ export const listForEventPaginated = query({
         redemptionStatus,
         redemptionCode: redemption?.code,
         createdAt: rsvp.createdAt,
+        smsConsent: rsvp.smsConsent ?? undefined,
       };
     });
 

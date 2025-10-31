@@ -149,6 +149,8 @@ export interface TextBlast {
   name: string;
   message: string;
   targetLists: string[];
+  recipientFilter?: string;
+  includeQrCodes?: boolean;
   recipientCount: number;
   sentCount: number;
   failedCount: number;
@@ -202,6 +204,7 @@ export interface HostRsvp {
   redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
   redemptionCode?: string;
   createdAt: number;
+  smsConsent?: boolean;
 }
 
 export interface UserTicket {
