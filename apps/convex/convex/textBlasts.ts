@@ -288,15 +288,25 @@ export const sendBlast = action({
         
         if (blast.includeQrCodes && recipient.redemptionCode && baseUrl) {
           try {
+            // Use the exact same redemption code format as the user-facing ticket page
+            // The redemption code comes from the same query (by_event_user index)
+            // and is used in the exact same URL format: ${baseUrl}/redeem/${code}
+            // This ensures 100% compatibility with QR codes displayed on the ticket page
             const ticketUrl = `${baseUrl}/redeem/${recipient.redemptionCode}`;
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
+            // Generate QR code for the recipient user based on their RSVP
+            // This ensures the QR code is generated in the context of the recipient,
+            // not the admin who initiated the text blast
+            // The QR code value is identical to what users see on their ticket page
             const qrCodeStorageId = await ctx.runAction(
-              internal.lib.qrCodeGenerator.generateAndUploadQrCode,
+              internal.lib.qrCodeGenerator.generateAndUploadQrCodeForUser,
               {
                 value: ticketUrl,
                 qrCodeColor,
+                clerkUserId: recipient.clerkUserId,
+                eventId: blast.eventId,
               },
             );
             
@@ -467,15 +477,25 @@ export const sendBlastDirect = action({
         
         if (args.includeQrCodes && recipient.redemptionCode && baseUrl) {
           try {
+            // Use the exact same redemption code format as the user-facing ticket page
+            // The redemption code comes from the same query (by_event_user index)
+            // and is used in the exact same URL format: ${baseUrl}/redeem/${code}
+            // This ensures 100% compatibility with QR codes displayed on the ticket page
             const ticketUrl = `${baseUrl}/redeem/${recipient.redemptionCode}`;
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
+            // Generate QR code for the recipient user based on their RSVP
+            // This ensures the QR code is generated in the context of the recipient,
+            // not the admin who initiated the text blast
+            // The QR code value is identical to what users see on their ticket page
             const qrCodeStorageId = await ctx.runAction(
-              internal.lib.qrCodeGenerator.generateAndUploadQrCode,
+              internal.lib.qrCodeGenerator.generateAndUploadQrCodeForUser,
               {
                 value: ticketUrl,
                 qrCodeColor,
+                clerkUserId: recipient.clerkUserId,
+                eventId: args.eventId,
               },
             );
             
@@ -1253,6 +1273,8 @@ export const getRecipientsWithPhonesInternal = internalAction({
       const firstNameFromUserName = rsvp.userName?.trim().split(/\s+/)[0];
 
       // Get redemption code for this user/event if available
+      // Uses the exact same query pattern as api.redemptions.forCurrentUserEvent
+      // to ensure we get the same redemption code the user would see on their ticket page
       const redemption = await ctx.runQuery(internal.textBlasts.getRedemptionForUserEventInternal, {
         eventId: args.eventId,
         clerkUserId: rsvp.clerkUserId,
@@ -1265,6 +1287,8 @@ export const getRecipientsWithPhonesInternal = internalAction({
         listKey: rsvp.listKey,
         firstName: firstNameFromUserRecord || firstNameFromUserName || undefined,
         userName: rsvp.userName ?? undefined,
+        // Use the exact redemption code as stored in the database
+        // This is identical to what users see on their ticket page
         redemptionCode: redemption?.code,
       });
     }
@@ -1290,6 +1314,9 @@ export const getUserByClerkUserIdInternal = internalQuery({
 
 /**
  * Internal query to get redemption code for a user/event
+ * Uses the exact same query pattern as api.redemptions.forCurrentUserEvent
+ * to ensure we retrieve the same redemption code the user would see on their ticket page
+ * This guarantees 100% compatibility between text blast QR codes and user-facing QR codes
  */
 export const getRedemptionForUserEventInternal = internalQuery({
   args: {
