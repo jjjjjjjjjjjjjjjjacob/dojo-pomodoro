@@ -7,6 +7,7 @@ import { action, mutation, query, internalAction, internalQuery, internalMutatio
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import QRCode from "qrcode";
 
 /**
  * Create a new text blast draft
@@ -296,26 +297,27 @@ export const sendBlast = action({
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
-            // Generate QR code for the recipient user based on their RSVP
-            // This ensures the QR code is generated in the context of the recipient,
-            // not the admin who initiated the text blast
+            // Generate QR code directly in the action context (which has admin authentication)
+            // This ensures storage operations use the admin's auth context, not the recipient's
             // The QR code value is identical to what users see on their ticket page
-            const qrCodeStorageId = await ctx.runAction(
-              internal.lib.qrCodeGenerator.generateAndUploadQrCodeForUser,
-              {
-                value: ticketUrl,
-                qrCodeColor,
-                clerkUserId: recipient.clerkUserId,
-                eventId: blast.eventId,
+            const qrCodeBuffer = await QRCode.toBuffer(ticketUrl, {
+              type: "png",
+              width: 500,
+              margin: 2,
+              color: {
+                dark: qrCodeColor,
+                light: "#FFFFFF",
               },
+            });
+            
+            // Upload to Convex storage using the admin's authentication context
+            const qrCodeUint8Array = new Uint8Array(qrCodeBuffer);
+            const qrCodeStorageId = await ctx.storage.store(
+              new Blob([qrCodeUint8Array], { type: "image/png" }),
             );
             
-            const qrCodeImageUrl = await ctx.runAction(
-              internal.lib.qrCodeGenerator.getQrCodeUrl,
-              {
-                storageId: qrCodeStorageId,
-              },
-            );
+            // Get publicly accessible URL for the QR code
+            const qrCodeImageUrl = await ctx.storage.getUrl(qrCodeStorageId);
             
             if (qrCodeImageUrl) {
               qrCodeMediaUrl = qrCodeImageUrl; // Storage URL for MMS attachment
@@ -485,26 +487,27 @@ export const sendBlastDirect = action({
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
-            // Generate QR code for the recipient user based on their RSVP
-            // This ensures the QR code is generated in the context of the recipient,
-            // not the admin who initiated the text blast
+            // Generate QR code directly in the action context (which has admin authentication)
+            // This ensures storage operations use the admin's auth context, not the recipient's
             // The QR code value is identical to what users see on their ticket page
-            const qrCodeStorageId = await ctx.runAction(
-              internal.lib.qrCodeGenerator.generateAndUploadQrCodeForUser,
-              {
-                value: ticketUrl,
-                qrCodeColor,
-                clerkUserId: recipient.clerkUserId,
-                eventId: args.eventId,
+            const qrCodeBuffer = await QRCode.toBuffer(ticketUrl, {
+              type: "png",
+              width: 500,
+              margin: 2,
+              color: {
+                dark: qrCodeColor,
+                light: "#FFFFFF",
               },
+            });
+            
+            // Upload to Convex storage using the admin's authentication context
+            const qrCodeUint8Array = new Uint8Array(qrCodeBuffer);
+            const qrCodeStorageId = await ctx.storage.store(
+              new Blob([qrCodeUint8Array], { type: "image/png" }),
             );
             
-            const qrCodeImageUrl = await ctx.runAction(
-              internal.lib.qrCodeGenerator.getQrCodeUrl,
-              {
-                storageId: qrCodeStorageId,
-              },
-            );
+            // Get publicly accessible URL for the QR code
+            const qrCodeImageUrl = await ctx.storage.getUrl(qrCodeStorageId);
             
             if (qrCodeImageUrl) {
               qrCodeMediaUrl = qrCodeImageUrl; // Storage URL for MMS attachment
