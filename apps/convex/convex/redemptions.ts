@@ -51,10 +51,10 @@ export const validate = query({
       ? `${user.firstName} ${user.lastName}`.trim()
       : user?.firstName || user?.lastName || undefined;
 
-    if (rec.disabledAt) return { status: "invalid" as const };
+    if (rec.disabledAt) return { status: "invalid" as const, eventId: rec.eventId };
     if (rec.redeemedAt)
-      return { status: "redeemed" as const, name, listKey: rec.listKey };
-    return { status: "valid" as const, name, listKey: rec.listKey };
+      return { status: "redeemed" as const, name, listKey: rec.listKey, eventId: rec.eventId };
+    return { status: "valid" as const, name, listKey: rec.listKey, eventId: rec.eventId };
   },
 });
 

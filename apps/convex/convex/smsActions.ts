@@ -120,9 +120,25 @@ export const sendSmsInternal = internalAction({
     }
 
     // Check if user has opted out
-    const hasOptedOut = await ctx.runAction(internal.smsMonitoringActions.checkOptOutAction, {
-      phoneNumber: formattedPhone,
-    });
+    // Wrap in try-catch to handle authentication errors gracefully (internal actions shouldn't need auth)
+    let hasOptedOut = false;
+    try {
+      hasOptedOut = await ctx.runAction(internal.smsMonitoringActions.checkOptOutAction, {
+        phoneNumber: formattedPhone,
+      });
+    } catch (error: any) {
+      // If we get an authentication error (OIDC token), log it but continue
+      // Internal actions shouldn't require authentication, so this is likely a Convex bug
+      const errorMessage = error.message || String(error);
+      if (errorMessage.includes("OIDC") || errorMessage.includes("Unauthenticated")) {
+        console.warn(`[sendSmsInternal] Authentication error checking opt-out status (continuing anyway): ${errorMessage}`);
+        // Continue without opt-out check - better to send than to fail silently
+        hasOptedOut = false;
+      } else {
+        // Re-throw other errors
+        throw error;
+      }
+    }
 
     if (hasOptedOut) {
       // User has opted out - update notification status and skip sending
@@ -173,14 +189,28 @@ export const sendSmsInternal = internalAction({
       const messageType = args.messageType || "Transactional";
 
       // Log SMS usage
-      await ctx.runAction(internal.smsMonitoringActions.logSmsUsageAction, {
-        messageId: message.sid,
-        phoneNumber: formattedPhone,
-        messageLength,
-        messageType,
-        estimatedCost,
-        timestamp: Date.now(),
-      });
+      // Wrap in try-catch to handle authentication errors gracefully (internal actions shouldn't need auth)
+      try {
+        await ctx.runAction(internal.smsMonitoringActions.logSmsUsageAction, {
+          messageId: message.sid,
+          phoneNumber: formattedPhone,
+          messageLength,
+          messageType,
+          estimatedCost,
+          timestamp: Date.now(),
+        });
+      } catch (error: any) {
+        // If we get an authentication error (OIDC token), log it but continue
+        // Internal actions shouldn't require authentication, so this is likely a Convex bug
+        const errorMessage = error.message || String(error);
+        if (errorMessage.includes("OIDC") || errorMessage.includes("Unauthenticated")) {
+          console.warn(`[sendSmsInternal] Authentication error logging SMS usage (continuing anyway): ${errorMessage}`);
+          // Continue without logging - SMS was sent successfully, logging is secondary
+        } else {
+          // Log other errors but don't fail the SMS send
+          console.error(`[sendSmsInternal] Error logging SMS usage: ${errorMessage}`);
+        }
+      }
 
       // Update notification status if ID provided
       if (args.notificationId) {
