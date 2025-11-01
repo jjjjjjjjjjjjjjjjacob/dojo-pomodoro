@@ -78,24 +78,46 @@ export const sendSmsInternal = internalAction({
     
     if (!credentials) {
       // Dev mode with SMS disabled - update notification status and return gracefully
+      const errorMessage = "Twilio disabled in development (DEV_TWILIO_ENABLED=false)";
+      console.error(`[sendSmsInternal] ${errorMessage}`);
       if (args.notificationId) {
         await ctx.runMutation(internal.sms.updateNotificationStatus, {
           notificationId: args.notificationId,
           status: "failed",
-          errorMessage: "Twilio disabled in development (DEV_TWILIO_ENABLED=false)",
+          errorMessage,
         });
       }
       return {
         success: false,
         messageId: undefined,
         phone: obfuscatePhoneNumber(args.phoneNumber),
+        error: errorMessage,
       };
     }
 
     const { accountSid, authToken, fromNumber } = credentials;
 
     // Format phone number for international format
-    const formattedPhone = formatPhoneNumberForSms(args.phoneNumber);
+    let formattedPhone: string;
+    try {
+      formattedPhone = formatPhoneNumberForSms(args.phoneNumber);
+    } catch (error: any) {
+      const errorMessage = `Invalid phone number format: ${error.message}`;
+      console.error(`[sendSmsInternal] Phone formatting failed for ${obfuscatePhoneNumber(args.phoneNumber)}: ${errorMessage}`);
+      if (args.notificationId) {
+        await ctx.runMutation(internal.sms.updateNotificationStatus, {
+          notificationId: args.notificationId,
+          status: "failed",
+          errorMessage,
+        });
+      }
+      return {
+        success: false,
+        messageId: undefined,
+        phone: obfuscatePhoneNumber(args.phoneNumber),
+        error: errorMessage,
+      };
+    }
 
     // Check if user has opted out
     const hasOptedOut = await ctx.runAction(internal.smsMonitoringActions.checkOptOutAction, {
@@ -104,11 +126,13 @@ export const sendSmsInternal = internalAction({
 
     if (hasOptedOut) {
       // User has opted out - update notification status and skip sending
+      const errorMessage = "User has opted out of SMS notifications";
+      console.warn(`[sendSmsInternal] User opted out: ${obfuscatePhoneNumber(formattedPhone)}`);
       if (args.notificationId) {
         await ctx.runMutation(internal.sms.updateNotificationStatus, {
           notificationId: args.notificationId,
           status: "failed",
-          errorMessage: "User has opted out of SMS notifications",
+          errorMessage,
         });
       }
       return {
@@ -116,6 +140,7 @@ export const sendSmsInternal = internalAction({
         messageId: undefined,
         phone: obfuscatePhoneNumber(formattedPhone),
         skipped: "opted_out",
+        error: errorMessage,
       };
     }
 
@@ -174,15 +199,17 @@ export const sendSmsInternal = internalAction({
       };
     } catch (error: any) {
       // Update notification status with error if ID provided
+      const errorMessage = error.message || String(error);
+      console.error(`[sendSmsInternal] Failed to send SMS to ${obfuscatePhoneNumber(formattedPhone)}: ${errorMessage}`, error);
       if (args.notificationId) {
         await ctx.runMutation(internal.sms.updateNotificationStatus, {
           notificationId: args.notificationId,
           status: "failed",
-          errorMessage: error.message,
+          errorMessage,
         });
       }
 
-      throw new Error(`SMS send failed: ${error.message}`);
+      throw new Error(`SMS send failed: ${errorMessage}`);
     }
   },
 });
@@ -212,6 +239,7 @@ export const sendBulkSmsInternal = internalAction({
     
     if (!credentials) {
       // Dev mode with SMS disabled - return failure for all recipients
+      console.error(`[sendBulkSmsInternal] Twilio disabled - failing all ${args.recipients.length} recipients`);
       return {
         totalRecipients: args.recipients.length,
         successCount: 0,
@@ -232,9 +260,15 @@ export const sendBulkSmsInternal = internalAction({
       error?: string;
     }> = [];
 
+    console.log(`[sendBulkSmsInternal] Starting bulk send: ${args.recipients.length} recipients, batch size: ${batchSize}`);
+
     // Process recipients in batches
     for (let i = 0; i < args.recipients.length; i += batchSize) {
       const batch = args.recipients.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(args.recipients.length / batchSize);
+      
+      console.log(`[sendBulkSmsInternal] Processing batch ${batchNumber}/${totalBatches} (${batch.length} recipients)`);
 
       // Send batch of SMS messages
       const batchResults = await Promise.allSettled(
@@ -253,16 +287,30 @@ export const sendBulkSmsInternal = internalAction({
       batchResults.forEach((result, index) => {
         const recipient = batch[index];
         if (result.status === "fulfilled") {
-          results.push({
-            clerkUserId: recipient.clerkUserId,
-            success: true,
-            messageId: result.value.messageId,
-          });
+          // Check if SMS was actually sent successfully, not just if promise fulfilled
+          if (result.value.success) {
+            results.push({
+              clerkUserId: recipient.clerkUserId,
+              success: true,
+              messageId: result.value.messageId,
+            });
+          } else {
+            // Promise fulfilled but SMS wasn't sent (e.g., opted out, dev mode disabled)
+            const errorMessage = result.value.error || "SMS send failed but no error provided";
+            console.error(`[sendBulkSmsInternal] SMS failed for user ${recipient.clerkUserId}: ${errorMessage}`);
+            results.push({
+              clerkUserId: recipient.clerkUserId,
+              success: false,
+              error: errorMessage,
+            });
+          }
         } else {
+          // Promise rejected - exception thrown
           const errorMessage =
             result.reason instanceof Error
               ? result.reason.message
               : String(result.reason ?? "Unknown error");
+          console.error(`[sendBulkSmsInternal] Exception sending SMS to user ${recipient.clerkUserId}: ${errorMessage}`);
           results.push({
             clerkUserId: recipient.clerkUserId,
             success: false,
@@ -280,6 +328,16 @@ export const sendBulkSmsInternal = internalAction({
     // Calculate success/failure counts
     const successCount = results.filter((r) => r.success).length;
     const failureCount = results.filter((r) => !r.success).length;
+
+    console.log(`[sendBulkSmsInternal] Bulk send complete: ${successCount} succeeded, ${failureCount} failed out of ${args.recipients.length} total`);
+    
+    if (failureCount > 0) {
+      const errorMessages = results
+        .filter((r) => !r.success && r.error)
+        .map((r) => r.error)
+        .slice(0, 5); // Show first 5 errors
+      console.error(`[sendBulkSmsInternal] Sample errors:`, errorMessages);
+    }
 
     return {
       totalRecipients: args.recipients.length,

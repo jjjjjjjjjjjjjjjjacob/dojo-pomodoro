@@ -7,6 +7,7 @@ import { action, mutation, query, internalAction, internalQuery, internalMutatio
 import { v } from "convex/values";
 import { internal, api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { obfuscatePhoneNumber } from "./lib/phoneUtils";
 
 /**
  * Create a new text blast draft
@@ -356,6 +357,8 @@ export const sendBlast = action({
         messageType: "Promotional",
       });
 
+      console.log(`[sendBlast] Bulk send result: ${result.successCount} succeeded, ${result.failureCount} failed out of ${result.totalRecipients} total`);
+
       // Update blast with final counts
       await ctx.runMutation(internal.textBlasts.updateBlastCounts, {
         blastId: args.blastId,
@@ -363,6 +366,21 @@ export const sendBlast = action({
         failedCount: result.failureCount,
         status: result.successCount > 0 ? "sent" : "failed",
       });
+
+      // If no messages were sent, provide a more informative error
+      if (result.successCount === 0 && result.failureCount > 0) {
+        const sampleErrors = result.results
+          .filter((r) => !r.success && r.error)
+          .map((r) => r.error)
+          .slice(0, 3);
+        const errorSummary = sampleErrors.length > 0 
+          ? ` Common errors: ${sampleErrors.join("; ")}`
+          : "";
+        throw new Error(
+          `Failed to send any messages to ${result.totalRecipients} recipients.${errorSummary} ` +
+          `Check Twilio credentials, opt-out status, and phone number formats.`
+        );
+      }
 
       return {
         success: true,
@@ -372,6 +390,7 @@ export const sendBlast = action({
       };
     } catch (error: any) {
       // Mark blast as failed
+      console.error(`[sendBlast] Error sending text blast ${args.blastId}:`, error);
       await ctx.runMutation(internal.textBlasts.updateBlastStatus, {
         blastId: args.blastId,
         status: "failed",
@@ -543,6 +562,8 @@ export const sendBlastDirect = action({
         messageType: "Promotional",
       });
 
+      console.log(`[sendBlastDirect] Bulk send result: ${result.successCount} succeeded, ${result.failureCount} failed out of ${result.totalRecipients} total`);
+
       // Update blast with final counts
       await ctx.runMutation(internal.textBlasts.updateBlastCounts, {
         blastId,
@@ -550,6 +571,21 @@ export const sendBlastDirect = action({
         failedCount: result.failureCount,
         status: result.successCount > 0 ? "sent" : "failed",
       });
+
+      // If no messages were sent, provide a more informative error
+      if (result.successCount === 0 && result.failureCount > 0) {
+        const sampleErrors = result.results
+          .filter((r) => !r.success && r.error)
+          .map((r) => r.error)
+          .slice(0, 3);
+        const errorSummary = sampleErrors.length > 0 
+          ? ` Common errors: ${sampleErrors.join("; ")}`
+          : "";
+        throw new Error(
+          `Failed to send any messages to ${result.totalRecipients} recipients.${errorSummary} ` +
+          `Check Twilio credentials, opt-out status, and phone number formats.`
+        );
+      }
 
       return {
         success: true,
@@ -559,6 +595,7 @@ export const sendBlastDirect = action({
       };
     } catch (error: any) {
       // Mark blast as failed
+      console.error(`[sendBlastDirect] Error sending text blast ${blastId}:`, error);
       await ctx.runMutation(internal.textBlasts.updateBlastStatus, {
         blastId,
         status: "failed",
@@ -1230,6 +1267,7 @@ export const getRecipientsWithPhonesInternal = internalAction({
         return userRecord.phone;
       }
 
+      console.warn(`[getRecipientsWithPhonesInternal] No phone number found for user ${clerkUserId} (checked: profile=${!!profile?.phoneEnc}, clerk=${!!clerkSecretKey}, users=${!!userRecord?.phone})`);
       return null;
     };
 
@@ -1267,6 +1305,22 @@ export const getRecipientsWithPhonesInternal = internalAction({
         continue;
       }
 
+      // Validate phone number format before adding to recipients
+      // This catches formatting issues early
+      const phoneNumberTrimmed = decryptedPhone.trim();
+      if (!phoneNumberTrimmed || phoneNumberTrimmed.length === 0) {
+        skippedNoPhone++;
+        console.warn(`[getRecipientsWithPhonesInternal] User ${rsvp.clerkUserId} has empty phone number`);
+        continue;
+      }
+
+      // Try to validate phone number format (will be caught and handled later if invalid)
+      // But log a warning if it looks suspicious
+      const digitsOnly = phoneNumberTrimmed.replace(/\D/g, "");
+      if (digitsOnly.length < 7 || digitsOnly.length > 15) {
+        console.warn(`[getRecipientsWithPhonesInternal] User ${rsvp.clerkUserId} has suspicious phone number length: ${digitsOnly.length} digits (${obfuscatePhoneNumber(phoneNumberTrimmed)})`);
+      }
+
       const firstNameFromUserRecord = userRecord?.firstName?.trim();
       const firstNameFromUserName = rsvp.userName?.trim().split(/\s+/)[0];
 
@@ -1280,7 +1334,7 @@ export const getRecipientsWithPhonesInternal = internalAction({
 
       recipients.push({
         clerkUserId: rsvp.clerkUserId,
-        decryptedPhone,
+        decryptedPhone: phoneNumberTrimmed, // Use trimmed phone number
         phoneObfuscated: profile?.phoneObfuscated || "***-***-****",
         listKey: rsvp.listKey,
         firstName: firstNameFromUserRecord || firstNameFromUserName || undefined,
