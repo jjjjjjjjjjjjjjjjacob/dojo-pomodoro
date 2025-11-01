@@ -296,19 +296,27 @@ export const sendBlast = action({
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
-            // Generate QR code using action wrapper that preserves admin authentication
-            // The action properly loads Node.js QRCode module and maintains auth context
+            // Generate QR code using internal action (no auth required)
+            // The internal action properly loads Node.js QRCode module
             // The QR code value is identical to what users see on their ticket page
-            const qrCodeResult = await ctx.runAction(
-              api.lib.qrCodeGenerator.generateAndUploadQrCodeWithAuth,
+            const storageId = await ctx.runAction(
+              internal.lib.qrCodeGenerator.generateAndUploadQrCode,
               {
                 value: ticketUrl,
                 qrCodeColor,
               },
             );
             
-            if (qrCodeResult.url) {
-              qrCodeMediaUrl = qrCodeResult.url; // Storage URL for MMS attachment
+            // Get the publicly accessible URL for the QR code
+            const qrCodeUrl = await ctx.runAction(
+              internal.lib.qrCodeGenerator.getQrCodeUrl,
+              {
+                storageId,
+              },
+            );
+            
+            if (qrCodeUrl) {
+              qrCodeMediaUrl = qrCodeUrl; // Storage URL for MMS attachment
             }
           } catch (error) {
             console.error(`Failed to generate QR code for recipient ${recipient.clerkUserId}:`, error);
@@ -475,19 +483,27 @@ export const sendBlastDirect = action({
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
-            // Generate QR code using action wrapper that preserves admin authentication
-            // The action properly loads Node.js QRCode module and maintains auth context
+            // Generate QR code using internal action (no auth required)
+            // The internal action properly loads Node.js QRCode module
             // The QR code value is identical to what users see on their ticket page
-            const qrCodeResult = await ctx.runAction(
-              api.lib.qrCodeGenerator.generateAndUploadQrCodeWithAuth,
+            const storageId = await ctx.runAction(
+              internal.lib.qrCodeGenerator.generateAndUploadQrCode,
               {
                 value: ticketUrl,
                 qrCodeColor,
               },
             );
             
-            if (qrCodeResult.url) {
-              qrCodeMediaUrl = qrCodeResult.url; // Storage URL for MMS attachment
+            // Get the publicly accessible URL for the QR code
+            const qrCodeUrl = await ctx.runAction(
+              internal.lib.qrCodeGenerator.getQrCodeUrl,
+              {
+                storageId,
+              },
+            );
+            
+            if (qrCodeUrl) {
+              qrCodeMediaUrl = qrCodeUrl; // Storage URL for MMS attachment
             }
           } catch (error) {
             console.error(`Failed to generate QR code for recipient ${recipient.clerkUserId}:`, error);
@@ -902,7 +918,8 @@ export const duplicateBlast = mutation({
 });
 
 /**
- * Delete a text blast (only drafts can be deleted)
+ * Delete a text blast
+ * Allows deletion of any status text blast (draft, sent, failed, etc.)
  */
 export const deleteBlast = mutation({
   args: { blastId: v.id("textBlasts") },
@@ -917,8 +934,9 @@ export const deleteBlast = mutation({
       throw new Error("Not authorized to delete this text blast");
     }
 
-    if (blast.status !== "draft") {
-      throw new Error("Can only delete draft text blasts");
+    // Prevent deletion of blasts that are currently being sent
+    if (blast.status === "sending") {
+      throw new Error("Cannot delete a text blast that is currently being sent");
     }
 
     await ctx.db.delete(args.blastId);

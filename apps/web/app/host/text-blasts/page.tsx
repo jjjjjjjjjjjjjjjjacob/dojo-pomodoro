@@ -333,7 +333,7 @@ export default function TextBlastsPage() {
                           <Copy className="h-4 w-4 mr-2" />
                           Duplicate
                         </DropdownMenuItem>
-                        {blast.status === "draft" && (
+                        {blast.status !== "sending" && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <DropdownMenuItem
@@ -348,7 +348,25 @@ export default function TextBlastsPage() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Delete Text Blast</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Are you sure you want to delete &ldquo;{blast.name}&rdquo;? This action cannot be undone.
+                                  {blast.status === "sent" ? (
+                                    <>
+                                      Are you sure you want to delete &ldquo;{blast.name}&rdquo;? This text blast was already sent to {blast.sentCount} recipient{blast.sentCount !== 1 ? "s" : ""}.
+                                      <br />
+                                      <br />
+                                      This will remove the text blast record from your dashboard, but it will not affect messages that were already sent. This action cannot be undone.
+                                    </>
+                                  ) : blast.status === "failed" ? (
+                                    <>
+                                      Are you sure you want to delete &ldquo;{blast.name}&rdquo;? This text blast failed to send.
+                                      <br />
+                                      <br />
+                                      This action cannot be undone.
+                                    </>
+                                  ) : (
+                                    <>
+                                      Are you sure you want to delete &ldquo;{blast.name}&rdquo;? This action cannot be undone.
+                                    </>
+                                  )}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>

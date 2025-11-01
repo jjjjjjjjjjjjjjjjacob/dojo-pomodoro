@@ -750,6 +750,10 @@ export const listForEventPaginated = query({
 
     const ticketStatusFilter = normalizeTicketStatusFilter(redemptionFilter);
 
+    // Fetch event once since all RSVPs are for the same event
+    const event = await ctx.db.get(eventId);
+    if (!event) throw new Error("Event not found");
+
     // Choose the most efficient index based on filters
     let baseQuery: any = ctx.db.query("rsvps");
 
@@ -884,6 +888,11 @@ export const listForEventPaginated = query({
       // Credential lookups now use listKey only
       const user = userMap[rsvp.clerkUserId];
 
+      // Ensure customFieldValues is always included in the response
+      // Return empty object instead of undefined to ensure the field is always present
+      // This ensures consistency when using search queries vs regular queries
+      const customFieldValues = rsvp.customFieldValues ?? ({} as Record<string, string>);
+
       return {
         id: rsvp._id,
         clerkUserId: rsvp.clerkUserId,
@@ -908,7 +917,7 @@ export const listForEventPaginated = query({
               phone: undefined,
             }
           : undefined,
-        customFieldValues: rsvp.customFieldValues ?? undefined,
+        customFieldValues,
         redemptionStatus,
         redemptionCode: redemption?.code,
         createdAt: rsvp.createdAt,
