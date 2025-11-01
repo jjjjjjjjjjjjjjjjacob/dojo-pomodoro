@@ -8,6 +8,106 @@ import { v } from "convex/values";
 import { internal, api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { obfuscatePhoneNumber } from "./lib/phoneUtils";
+import type { UserIdentity } from "convex/server";
+
+type RsvpStatus = Doc<"rsvps">["status"];
+
+type RecipientFilterConfig =
+  | { type: "all" }
+  | { type: "approved_no_approval_sms" }
+  | { type: "status"; status: RsvpStatus }
+  | { type: "custom_field_missing"; fieldKey: string }
+  | { type: "rsvp_before"; timestamp: number };
+
+const ALL_RSVP_STATUSES: RsvpStatus[] = ["pending", "approved", "attending", "denied"];
+const DEFAULT_APPROVED_STATUSES: RsvpStatus[] = ["approved", "attending"];
+
+const parseRecipientFilter = (rawFilter: string | null | undefined): RecipientFilterConfig => {
+  if (!rawFilter) {
+    return { type: "all" };
+  }
+
+  if (rawFilter === "approved_no_approval_sms") {
+    return { type: "approved_no_approval_sms" };
+  }
+
+  try {
+    const parsed = JSON.parse(rawFilter) as Partial<RecipientFilterConfig>;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.type !== "string") {
+      return { type: "all" };
+    }
+
+    switch (parsed.type) {
+      case "all":
+        return { type: "all" };
+      case "approved_no_approval_sms":
+        return { type: "approved_no_approval_sms" };
+      case "status":
+        if (typeof parsed.status === "string" && ALL_RSVP_STATUSES.includes(parsed.status as RsvpStatus)) {
+          return { type: "status", status: parsed.status as RsvpStatus };
+        }
+        break;
+      case "custom_field_missing":
+        if (typeof (parsed as { fieldKey?: unknown }).fieldKey === "string") {
+          return { type: "custom_field_missing", fieldKey: (parsed as { fieldKey: string }).fieldKey };
+        }
+        break;
+      case "rsvp_before":
+        if (typeof (parsed as { timestamp?: unknown }).timestamp === "number" && Number.isFinite((parsed as { timestamp: number }).timestamp)) {
+          return { type: "rsvp_before", timestamp: (parsed as { timestamp: number }).timestamp };
+        }
+        break;
+      default:
+        break;
+    }
+  } catch (error) {
+    console.warn(`[parseRecipientFilter] Failed to parse recipient filter: ${rawFilter}`, error);
+  }
+
+  return { type: "all" };
+};
+
+const statusesForFilter = (filter: RecipientFilterConfig): RsvpStatus[] => {
+  switch (filter.type) {
+    case "all":
+    case "approved_no_approval_sms":
+      return DEFAULT_APPROVED_STATUSES;
+    case "status":
+      return [filter.status];
+    case "custom_field_missing":
+    case "rsvp_before":
+      return ["pending", "approved", "attending"];
+    default:
+      return DEFAULT_APPROVED_STATUSES;
+  }
+};
+
+const customFieldIsMissing = (rsvp: Doc<"rsvps">, fieldKey: string): boolean => {
+  const value = rsvp.customFieldValues?.[fieldKey];
+  if (value === undefined) {
+    return true;
+  }
+  if (typeof value !== "string") {
+    return true;
+  }
+  return value.trim().length === 0;
+};
+
+type IdentityWithRole = UserIdentity & { role?: string };
+
+const identityHasHostRole = (identity: IdentityWithRole): boolean => {
+  return identity.role === "org:admin";
+};
+
+const identityCanManageBlast = (
+  identity: IdentityWithRole,
+  blastOwnerId: string,
+): boolean => {
+  if (identity.subject === blastOwnerId) {
+    return true;
+  }
+  return identityHasHostRole(identity);
+};
 
 /**
  * Create a new text blast draft
@@ -27,14 +127,13 @@ export const createDraft = mutation({
   ): Promise<Id<"textBlasts">> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     // Verify user is host of this event (using org:admin role)
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
 
-    const role = (identity as any).role;
-    const hasHostRole = role === "org:admin";
-    if (!hasHostRole) {
+    if (!identityHasHostRole(identityWithRole)) {
       throw new Error("Not authorized for this event");
     }
 
@@ -82,11 +181,12 @@ export const updateDraft = mutation({
   ): Promise<Doc<"textBlasts"> | null> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     const blast = await ctx.db.get(args.blastId);
     if (!blast) throw new Error("Text blast not found");
 
-    if (blast.sentBy !== identity.subject) {
+    if (!identityCanManageBlast(identityWithRole, blast.sentBy)) {
       throw new Error("Not authorized to edit this text blast");
     }
 
@@ -223,6 +323,7 @@ export const sendBlast = action({
   ): Promise<SendBlastResult> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     // Get blast details and verify ownership
     const blast = await ctx.runQuery(internal.textBlasts.getBlastInternal, {
@@ -230,7 +331,7 @@ export const sendBlast = action({
     });
 
     if (!blast) throw new Error("Text blast not found");
-    if (blast.sentBy !== identity.subject) {
+    if (!identityCanManageBlast(identityWithRole, blast.sentBy)) {
       throw new Error("Not authorized to send this text blast");
     }
     // Allow sending drafts and failed blasts (failed blasts can be retried)
@@ -420,6 +521,7 @@ export const sendBlastDirect = action({
   ): Promise<SendBlastResult> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     // Verify user is host of this event (using org:admin role)
     const event = await ctx.runQuery(internal.textBlasts.getEventInternal, {
@@ -427,9 +529,7 @@ export const sendBlastDirect = action({
     });
     if (!event) throw new Error("Event not found");
 
-    const role = (identity as any).role;
-    const hasHostRole = role === "org:admin";
-    if (!hasHostRole) {
+    if (!identityHasHostRole(identityWithRole)) {
       throw new Error("Not authorized for this event");
     }
 
@@ -620,14 +720,13 @@ export const getBlastsByEvent = query({
   ): Promise<Doc<"textBlasts">[]> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     // Verify user is host of this event (using org:admin role)
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
 
-    const role = (identity as any).role;
-    const hasHostRole = role === "org:admin";
-    if (!hasHostRole) {
+    if (!identityHasHostRole(identityWithRole)) {
       throw new Error("Not authorized for this event");
     }
 
@@ -689,11 +788,12 @@ export const getBlastById = query({
   ): Promise<Doc<"textBlasts"> | null> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     const blast = await ctx.db.get(args.blastId);
     if (!blast) return null;
 
-    if (blast.sentBy !== identity.subject) {
+    if (!identityCanManageBlast(identityWithRole, blast.sentBy)) {
       throw new Error("Not authorized to view this text blast");
     }
 
@@ -717,65 +817,24 @@ export const getRecipientsForSelection = query({
   ): Promise<Array<{ rsvpId: Id<"rsvps">; name: string; listKey: string }>> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     // Verify user is host of this event
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
 
-    const role = (identity as any).role;
-    const hasHostRole = role === "org:admin";
-    if (!hasHostRole) {
+    if (!identityHasHostRole(identityWithRole)) {
       throw new Error("Not authorized for this event");
     }
 
-    // Get approved/attending RSVPs matching target lists
-    const approvedRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "approved")
-      )
-      .collect();
-
-    const attendingRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "attending")
-      )
-      .collect();
-
-    let rsvps = [...approvedRsvps, ...attendingRsvps];
-
-    const normalizedTargetListKeys = new Set(
-      args.targetLists.map((listKey) => listKey.toLowerCase()),
+    const filteredRsvps = await ctx.runQuery(
+      internal.textBlasts.getApprovedRsvpsForListsInternal,
+      {
+        eventId: args.eventId,
+        targetLists: args.targetLists,
+        recipientFilter: args.recipientFilter,
+      },
     );
-
-    // Filter by target lists and SMS consent
-    let filteredRsvps = rsvps.filter((rsvp) => {
-      const rsvpListKeyNormalized = rsvp.listKey?.toLowerCase();
-      if (!rsvpListKeyNormalized) return false;
-      return normalizedTargetListKeys.has(rsvpListKeyNormalized) && rsvp.smsConsent === true;
-    });
-
-    // Apply recipient filter if specified
-    if (args.recipientFilter === "approved_no_approval_sms") {
-      const filteredWithApprovalSmsStatus = await Promise.all(
-        filteredRsvps.map(async (rsvp) => {
-          const approvalSms = await ctx.db
-            .query("smsNotifications")
-            .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-            .filter((q) =>
-              q.and(
-                q.eq(q.field("recipientClerkUserId"), rsvp.clerkUserId),
-                q.eq(q.field("type"), "approval"),
-                q.eq(q.field("status"), "sent")
-              )
-            )
-            .first();
-          return approvalSms ? null : rsvp;
-        })
-      );
-      filteredRsvps = filteredWithApprovalSmsStatus.filter((rsvp): rsvp is typeof filteredRsvps[0] => rsvp !== null);
-    }
 
     // Enrich with user names
     const enriched = await Promise.all(
@@ -809,6 +868,7 @@ export const getRecipientsForSelection = query({
 export const getAvailableListsForEvent = query({
   args: {
     eventId: v.id("events"),
+    recipientFilter: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -816,93 +876,61 @@ export const getAvailableListsForEvent = query({
   ): Promise<Array<{ listKey: string; recipientCount: number; totalRsvps: number }>> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     // Verify user is host of this event (using org:admin role)
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
 
-    const role = (identity as any).role;
-    const hasHostRole = role === "org:admin";
-    if (!hasHostRole) {
+    if (!identityHasHostRole(identityWithRole)) {
       throw new Error("Not authorized for this event");
     }
 
-    // Get all approved or attending RSVPs for this event
-    // Query for both approved and attending statuses
-    const approvedRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "approved")
-      )
-      .collect();
+    const filterConfig = parseRecipientFilter(args.recipientFilter);
+    const statusesToFetch = statusesForFilter(filterConfig);
+    const listUniqueUsers = new Map<string, Set<string>>();
 
-    const attendingRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "attending")
-      )
-      .collect();
+    for (const status of statusesToFetch) {
+      const rsvpsForStatus = await ctx.db
+        .query("rsvps")
+        .withIndex("by_event_status", (q) =>
+          q.eq("eventId", args.eventId).eq("status", status),
+        )
+        .collect();
 
-    // Combine both sets of RSVPs
-    const rsvps = [...approvedRsvps, ...attendingRsvps];
-    
-    // Debug logging
-    console.log(`Found ${approvedRsvps.length} approved RSVPs and ${attendingRsvps.length} attending RSVPs for event ${args.eventId}`);
-    if (rsvps.length > 0) {
-      console.log(`Sample RSVP: listKey=${rsvps[0].listKey}, smsConsent=${rsvps[0].smsConsent}, clerkUserId=${rsvps[0].clerkUserId}`);
-    }
-
-    // Group by listKey - collect all lists first, then count eligible recipients
-    const listUserMap = new Map<string, Set<string>>();
-    const listSmsConsentMap = new Map<string, Set<string>>();
-
-    // First pass: collect all listKeys and users with SMS consent
-    for (const rsvp of rsvps) {
-      // Ensure listKey exists (it's required in schema, but double-check)
-      if (!rsvp.listKey) {
-        console.warn(`RSVP ${rsvp._id} missing listKey, skipping`);
-        continue;
-      }
-
-      // Track all lists (even without SMS consent)
-      if (!listUserMap.has(rsvp.listKey)) {
-        listUserMap.set(rsvp.listKey, new Set());
-        listSmsConsentMap.set(rsvp.listKey, new Set());
-      }
-      listUserMap.get(rsvp.listKey)!.add(rsvp.clerkUserId);
-      
-      // Track users with SMS consent separately
-      if (rsvp.smsConsent === true) {
-        listSmsConsentMap.get(rsvp.listKey)!.add(rsvp.clerkUserId);
+      for (const rsvp of rsvpsForStatus) {
+        if (!rsvp.listKey) {
+          console.warn(`[getAvailableListsForEvent] RSVP ${rsvp._id} missing listKey, skipping`);
+          continue;
+        }
+        if (!listUniqueUsers.has(rsvp.listKey)) {
+          listUniqueUsers.set(rsvp.listKey, new Set());
+        }
+        listUniqueUsers.get(rsvp.listKey)!.add(rsvp.clerkUserId);
       }
     }
 
-    // Second pass: count unique users with SMS consent AND phone numbers per list
     const result: Array<{ listKey: string; recipientCount: number; totalRsvps: number }> = [];
 
-    // Process ALL lists that have approved RSVPs (not just those with SMS consent)
-    for (const [listKey, allUserIds] of listUserMap.entries()) {
-      // Get users with SMS consent for this list
-      const smsConsentUserIds = listSmsConsentMap.get(listKey) || new Set();
-      
-      let count = 0;
-      for (const clerkUserId of smsConsentUserIds) {
-        const profile = await ctx.db
-          .query("profiles")
-          .withIndex("by_user", (q) => q.eq("clerkUserId", clerkUserId))
-          .unique();
+    for (const [listKey, userIds] of listUniqueUsers.entries()) {
+      const recipientCount = await ctx.runQuery(
+        internal.textBlasts.countRecipientsInternal,
+        {
+          eventId: args.eventId,
+          targetLists: [listKey],
+          recipientFilter: args.recipientFilter,
+        },
+      );
 
-        if (profile?.phoneEnc) {
-          count++;
-        }
-      }
-      // Include all lists with approved RSVPs, even if recipientCount is 0
-      // Log for debugging
-      console.log(`List ${listKey}: ${allUserIds.size} total RSVPs, ${smsConsentUserIds.size} with SMS consent, ${count} with phone numbers`);
-      result.push({ listKey, recipientCount: count, totalRsvps: allUserIds.size });
+      result.push({
+        listKey,
+        recipientCount,
+        totalRsvps: userIds.size,
+      });
+
+      console.log(`[getAvailableListsForEvent] List ${listKey}: ${userIds.size} RSVPs (statuses considered: ${statusesToFetch.join(", ")}), ${recipientCount} reachable recipients`);
     }
 
-    // Sort by listKey for consistent ordering
     result.sort((a, b) => a.listKey.localeCompare(b.listKey));
 
     return result;
@@ -920,11 +948,12 @@ export const duplicateBlast = mutation({
   ): Promise<Id<"textBlasts">> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     const originalBlast = await ctx.db.get(args.blastId);
     if (!originalBlast) throw new Error("Text blast not found");
 
-    if (originalBlast.sentBy !== identity.subject) {
+    if (!identityCanManageBlast(identityWithRole, originalBlast.sentBy)) {
       throw new Error("Not authorized to duplicate this text blast");
     }
 
@@ -963,11 +992,12 @@ export const deleteBlast = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
 
     const blast = await ctx.db.get(args.blastId);
     if (!blast) throw new Error("Text blast not found");
 
-    if (blast.sentBy !== identity.subject) {
+    if (!identityCanManageBlast(identityWithRole, blast.sentBy)) {
       throw new Error("Not authorized to delete this text blast");
     }
 
@@ -1101,66 +1131,18 @@ export const countRecipientsInternal = internalQuery({
   args: {
     eventId: v.id("events"),
     targetLists: v.array(v.string()),
-    recipientFilter: v.optional(v.string()),
+    recipientFilter: v.optional(v.string()), // Serialized recipient filter config
   },
   handler: async (ctx, args) => {
-    // Get all approved or attending RSVPs for this event
-    const approvedRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "approved")
-      )
-      .collect();
-
-    const attendingRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "attending")
-      )
-      .collect();
-
-    // Combine both sets
-    let rsvps = [...approvedRsvps, ...attendingRsvps];
-
-    const normalizedTargetListKeys = new Set(
-      args.targetLists.map((listKey) => listKey.toLowerCase()),
+    const filteredRsvps = await ctx.runQuery(
+      internal.textBlasts.getApprovedRsvpsForListsInternal,
+      {
+        eventId: args.eventId,
+        targetLists: args.targetLists,
+        recipientFilter: args.recipientFilter,
+      },
     );
 
-    // Filter by target lists (case-insensitive) and SMS consent
-    let filteredRsvps = rsvps.filter((rsvp) => {
-      const rsvpListKeyNormalized = rsvp.listKey?.toLowerCase();
-      if (!rsvpListKeyNormalized) return false;
-      return normalizedTargetListKeys.has(rsvpListKeyNormalized) && rsvp.smsConsent === true;
-    });
-
-    // Apply fine-grained recipient filter if specified
-    if (args.recipientFilter === "approved_no_approval_sms") {
-      // Filter to only include users who haven't received a successfully sent approval SMS
-      const filteredWithApprovalSmsStatus = await Promise.all(
-        filteredRsvps.map(async (rsvp) => {
-          // Check if user has received an approval SMS that was successfully sent (status === "sent")
-          // We only exclude users who have received successfully sent messages, not failed or pending ones
-          const approvalSms = await ctx.db
-            .query("smsNotifications")
-            .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-            .filter((q) =>
-              q.and(
-                q.eq(q.field("recipientClerkUserId"), rsvp.clerkUserId),
-                q.eq(q.field("type"), "approval"),
-                q.eq(q.field("status"), "sent") // Only count successfully sent messages
-              )
-            )
-            .first();
-
-          // Only include if no successfully sent approval SMS was found
-          return approvalSms ? null : rsvp;
-        })
-      );
-
-      filteredRsvps = filteredWithApprovalSmsStatus.filter((rsvp): rsvp is typeof filteredRsvps[0] => rsvp !== null);
-    }
-
-    // Count unique users with phone numbers
     const uniqueUserIds = new Set(filteredRsvps.map((rsvp) => rsvp.clerkUserId));
 
     let count = 0;
@@ -1392,64 +1374,77 @@ export const getApprovedRsvpsForListsInternal = internalQuery({
   args: {
     eventId: v.id("events"),
     targetLists: v.array(v.string()),
-    recipientFilter: v.optional(v.string()), // 'all' | 'approved_no_approval_sms'
+    recipientFilter: v.optional(v.string()), // Serialized recipient filter config
     selectedRsvpIds: v.optional(v.array(v.id("rsvps"))), // Filter to specific RSVP IDs if provided
   },
   handler: async (ctx, args) => {
-    // Get all approved or attending RSVPs for this event
-    const approvedRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "approved")
-      )
-      .collect();
-
-    const attendingRsvps = await ctx.db
-      .query("rsvps")
-      .withIndex("by_event_status", (q) => 
-        q.eq("eventId", args.eventId).eq("status", "attending")
-      )
-      .collect();
-
-    // Combine both sets
-    let rsvps = [...approvedRsvps, ...attendingRsvps];
-
+    const filterConfig = parseRecipientFilter(args.recipientFilter);
+    const statusesToFetch = statusesForFilter(filterConfig);
     const normalizedTargetListKeys = new Set(
       args.targetLists.map((listKey) => listKey.toLowerCase()),
     );
 
+    const rsvps: Doc<"rsvps">[] = [];
+
+    for (const status of statusesToFetch) {
+      const rsvpsForStatus = await ctx.db
+        .query("rsvps")
+        .withIndex("by_event_status", (q) =>
+          q.eq("eventId", args.eventId).eq("status", status),
+        )
+        .collect();
+      rsvps.push(...rsvpsForStatus);
+    }
+
     // Filter by target lists (case-insensitive) and SMS consent
     let filteredRsvps = rsvps.filter((rsvp) => {
-      const rsvpListKeyNormalized = rsvp.listKey?.toLowerCase();
-      if (!rsvpListKeyNormalized) return false;
+      if (!rsvp.listKey) return false;
+      const rsvpListKeyNormalized = rsvp.listKey.toLowerCase();
       return normalizedTargetListKeys.has(rsvpListKeyNormalized) && rsvp.smsConsent === true;
     });
 
-    // Apply fine-grained recipient filter if specified
-    if (args.recipientFilter === "approved_no_approval_sms") {
-      // Filter to only include users who haven't received a successfully sent approval SMS
-      const filteredWithApprovalSmsStatus = await Promise.all(
-        filteredRsvps.map(async (rsvp) => {
-          // Check if user has received an approval SMS that was successfully sent (status === "sent")
-          // We only exclude users who have received successfully sent messages, not failed or pending ones
-          const approvalSms = await ctx.db
-            .query("smsNotifications")
-            .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-            .filter((q) =>
-              q.and(
-                q.eq(q.field("recipientClerkUserId"), rsvp.clerkUserId),
-                q.eq(q.field("type"), "approval"),
-                q.eq(q.field("status"), "sent") // Only count successfully sent messages
+    switch (filterConfig.type) {
+      case "approved_no_approval_sms": {
+        const filteredWithApprovalSmsStatus = await Promise.all(
+          filteredRsvps.map(async (rsvp) => {
+            const approvalSms = await ctx.db
+              .query("smsNotifications")
+              .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+              .filter((q) =>
+                q.and(
+                  q.eq(q.field("recipientClerkUserId"), rsvp.clerkUserId),
+                  q.eq(q.field("type"), "approval"),
+                  q.eq(q.field("status"), "sent"),
+                ),
               )
-            )
-            .first();
+              .first();
 
-          // Only include if no successfully sent approval SMS was found
-          return approvalSms ? null : rsvp;
-        })
-      );
+            return approvalSms ? null : rsvp;
+          }),
+        );
 
-      filteredRsvps = filteredWithApprovalSmsStatus.filter((rsvp): rsvp is typeof filteredRsvps[0] => rsvp !== null);
+        filteredRsvps = filteredWithApprovalSmsStatus.filter(
+          (rsvp): rsvp is typeof filteredRsvps[0] => rsvp !== null,
+        );
+        break;
+      }
+      case "status": {
+        filteredRsvps = filteredRsvps.filter((rsvp) => rsvp.status === filterConfig.status);
+        break;
+      }
+      case "custom_field_missing": {
+        filteredRsvps = filteredRsvps.filter((rsvp) =>
+          customFieldIsMissing(rsvp, filterConfig.fieldKey),
+        );
+        break;
+      }
+      case "rsvp_before": {
+        filteredRsvps = filteredRsvps.filter((rsvp) => rsvp.createdAt < filterConfig.timestamp);
+        break;
+      }
+      case "all":
+      default:
+        break;
     }
 
     // If specific RSVP IDs are provided, filter to only those RSVPs
@@ -1458,7 +1453,9 @@ export const getApprovedRsvpsForListsInternal = internalQuery({
       filteredRsvps = filteredRsvps.filter((rsvp) => selectedRsvpIdsSet.has(rsvp._id));
     }
 
-    console.log(`[getApprovedRsvpsForListsInternal] Found ${rsvps.length} approved/attending RSVPs, ${filteredRsvps.length} with SMS consent and matching target lists${args.recipientFilter ? ` (filter: ${args.recipientFilter})` : ""}${args.selectedRsvpIds && args.selectedRsvpIds.length > 0 ? ` (${args.selectedRsvpIds.length} selected)` : ""}`);
+    console.log(
+      `[getApprovedRsvpsForListsInternal] Considered ${rsvps.length} RSVPs across statuses [${statusesToFetch.join(", ")}], ${filteredRsvps.length} match target lists + SMS consent${args.recipientFilter ? ` (filter: ${args.recipientFilter})` : ""}${args.selectedRsvpIds && args.selectedRsvpIds.length > 0 ? ` (${args.selectedRsvpIds.length} selected)` : ""}`,
+    );
 
     return filteredRsvps;
   },

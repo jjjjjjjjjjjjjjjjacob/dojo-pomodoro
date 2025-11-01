@@ -21,7 +21,16 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { Event, TextBlast, TextBlastStatus } from "@/lib/types";
+import type { Event, TextBlast, TextBlastStatus, RSVP } from "@/lib/types";
+import type { RecipientFilterState } from "@/lib/text-blast-filters";
+import {
+  decodeRecipientFilter,
+  encodeRecipientFilter,
+  describeRecipientFilter,
+  isRecipientFilterConfigured,
+  DEFAULT_STATUS_FILTER,
+  RECIPIENT_STATUS_LABELS,
+} from "@/lib/text-blast-filters";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -50,7 +59,7 @@ interface FormData {
   name: string;
   message: string;
   targetLists: string[];
-  recipientFilter: string;
+  recipientFilter: RecipientFilterState;
   includeQrCodes: boolean;
   selectedRsvpIds: Id<"rsvps">[]; // For testing: filter to specific recipients
 }
@@ -79,7 +88,7 @@ export default function TextBlastDialog({
     name: "",
     message: "",
     targetLists: [],
-    recipientFilter: "all",
+    recipientFilter: { type: "all" },
     includeQrCodes: false,
     selectedRsvpIds: [],
   });
@@ -89,26 +98,37 @@ export default function TextBlastDialog({
   const [recipientSearchQuery, setRecipientSearchQuery] = useState("");
   const [isRecipientPopoverOpen, setIsRecipientPopoverOpen] = useState(false);
 
+  const isEditMode = !!blastId;
+  const selectedEvent = events?.find(event => event._id === formData.eventId);
+  const customFields = selectedEvent?.customFields ?? [];
+  const recipientFilterIsConfigured = isRecipientFilterConfigured(formData.recipientFilter);
+  const encodedRecipientFilter = useMemo(
+    () => encodeRecipientFilter(formData.recipientFilter),
+    [formData.recipientFilter],
+  );
+
   // Fetch available lists with counts for the selected event
   const availableListsWithCounts = useQuery(
     api.textBlasts.getAvailableListsForEvent,
-    formData.eventId ? { eventId: formData.eventId as Id<"events"> } : "skip",
+    formData.eventId
+      ? {
+          eventId: formData.eventId as Id<"events">,
+          recipientFilter: encodedRecipientFilter,
+        }
+      : "skip",
   ) as Array<{ listKey: string; recipientCount: number; totalRsvps: number }> | undefined;
 
   // Fetch recipients for selection (when target lists are selected)
   const recipientsForSelection = useQuery(
     api.textBlasts.getRecipientsForSelection,
-    formData.eventId && formData.targetLists.length > 0
+    formData.eventId && formData.targetLists.length > 0 && recipientFilterIsConfigured
       ? {
           eventId: formData.eventId as Id<"events">,
           targetLists: formData.targetLists,
-          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+          recipientFilter: encodedRecipientFilter,
         }
       : "skip",
   ) as Array<{ rsvpId: Id<"rsvps">; name: string; listKey: string }> | undefined;
-
-  const isEditMode = !!blastId;
-  const selectedEvent = events?.find(event => event._id === formData.eventId);
 
   // Get available lists for selected event from query result
   const availableLists = useMemo(() => {
@@ -124,6 +144,11 @@ export default function TextBlastDialog({
 
   // Update recipient count when target lists, filter, or selected RSVPs change
   useEffect(() => {
+    if (!recipientFilterIsConfigured) {
+      setRecipientCount(0);
+      return;
+    }
+
     if (formData.targetLists.length === 0) {
       setRecipientCount(0);
       return;
@@ -142,7 +167,44 @@ export default function TextBlastDialog({
       totalCount += count;
     }
     setRecipientCount(totalCount);
-  }, [formData.targetLists, formData.recipientFilter, formData.selectedRsvpIds, listCountMap]);
+  }, [formData.targetLists, formData.selectedRsvpIds, listCountMap, recipientFilterIsConfigured]);
+
+  useEffect(() => {
+    setFormData(prev => {
+      if (prev.selectedRsvpIds.length === 0) {
+        return prev;
+      }
+      return { ...prev, selectedRsvpIds: [] };
+    });
+  }, [encodedRecipientFilter, formData.targetLists]);
+
+  useEffect(() => {
+    const currentFilter = formData.recipientFilter;
+    if (currentFilter.type !== "custom_field_missing") {
+      return;
+    }
+
+    const customFields = selectedEvent?.customFields ?? [];
+    if (customFields.length === 0) {
+      if (currentFilter.fieldKey !== "") {
+        setFormData(prev => ({
+          ...prev,
+          recipientFilter: { type: "custom_field_missing", fieldKey: "" },
+        }));
+      }
+      return;
+    }
+
+    const hasCurrentField = customFields.some(
+      (field) => field.key === currentFilter.fieldKey,
+    );
+    if (!hasCurrentField) {
+      setFormData(prev => ({
+        ...prev,
+        recipientFilter: { type: "custom_field_missing", fieldKey: customFields[0].key },
+      }));
+    }
+  }, [formData.recipientFilter, selectedEvent]);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -153,7 +215,7 @@ export default function TextBlastDialog({
           name: existingBlast.name,
           message: existingBlast.message,
           targetLists: existingBlast.targetLists,
-          recipientFilter: existingBlast.recipientFilter || "all",
+          recipientFilter: decodeRecipientFilter(existingBlast.recipientFilter ?? undefined),
           includeQrCodes: existingBlast.includeQrCodes ?? false,
           selectedRsvpIds: [],
         });
@@ -165,7 +227,7 @@ export default function TextBlastDialog({
           name: "",
           message: "",
           targetLists: [],
-          recipientFilter: "all",
+          recipientFilter: { type: "all" },
           includeQrCodes: false,
           selectedRsvpIds: [],
         });
@@ -199,11 +261,20 @@ export default function TextBlastDialog({
     .replace(/\{\{eventLocation\}\}/g, sampleData.eventLocation);
 
   const handleEventChange = (eventId: Id<"events"> | "") => {
-    setFormData(prev => ({
-      ...prev,
-      eventId,
-      targetLists: [], // Reset target lists when event changes
-    }));
+    setFormData(prev => {
+      // Reset filter to "all" when event changes if it's event-specific (custom_field_missing)
+      const newRecipientFilter = prev.recipientFilter.type === "custom_field_missing"
+        ? { type: "all" as const }
+        : prev.recipientFilter;
+      
+      return {
+        ...prev,
+        eventId,
+        targetLists: [], // Reset target lists when event changes
+        selectedRsvpIds: [],
+        recipientFilter: newRecipientFilter,
+      };
+    });
     setRecipientCount(0);
   };
 
@@ -216,7 +287,41 @@ export default function TextBlastDialog({
     }));
   };
 
+  const handleRecipientFilterTypeChange = (value: RecipientFilterState["type"]) => {
+    setFormData(prev => {
+      switch (value) {
+        case "all":
+          return { ...prev, recipientFilter: { type: "all" } };
+        case "approved_no_approval_sms":
+          return { ...prev, recipientFilter: { type: "approved_no_approval_sms" } };
+        case "status": {
+          const nextStatus = prev.recipientFilter.type === "status"
+            ? prev.recipientFilter.status
+            : DEFAULT_STATUS_FILTER;
+          return { ...prev, recipientFilter: { type: "status", status: nextStatus } };
+        }
+        case "custom_field_missing": {
+          const customFields = selectedEvent?.customFields ?? [];
+          const nextFieldKey = customFields.length > 0 ? customFields[0].key : "";
+          return { ...prev, recipientFilter: { type: "custom_field_missing", fieldKey: nextFieldKey } };
+        }
+        case "rsvp_before": {
+          const nextValue = prev.recipientFilter.type === "rsvp_before"
+            ? prev.recipientFilter.isoDateTime
+            : "";
+          return { ...prev, recipientFilter: { type: "rsvp_before", isoDateTime: nextValue } };
+        }
+        default:
+          return prev;
+      }
+    });
+  };
+
   const handleSaveDraft = async () => {
+    if (!recipientFilterIsConfigured) {
+      toast.error("Complete the recipient filter details before saving.");
+      return;
+    }
     try {
       if (isEditMode && blastId) {
         await updateDraftMutation({
@@ -224,7 +329,7 @@ export default function TextBlastDialog({
           name: formData.name,
           message: formData.message,
           targetLists: formData.targetLists,
-          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+          recipientFilter: encodedRecipientFilter,
           includeQrCodes: formData.includeQrCodes,
         });
         toast.success("Text blast updated successfully");
@@ -238,7 +343,7 @@ export default function TextBlastDialog({
           name: formData.name,
           message: formData.message,
           targetLists: formData.targetLists,
-          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+          recipientFilter: encodedRecipientFilter,
           includeQrCodes: formData.includeQrCodes,
         });
         toast.success("Text blast draft saved successfully");
@@ -256,6 +361,11 @@ export default function TextBlastDialog({
     }
 
     setIsSending(true);
+    if (!recipientFilterIsConfigured) {
+      toast.error("Complete the recipient filter details before sending.");
+      setIsSending(false);
+      return;
+    }
     try {
       let result;
       if (blastId && isEditMode) {
@@ -268,7 +378,7 @@ export default function TextBlastDialog({
           name: formData.name,
           message: formData.message,
           targetLists: formData.targetLists,
-          recipientFilter: formData.recipientFilter === "all" ? undefined : formData.recipientFilter,
+          recipientFilter: encodedRecipientFilter,
           includeQrCodes: formData.includeQrCodes,
           selectedRsvpIds: formData.selectedRsvpIds.length > 0 ? formData.selectedRsvpIds : undefined,
         });
@@ -290,7 +400,7 @@ export default function TextBlastDialog({
   };
 
   const canProceedToStep2 = formData.eventId && formData.name && formData.message;
-  const canProceedToStep3 = canProceedToStep2 && formData.targetLists.length > 0;
+  const canProceedToStep3 = canProceedToStep2 && formData.targetLists.length > 0 && recipientFilterIsConfigured;
   const canSave = canProceedToStep3 && !isMessageTooLong;
 
   const renderStepContent = () => {
@@ -301,7 +411,7 @@ export default function TextBlastDialog({
             <div className="space-y-2">
               <Label htmlFor="eventId">Event</Label>
               <Select
-                value={formData.eventId}
+                value={formData.eventId || ""}
                 onValueChange={(value) =>
                   handleEventChange(value ? (value as Id<"events">) : "")
                 }
@@ -401,22 +511,104 @@ export default function TextBlastDialog({
             <div className="space-y-2">
               <Label>Recipient Filter</Label>
               <Select
-                value={formData.recipientFilter}
+                value={formData.recipientFilter.type}
                 onValueChange={(value) =>
-                  setFormData(prev => ({ ...prev, recipientFilter: value }))
+                  handleRecipientFilterTypeChange(value as RecipientFilterState["type"])
                 }
               >
                 <SelectOption value="all">All Approved/Attending</SelectOption>
                 <SelectOption value="approved_no_approval_sms">
                   Approved but No Approval SMS Sent
                 </SelectOption>
+                <SelectOption value="status">Filter by RSVP Status</SelectOption>
+                <SelectOption
+                  value="custom_field_missing"
+                  disabled={customFields.length === 0}
+                >
+                  Missing Custom Field
+                </SelectOption>
+                <SelectOption value="rsvp_before">RSVP Before Date/Time</SelectOption>
               </Select>
               <div className="text-xs text-muted-foreground">
-                {formData.recipientFilter === "approved_no_approval_sms" 
-                  ? "Send to users who have been approved but haven't received their approval notification yet."
-                  : "Send to all approved and attending RSVPs with SMS consent."}
+                {describeRecipientFilter(formData.recipientFilter, {
+                  resolveCustomFieldLabel: (key) =>
+                    customFields.find((field) => field.key === key)?.label,
+                })}
               </div>
+              {!recipientFilterIsConfigured && (
+                <div className="text-xs text-destructive">
+                  Complete the filter details to apply this segment.
+                </div>
+              )}
             </div>
+
+            {formData.recipientFilter.type === "status" && (
+              <div className="space-y-2">
+                <Label>RSVP Status</Label>
+                <Select
+                  value={formData.recipientFilter.status}
+                  onValueChange={(value) =>
+                    setFormData(prev => ({
+                      ...prev,
+                      recipientFilter: { type: "status", status: value as RSVP["status"] },
+                    }))
+                  }
+                >
+                  {Object.entries(RECIPIENT_STATUS_LABELS).map(([status, label]) => (
+                    <SelectOption key={status} value={status}>
+                      {label}
+                    </SelectOption>
+                  ))}
+                </Select>
+              </div>
+            )}
+
+            {formData.recipientFilter.type === "custom_field_missing" && (
+              <div className="space-y-2">
+                <Label>Custom Field</Label>
+                {customFields.length > 0 ? (
+                  <Select
+                    value={formData.recipientFilter.fieldKey}
+                    onValueChange={(value) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        recipientFilter: { type: "custom_field_missing", fieldKey: value },
+                      }))
+                    }
+                  >
+                    {customFields.map((field) => (
+                      <SelectOption key={field.key} value={field.key}>
+                        {field.label}
+                      </SelectOption>
+                    ))}
+                  </Select>
+                ) : (
+                  <div className="text-xs text-muted-foreground">
+                    This event does not have custom fields configured. Add custom fields in the event settings first.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {formData.recipientFilter.type === "rsvp_before" && (
+              <div className="space-y-2">
+                <Label htmlFor="rsvpBefore">RSVP Created Before</Label>
+                <Input
+                  id="rsvpBefore"
+                  type="datetime-local"
+                  value={formData.recipientFilter.isoDateTime}
+                  onChange={(event) =>
+                    setFormData(prev => ({
+                      ...prev,
+                      recipientFilter: { type: "rsvp_before", isoDateTime: event.target.value },
+                    }))
+                  }
+                />
+                <div className="text-xs text-muted-foreground">
+                  Only guests who submitted their RSVP before this timestamp will receive the message.
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
@@ -449,8 +641,8 @@ export default function TextBlastDialog({
                 <div className="grid gap-3">
                   {availableLists.map(listKey => {
                     const listData = availableListsWithCounts?.find(l => l.listKey === listKey);
-                    const count = listData?.recipientCount || 0;
-                    const totalRsvps = listData?.totalRsvps || 0;
+                    const count = listData?.recipientCount ?? 0;
+                    const totalRsvps = listData?.totalRsvps ?? 0;
                     return (
                       <div key={listKey} className="flex items-center space-x-2">
                         <Checkbox
@@ -465,12 +657,18 @@ export default function TextBlastDialog({
                             <span className="font-medium capitalize">{listKey}</span>
                             <Badge variant="outline">
                               <Users className="h-3 w-3 mr-1" />
-                              {count} {count === 1 ? "recipient" : "recipients"}
-                              {totalRsvps > 0 && count === 0 && (
-                                <span className="ml-1 text-xs text-muted-foreground">
-                                  ({totalRsvps} RSVP{totalRsvps !== 1 ? "s" : ""} without SMS consent/phone)
-                                </span>
-                              )}
+                              {recipientFilterIsConfigured
+                                ? (
+                                  <>
+                                    {count} {count === 1 ? "recipient" : "recipients"}
+                                    {totalRsvps > 0 && count === 0 && (
+                                      <span className="ml-1 text-xs text-muted-foreground">
+                                        ({totalRsvps} RSVP{totalRsvps !== 1 ? "s" : ""} without SMS consent/phone)
+                                      </span>
+                                    )}
+                                  </>
+                                )
+                                : "Recipients pending"}
                             </Badge>
                           </div>
                         </Label>
@@ -508,6 +706,10 @@ export default function TextBlastDialog({
               {formData.targetLists.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
                   Select recipient lists above to enable recipient selection
+                </div>
+              ) : !recipientFilterIsConfigured ? (
+                <div className="text-sm text-muted-foreground">
+                  Complete the filter details above to select specific recipients.
                 </div>
               ) : recipientsForSelection && recipientsForSelection.length > 0 ? (
                 <>
@@ -678,13 +880,12 @@ export default function TextBlastDialog({
                   <p className="text-sm text-muted-foreground mt-1">
                     {recipientCount} total recipients
                   </p>
-                  {formData.recipientFilter !== "all" && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Filter: {formData.recipientFilter === "approved_no_approval_sms" 
-                        ? "Approved but No Approval SMS Sent"
-                        : formData.recipientFilter}
-                    </p>
-                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Filter: {describeRecipientFilter(formData.recipientFilter, {
+                      resolveCustomFieldLabel: (key) =>
+                        customFields.find((field) => field.key === key)?.label,
+                    })}
+                  </p>
                   {formData.includeQrCodes && (
                     <p className="text-xs text-muted-foreground mt-1">
                       QR Code Images: Enabled

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import {
   Card,
   CardContent,
@@ -30,8 +31,6 @@ import {
   Crown,
   Shield,
   User,
-  ChevronUp,
-  ChevronDown,
   Filter,
   X,
 } from "lucide-react";
@@ -47,9 +46,17 @@ import {
   getSortedRowModel,
   getPaginationRowModel,
   SortingState,
+  OnChangeFn,
+  PaginationState,
   useReactTable,
 } from "@tanstack/react-table";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
+import type {
+  OrganizationUsersResponse,
+  OrganizationUserSortOption,
+  OrganizationUserSortDirection,
+  OrganizationUserListItem,
+} from "@/lib/types";
 
 export default function UsersPage() {
   const router = useRouter();
@@ -60,9 +67,131 @@ export default function UsersPage() {
   const pageIndex = parseInt(searchParams.get("page") || "0");
   const pageSize = parseInt(searchParams.get("pageSize") || "10");
 
-  const [sorting, setSorting] = React.useState<SortingState>([
-    { id: "createdAt", desc: true },
-  ]);
+  const determineSortByFromParam = (
+    value: string | null,
+  ): OrganizationUserSortOption => {
+    if (value === "name" || value === "role" || value === "createdAt") {
+      return value;
+    }
+    return "createdAt";
+  };
+
+  const determineSortDirectionFromParam = (
+    value: string | null,
+    fallbackSortBy: OrganizationUserSortOption,
+  ): OrganizationUserSortDirection => {
+    if (value === "asc" || value === "desc") {
+      return value;
+    }
+    return fallbackSortBy === "createdAt" ? "desc" : "asc";
+  };
+
+  const initialSortBy = determineSortByFromParam(searchParams.get("sortBy"));
+  const initialSortDirection = determineSortDirectionFromParam(
+    searchParams.get("sortDirection"),
+    initialSortBy,
+  );
+
+  const [sortBy, setSortBy] = React.useState<OrganizationUserSortOption>(
+    initialSortBy,
+  );
+  const [sortDirection, setSortDirection] =
+    React.useState<OrganizationUserSortDirection>(initialSortDirection);
+  const tableSorting = React.useMemo<SortingState>(
+    () => [
+      {
+        id: sortBy === "name" ? "user" : sortBy,
+        desc: sortDirection === "desc",
+      },
+    ],
+    [sortBy, sortDirection],
+  );
+  const updateSortQueryParams = React.useCallback(
+    (
+      nextSortBy: OrganizationUserSortOption,
+      nextSortDirection: OrganizationUserSortDirection,
+    ) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("page", "0");
+      if (nextSortBy === "createdAt" && nextSortDirection === "desc") {
+        params.delete("sortBy");
+        params.delete("sortDirection");
+      } else {
+        params.set("sortBy", nextSortBy);
+        params.set("sortDirection", nextSortDirection);
+      }
+      router.replace(`/host/users?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+
+  const applySortingSelection = React.useCallback(
+    (
+      nextSortBy: OrganizationUserSortOption,
+      nextSortDirection: OrganizationUserSortDirection,
+    ) => {
+      setSortBy(nextSortBy);
+      setSortDirection(nextSortDirection);
+      updateSortQueryParams(nextSortBy, nextSortDirection);
+    },
+    [updateSortQueryParams],
+  );
+
+  const resolveSortLabel = React.useCallback(
+    (sortOption: OrganizationUserSortOption) => {
+      switch (sortOption) {
+        case "name":
+          return "Name";
+        case "role":
+          return "Role";
+        default:
+          return "Date Joined";
+      }
+    },
+    [],
+  );
+  const handleSortingChange: OnChangeFn<SortingState> = React.useCallback(
+    (updater) => {
+      const baseState = tableSorting;
+      const nextState =
+        typeof updater === "function" ? updater(baseState) : updater;
+      if (!nextState || nextState.length === 0) {
+        applySortingSelection("createdAt", "desc");
+        return;
+      }
+      const primary = nextState[0];
+      const nextSortOption: OrganizationUserSortOption =
+        primary.id === "user"
+          ? "name"
+          : primary.id === "role"
+            ? "role"
+            : "createdAt";
+      const nextSortDirection: OrganizationUserSortDirection = primary.desc
+        ? "desc"
+        : "asc";
+      applySortingSelection(nextSortOption, nextSortDirection);
+    },
+    [applySortingSelection, tableSorting],
+  );
+  const handleSortDropdownChange = React.useCallback(
+    (value: string) => {
+      const [option, direction] = value.split(":");
+      const nextSortOption: OrganizationUserSortOption =
+        option === "name" || option === "role" || option === "createdAt"
+          ? option
+          : "createdAt";
+      const nextSortDirection: OrganizationUserSortDirection =
+        direction === "asc" ? "asc" : "desc";
+      if (
+        nextSortOption === sortBy &&
+        nextSortDirection === sortDirection
+      ) {
+        return;
+      }
+      applySortingSelection(nextSortOption, nextSortDirection);
+    },
+    [applySortingSelection, sortBy, sortDirection],
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 250);
   const [roleFilter, setRoleFilter] = useState<string>("all");
@@ -73,11 +202,14 @@ export default function UsersPage() {
       pageSize,
       search: debouncedSearch,
       roleFilter,
+      sortBy,
+      sortDirection,
     }),
     enabled: !!isSignedIn,
   });
-  const usersData = usersQuery.data;
-  const users = usersData?.users;
+  const usersData = usersQuery.data as OrganizationUsersResponse | undefined;
+  const organizationUsers = usersData?.users ?? [];
+  const isUsersLoading = usersQuery.isLoading;
 
   const userStatsQuery = useQuery({
     ...convexQuery(api.users.getUserStats, {
@@ -97,8 +229,6 @@ export default function UsersPage() {
     {},
   );
 
-  const filteredUsers = users || [];
-
   // Normalize role by stripping org: prefix
   const normalizeRole = React.useCallback(
     (role: string) => role?.replace(/^org:/, "") || role,
@@ -109,14 +239,11 @@ export default function UsersPage() {
   const clearAllFilters = () => {
     setSearchQuery("");
     setRoleFilter("all");
-    setSorting([{ id: "createdAt", desc: true }]);
-    const params = new URLSearchParams(searchParams as any);
-    params.set("page", "0");
-    router.replace(`/host/users?${params.toString()}`, { scroll: false });
+    applySortingSelection("createdAt", "desc");
   };
 
   React.useEffect(() => {
-    const params = new URLSearchParams(searchParams as any);
+    const params = new URLSearchParams(searchParams.toString());
     params.set("page", "0");
     router.replace(`/host/users?${params.toString()}`, { scroll: false });
   }, [debouncedSearch, roleFilter, router, searchParams]);
@@ -125,9 +252,8 @@ export default function UsersPage() {
   const hasActiveFilters =
     searchQuery.trim() !== "" ||
     roleFilter !== "all" ||
-    sorting.length > 1 ||
-    (sorting.length === 1 &&
-      (sorting[0].id !== "createdAt" || !sorting[0].desc));
+    sortBy !== "createdAt" ||
+    sortDirection !== "desc";
 
   const getRoleIcon = React.useCallback(
     (role: string) => {
@@ -181,33 +307,35 @@ export default function UsersPage() {
   );
 
   // Pagination change handler that updates URL
-  const handlePaginationChange = (updaterOrValue: any) => {
+  const handlePaginationChange: OnChangeFn<PaginationState> = (
+    updaterOrValue,
+  ) => {
     const newPagination =
       typeof updaterOrValue === "function"
         ? updaterOrValue({ pageIndex, pageSize })
         : updaterOrValue;
 
-    const params = new URLSearchParams(searchParams as any);
+    const params = new URLSearchParams(searchParams.toString());
     params.set("page", newPagination.pageIndex.toString());
     params.set("pageSize", newPagination.pageSize.toString());
     router.replace(`/host/users?${params.toString()}`, { scroll: false });
   };
 
   // Define table columns
-  const columns = React.useMemo<ColumnDef<any>[]>(() => {
+  const columns = React.useMemo<ColumnDef<OrganizationUserListItem>[]>(() => {
     const handleRoleChange = async (
-      userId: string,
+      userId: Id<"users">,
       newRole: string,
       isGuest = false,
     ) => {
       try {
         if (isGuest) {
           await promoteUserToOrganization.mutateAsync({
-            userId: userId as any,
+            userId,
             role: newRole,
           });
         } else {
-          await updateUserRole.mutateAsync({ userId: userId as any, newRole });
+          await updateUserRole.mutateAsync({ userId, newRole });
         }
 
         // Clear pending changes for this user
@@ -401,12 +529,12 @@ export default function UsersPage() {
 
   // useReactTable returns a mutable instance with non-memoizable callbacks; suppress lint warning.
   // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
-    data: filteredUsers,
+  const table = useReactTable<OrganizationUserListItem>({
+    data: organizationUsers,
     columns,
-    state: { sorting, pagination: { pageIndex, pageSize } },
+    state: { sorting: tableSorting, pagination: { pageIndex, pageSize } },
     autoResetPageIndex: false,
-    onSortingChange: setSorting,
+    onSortingChange: handleSortingChange,
     onPaginationChange: handlePaginationChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -525,7 +653,7 @@ export default function UsersPage() {
               {usersData.pagination.totalCount} users
             </>
           ) : (
-            <>Showing {filteredUsers.length} users</>
+            <>Showing {organizationUsers.length} users</>
           )}
         </div>
       </div>
@@ -542,6 +670,22 @@ export default function UsersPage() {
           <SelectOption value="admin">Admin</SelectOption>
           <SelectOption value="member">Member</SelectOption>
           <SelectOption value="guest">Guest</SelectOption>
+        </Select>
+        <Select
+          value={`${sortBy}:${sortDirection}`}
+          onValueChange={handleSortDropdownChange}
+          className="w-56"
+        >
+          <SelectOption value="createdAt:desc">
+            Date Joined (Newest)
+          </SelectOption>
+          <SelectOption value="createdAt:asc">
+            Date Joined (Oldest)
+          </SelectOption>
+          <SelectOption value="name:asc">Name (A–Z)</SelectOption>
+          <SelectOption value="name:desc">Name (Z–A)</SelectOption>
+          <SelectOption value="role:asc">Role (Admin → Guest)</SelectOption>
+          <SelectOption value="role:desc">Role (Guest → Admin)</SelectOption>
         </Select>
         {hasActiveFilters && (
           <Button
@@ -581,19 +725,13 @@ export default function UsersPage() {
               </button>
             </Badge>
           )}
-          {(sorting.length > 1 ||
-            (sorting.length === 1 &&
-              (sorting[0].id !== "createdAt" || !sorting[0].desc))) && (
+          {(sortBy !== "createdAt" || sortDirection !== "desc") && (
             <Badge variant="secondary" className="gap-1">
               Sort:{" "}
-              {sorting[0]?.id === "user"
-                ? "Name"
-                : sorting[0]?.id === "role"
-                  ? "Role"
-                  : "Date Joined"}
-              {sorting[0]?.desc ? " (desc)" : " (asc)"}
+              {resolveSortLabel(sortBy)}
+              {sortDirection === "desc" ? " (desc)" : " (asc)"}
               <button
-                onClick={() => setSorting([{ id: "createdAt", desc: true }])}
+                onClick={() => applySortingSelection("createdAt", "desc")}
                 className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
               >
                 <X className="w-3 h-3" />
@@ -608,7 +746,7 @@ export default function UsersPage() {
                 {usersData.pagination.totalCount} total users)
               </>
             ) : (
-              <>(Showing {filteredUsers.length} users)</>
+              <>(Showing {organizationUsers.length} users)</>
             )}
           </span>
         </div>
@@ -624,7 +762,7 @@ export default function UsersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!users ? (
+          {isUsersLoading ? (
             <TableSkeleton rows={10} columns={4} />
           ) : (
             <>
@@ -715,7 +853,7 @@ export default function UsersPage() {
           <Select
             value={String(pageSize)}
             onValueChange={(value) => {
-              const params = new URLSearchParams(searchParams as any);
+              const params = new URLSearchParams(searchParams.toString());
               params.set("pageSize", value);
               params.set("page", "0"); // Reset to first page when changing page size
               router.replace(`/host/users?${params.toString()}`, {
@@ -733,7 +871,7 @@ export default function UsersPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              const params = new URLSearchParams(searchParams as any);
+              const params = new URLSearchParams(searchParams.toString());
               params.set("page", (pageIndex - 1).toString());
               router.replace(`/host/users?${params.toString()}`, {
                 scroll: false,
@@ -747,7 +885,7 @@ export default function UsersPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              const params = new URLSearchParams(searchParams as any);
+              const params = new URLSearchParams(searchParams.toString());
               params.set("page", (pageIndex + 1).toString());
               router.replace(`/host/users?${params.toString()}`, {
                 scroll: false,

@@ -709,6 +709,7 @@ type EnrichedRsvp = {
   redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
   redemptionCode?: string;
   createdAt: number;
+  updatedAt: number;
 };
 
 type PaginatedRsvpResult = {
@@ -726,6 +727,8 @@ export const listForEventPaginated = query({
     statusFilter: v.optional(v.string()),
     listFilter: v.optional(v.string()), // Filter by list key
     redemptionFilter: v.optional(v.string()),
+    sortBy: v.optional(v.string()),
+    sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   handler: async (
     ctx,
@@ -737,6 +740,8 @@ export const listForEventPaginated = query({
       statusFilter = "all",
       listFilter = "all",
       redemptionFilter = "all",
+      sortBy = "createdAt",
+      sortOrder = "desc",
     },
   ): Promise<PaginatedRsvpResult> => {
     const normalizeTicketStatusFilter = (
@@ -809,11 +814,20 @@ export const listForEventPaginated = query({
         numItems: pageSize,
       });
     } else {
-      // For non-search queries, apply descending order
-      paginatedResult = await baseQuery.order("desc").paginate({
-        cursor: cursor ?? null,
-        numItems: pageSize,
-      });
+      // For non-search queries, apply ordering based on sortBy parameter
+      // Only use database ordering for createdAt (indexed field)
+      if (sortBy === "createdAt") {
+        paginatedResult = await baseQuery.order(sortOrder).paginate({
+          cursor: cursor ?? null,
+          numItems: pageSize,
+        });
+      } else {
+        // For other fields, fetch without ordering and sort after enrichment
+        paginatedResult = await baseQuery.order("desc").paginate({
+          cursor: cursor ?? null,
+          numItems: pageSize,
+        });
+      }
     }
 
     // Batch fetch related data to avoid N+1 queries
@@ -921,6 +935,7 @@ export const listForEventPaginated = query({
         redemptionStatus,
         redemptionCode: redemption?.code,
         createdAt: rsvp.createdAt,
+        updatedAt: rsvp.updatedAt ?? rsvp.createdAt,
         smsConsent: rsvp.smsConsent ?? undefined,
       };
     });
@@ -936,6 +951,53 @@ export const listForEventPaginated = query({
       enrichedPage = enrichedPage.filter(
         (rsvp: any) => rsvp.ticketStatus === ticketStatusFilter,
       );
+    }
+
+    // Apply sorting after enrichment for non-indexed fields
+    // For createdAt, sorting is already applied via database ordering
+    if (sortBy !== "createdAt") {
+      enrichedPage.sort((a: EnrichedRsvp, b: EnrichedRsvp) => {
+        let comparison = 0;
+        const directionMultiplier = sortOrder === "asc" ? 1 : -1;
+
+        switch (sortBy) {
+          case "updatedAt":
+            comparison = a.updatedAt - b.updatedAt;
+            break;
+          case "name":
+            comparison = (a.name || "").localeCompare(b.name || "");
+            break;
+          case "firstName":
+            comparison = (a.firstName || "").localeCompare(b.firstName || "");
+            break;
+          case "lastName":
+            comparison = (a.lastName || "").localeCompare(b.lastName || "");
+            break;
+          case "status":
+            comparison = (a.status || "").localeCompare(b.status || "");
+            break;
+          case "ticketStatus":
+            comparison = (a.ticketStatus || "").localeCompare(b.ticketStatus || "");
+            break;
+          case "listKey":
+            comparison = (a.listKey || "").localeCompare(b.listKey || "");
+            break;
+          case "attendees":
+            comparison = (a.attendees ?? 0) - (b.attendees ?? 0);
+            break;
+          default:
+            // Fallback to createdAt if sortBy is unknown
+            comparison = a.createdAt - b.createdAt;
+            break;
+        }
+
+        // If values are equal, use createdAt as tiebreaker
+        if (comparison === 0) {
+          comparison = a.createdAt - b.createdAt;
+        }
+
+        return directionMultiplier * comparison;
+      });
     }
 
     return {

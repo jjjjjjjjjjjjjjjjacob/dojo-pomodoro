@@ -400,12 +400,93 @@ export const updateUserRole = mutation({
   },
 });
 
+type OrganizationUserSortOption = "createdAt" | "name" | "role";
+type OrganizationUserSortDirection = "asc" | "desc";
+
+const normalizeRoleValue = (role: string): string => role.replace(/^org:/, "");
+
+const resolveRolePriority = (role: string): number => {
+  const normalizedRole = normalizeRoleValue(role);
+  switch (normalizedRole) {
+    case "admin":
+      return 0;
+    case "member":
+      return 1;
+    case "guest":
+      return 2;
+    default:
+      return 3;
+  }
+};
+
+const resolveDisplayNameForSort = (user: {
+  firstName?: string | null;
+  lastName?: string | null;
+  clerkUserId?: string | null;
+}): string => {
+  const firstName = (user.firstName ?? "").trim();
+  const lastName = (user.lastName ?? "").trim();
+  const combined = `${firstName} ${lastName}`.trim();
+  if (combined.length > 0) {
+    return combined.toLowerCase();
+  }
+  return (user.clerkUserId ?? "").toLowerCase();
+};
+
+const sortOrganizationUsers = (
+  users: Array<{
+    firstName?: string | null;
+    lastName?: string | null;
+    clerkUserId?: string | null;
+    createdAt: number;
+    role: string;
+  }>,
+  sortBy: OrganizationUserSortOption,
+  sortDirection: OrganizationUserSortDirection,
+) => {
+  const directionMultiplier = sortDirection === "asc" ? 1 : -1;
+  return users.sort((firstUser, secondUser) => {
+    let comparison = 0;
+    if (sortBy === "name") {
+      comparison = resolveDisplayNameForSort(firstUser).localeCompare(
+        resolveDisplayNameForSort(secondUser),
+      );
+      if (comparison === 0) {
+        comparison = firstUser.createdAt - secondUser.createdAt;
+      }
+    } else if (sortBy === "role") {
+      comparison =
+        resolveRolePriority(firstUser.role) - resolveRolePriority(secondUser.role);
+      if (comparison === 0) {
+        comparison = resolveDisplayNameForSort(firstUser).localeCompare(
+          resolveDisplayNameForSort(secondUser),
+        );
+      }
+      if (comparison === 0) {
+        comparison = firstUser.createdAt - secondUser.createdAt;
+      }
+    } else {
+      comparison = firstUser.createdAt - secondUser.createdAt;
+      if (comparison === 0) {
+        comparison = resolveDisplayNameForSort(firstUser).localeCompare(
+          resolveDisplayNameForSort(secondUser),
+        );
+      }
+    }
+    return directionMultiplier * comparison;
+  });
+};
+
 export const listOrganizationUsersPaginated = query({
   args: {
     pageIndex: v.optional(v.number()),
     pageSize: v.optional(v.number()),
     search: v.optional(v.string()),
     roleFilter: v.optional(v.string()),
+    sortBy: v.optional(
+      v.union(v.literal("createdAt"), v.literal("name"), v.literal("role")),
+    ),
+    sortDirection: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -459,13 +540,21 @@ export const listOrganizationUsersPaginated = query({
 
     // Apply role filter
     if (args.roleFilter && args.roleFilter !== "all") {
+      const normalizedRoleFilter = normalizeRoleValue(args.roleFilter);
       usersWithRoles = usersWithRoles.filter(
-        (user) => user.role === args.roleFilter,
+        (user) => normalizeRoleValue(user.role) === normalizedRoleFilter,
       );
     }
 
-    // Sort by creation date (newest first) to match original behavior
-    const sortedUsers = usersWithRoles.sort((a, b) => b.createdAt - a.createdAt);
+    const sortBy: OrganizationUserSortOption = args.sortBy ?? "createdAt";
+    const sortDirection: OrganizationUserSortDirection =
+      args.sortDirection ?? (sortBy === "createdAt" ? "desc" : "asc");
+
+    const sortedUsers = sortOrganizationUsers(
+      usersWithRoles,
+      sortBy,
+      sortDirection,
+    );
 
     // Calculate pagination
     const totalCount = sortedUsers.length;
@@ -487,6 +576,8 @@ export const listOrganizationUsersPaginated = query({
         hasPreviousPage,
         startIndex: startIndex + 1,
         endIndex: Math.min(endIndex, totalCount),
+        sortBy,
+        sortDirection,
       },
     };
   },

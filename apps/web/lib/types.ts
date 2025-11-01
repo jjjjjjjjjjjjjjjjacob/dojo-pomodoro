@@ -22,6 +22,39 @@ export interface OrgMembership {
   updatedAt: number;
 }
 
+export type OrganizationUserSortOption = "createdAt" | "name" | "role";
+export type OrganizationUserSortDirection = "asc" | "desc";
+
+export interface OrganizationUserListItem {
+  _id: Id<"users">;
+  clerkUserId?: string;
+  firstName?: string;
+  lastName?: string;
+  imageUrl?: string;
+  createdAt: number;
+  role: string;
+  organizationId: string | null;
+  hasOrganizationMembership: boolean;
+}
+
+export interface OrganizationUsersPagination {
+  pageIndex: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  startIndex: number;
+  endIndex: number;
+  sortBy: OrganizationUserSortOption;
+  sortDirection: OrganizationUserSortDirection;
+}
+
+export interface OrganizationUsersResponse {
+  users: OrganizationUserListItem[];
+  pagination: OrganizationUsersPagination;
+}
+
 export interface CustomField {
   key: string;
   label: string;
