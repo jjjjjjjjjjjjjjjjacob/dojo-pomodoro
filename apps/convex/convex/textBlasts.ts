@@ -5,9 +5,8 @@
 
 import { action, mutation, query, internalAction, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import QRCode from "qrcode";
 
 /**
  * Create a new text blast draft
@@ -297,30 +296,19 @@ export const sendBlast = action({
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
-            // Generate QR code directly in the action context (which has admin authentication)
-            // This ensures storage operations use the admin's auth context, not the recipient's
+            // Generate QR code using action wrapper that preserves admin authentication
+            // The action properly loads Node.js QRCode module and maintains auth context
             // The QR code value is identical to what users see on their ticket page
-            const qrCodeBuffer = await QRCode.toBuffer(ticketUrl, {
-              type: "png",
-              width: 500,
-              margin: 2,
-              color: {
-                dark: qrCodeColor,
-                light: "#FFFFFF",
+            const qrCodeResult = await ctx.runAction(
+              api.lib.qrCodeGenerator.generateAndUploadQrCodeWithAuth,
+              {
+                value: ticketUrl,
+                qrCodeColor,
               },
-            });
-            
-            // Upload to Convex storage using the admin's authentication context
-            const qrCodeUint8Array = new Uint8Array(qrCodeBuffer);
-            const qrCodeStorageId = await ctx.storage.store(
-              new Blob([qrCodeUint8Array], { type: "image/png" }),
             );
             
-            // Get publicly accessible URL for the QR code
-            const qrCodeImageUrl = await ctx.storage.getUrl(qrCodeStorageId);
-            
-            if (qrCodeImageUrl) {
-              qrCodeMediaUrl = qrCodeImageUrl; // Storage URL for MMS attachment
+            if (qrCodeResult.url) {
+              qrCodeMediaUrl = qrCodeResult.url; // Storage URL for MMS attachment
             }
           } catch (error) {
             console.error(`Failed to generate QR code for recipient ${recipient.clerkUserId}:`, error);
@@ -487,30 +475,19 @@ export const sendBlastDirect = action({
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
             const qrCodeColor = event.qrCodeColor || "#000000";
-            // Generate QR code directly in the action context (which has admin authentication)
-            // This ensures storage operations use the admin's auth context, not the recipient's
+            // Generate QR code using action wrapper that preserves admin authentication
+            // The action properly loads Node.js QRCode module and maintains auth context
             // The QR code value is identical to what users see on their ticket page
-            const qrCodeBuffer = await QRCode.toBuffer(ticketUrl, {
-              type: "png",
-              width: 500,
-              margin: 2,
-              color: {
-                dark: qrCodeColor,
-                light: "#FFFFFF",
+            const qrCodeResult = await ctx.runAction(
+              api.lib.qrCodeGenerator.generateAndUploadQrCodeWithAuth,
+              {
+                value: ticketUrl,
+                qrCodeColor,
               },
-            });
-            
-            // Upload to Convex storage using the admin's authentication context
-            const qrCodeUint8Array = new Uint8Array(qrCodeBuffer);
-            const qrCodeStorageId = await ctx.storage.store(
-              new Blob([qrCodeUint8Array], { type: "image/png" }),
             );
             
-            // Get publicly accessible URL for the QR code
-            const qrCodeImageUrl = await ctx.storage.getUrl(qrCodeStorageId);
-            
-            if (qrCodeImageUrl) {
-              qrCodeMediaUrl = qrCodeImageUrl; // Storage URL for MMS attachment
+            if (qrCodeResult.url) {
+              qrCodeMediaUrl = qrCodeResult.url; // Storage URL for MMS attachment
             }
           } catch (error) {
             console.error(`Failed to generate QR code for recipient ${recipient.clerkUserId}:`, error);
