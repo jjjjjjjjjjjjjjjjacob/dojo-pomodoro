@@ -132,6 +132,39 @@ export const update = mutation({
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new NotFoundError("Event");
 
+    // Detect custom field key renames before updating
+    let keyMappings: Record<string, string> | undefined;
+    if (args.customFields !== undefined && event.customFields) {
+      const oldFields = event.customFields;
+      const newFields = args.customFields;
+
+      // Build maps for comparison (keyed by label to detect renames)
+      const oldFieldMap = new Map<string, typeof oldFields[0]>();
+      const newFieldMap = new Map<string, typeof newFields[0]>();
+      
+      for (const field of oldFields) {
+        oldFieldMap.set(field.label, field);
+      }
+      for (const field of newFields) {
+        newFieldMap.set(field.label, field);
+      }
+
+      // Find keys that were renamed (same label but different key)
+      keyMappings = {};
+      for (const [label, oldField] of oldFieldMap) {
+        const newField = newFieldMap.get(label);
+        if (newField && oldField.key !== newField.key) {
+          // Same label but different key = rename detected
+          keyMappings[oldField.key] = newField.key;
+        }
+      }
+
+      // Remove empty mappings
+      if (Object.keys(keyMappings).length === 0) {
+        keyMappings = undefined;
+      }
+    }
+
     const patch: EventPatch & { updatedAt: number } = { updatedAt: Date.now() };
     const updateableFields = [
       "name",
@@ -162,6 +195,19 @@ export const update = mutation({
       }
     }
     await ctx.db.patch(args.eventId, patch);
+
+    // If custom field keys were renamed, update all RSVPs for this event
+    if (keyMappings && Object.keys(keyMappings).length > 0) {
+      console.log(
+        `[EVENT UPDATE] Detected custom field key renames for event ${args.eventId}:`,
+        keyMappings,
+      );
+      await ctx.runMutation(internal.migrations.renameCustomFieldKeys, {
+        keyMappings,
+        eventId: args.eventId,
+      });
+    }
+
     return { ok: true };
   },
 });

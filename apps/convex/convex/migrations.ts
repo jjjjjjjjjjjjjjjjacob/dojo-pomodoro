@@ -538,6 +538,7 @@ export const removeNameFromUsersWithFirstLastName = migrations.define({
 export const renameCustomFieldKeys = internalMutation({
   args: {
     keyMappings: v.record(v.string(), v.string()), // oldKey -> newKey
+    eventId: v.optional(v.id("events")), // Optional: if provided, only process RSVPs for this event
   },
   handler: async (ctx, args) => {
     const keyMappings = args.keyMappings;
@@ -552,8 +553,13 @@ export const renameCustomFieldKeys = internalMutation({
       errors: [] as string[],
     };
 
-    // Get all RSVPs
-    const allRsvps = await ctx.db.query("rsvps").collect();
+    // Get RSVPs - either for a specific event or all RSVPs
+    const allRsvps = args.eventId
+      ? await ctx.db
+          .query("rsvps")
+          .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+          .collect()
+      : await ctx.db.query("rsvps").collect();
 
     for (const rsvp of allRsvps) {
       try {
