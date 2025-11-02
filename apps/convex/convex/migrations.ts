@@ -554,10 +554,11 @@ export const renameCustomFieldKeys = internalMutation({
     };
 
     // Get RSVPs - either for a specific event or all RSVPs
-    const allRsvps = args.eventId
+    const eventId = args.eventId;
+    const allRsvps = eventId
       ? await ctx.db
           .query("rsvps")
-          .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+          .withIndex("by_event", (q) => q.eq("eventId", eventId))
           .collect()
       : await ctx.db.query("rsvps").collect();
 
