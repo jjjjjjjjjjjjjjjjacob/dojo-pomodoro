@@ -2,6 +2,8 @@ import { Migrations } from "@convex-dev/migrations";
 import { components } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { Id } from "./_generated/dataModel";
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
 
 type EventCustomFieldDefinition = {
   key: string;
@@ -526,6 +528,120 @@ export const removeNameFromUsersWithFirstLastName = migrations.define({
       }
     }
     return;
+  },
+});
+
+// Rename customFieldValues keys in RSVPs
+// Accepts a mapping of old keys to new keys
+// Example: { "IG:": "INSTAGRAM", "FB:": "FACEBOOK" }
+export const renameCustomFieldKeys = mutation({
+  args: {
+    keyMappings: v.record(v.string(), v.string()), // oldKey -> newKey
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const role = (identity as any).role;
+    const hasAdminRole = role === "org:admin";
+    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
+
+    const keyMappings = args.keyMappings;
+    if (!keyMappings || Object.keys(keyMappings).length === 0) {
+      throw new Error("keyMappings must not be empty");
+    }
+
+    const results = {
+      processed: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as string[],
+    };
+
+    // Get all RSVPs
+    const allRsvps = await ctx.db.query("rsvps").collect();
+
+    for (const rsvp of allRsvps) {
+      try {
+        results.processed++;
+
+        // Skip if no customFieldValues
+        if (!rsvp.customFieldValues || typeof rsvp.customFieldValues !== "object") {
+          results.skipped++;
+          continue;
+        }
+
+        const existingValues: Record<string, string> = {};
+        for (const [key, value] of Object.entries(rsvp.customFieldValues)) {
+          if (typeof value === "string") {
+            existingValues[key] = value;
+          }
+        }
+
+        // Check if any old keys exist that need to be renamed
+        let modified = false;
+        const updatedValues: Record<string, string> = { ...existingValues };
+
+        for (const [oldKey, newKey] of Object.entries(keyMappings)) {
+          // Skip if old key doesn't exist
+          if (!(oldKey in existingValues)) {
+            continue;
+          }
+
+          // Skip if new key already exists with a different value (preserve existing data)
+          if (newKey in existingValues && existingValues[newKey] !== existingValues[oldKey]) {
+            console.warn(
+              `[RENAME KEYS] RSVP ${rsvp._id}: New key "${newKey}" already exists with different value. Skipping rename for "${oldKey}".`,
+            );
+            continue;
+          }
+
+          // Move value from old key to new key
+          // Only overwrite if new key doesn't exist or has same value
+          if (!(newKey in existingValues) || existingValues[newKey] === existingValues[oldKey]) {
+            updatedValues[newKey] = existingValues[oldKey];
+          }
+
+          // Remove old key
+          delete updatedValues[oldKey];
+          modified = true;
+        }
+
+        if (!modified) {
+          results.skipped++;
+          continue;
+        }
+
+        // Sanitize: remove empty values
+        const sanitizedEntries: Array<[string, string]> = [];
+        for (const [key, value] of Object.entries(updatedValues)) {
+          if (typeof value === "string" && value !== "") {
+            sanitizedEntries.push([key, value]);
+          }
+        }
+
+        const sanitizedValues =
+          sanitizedEntries.length > 0
+            ? (Object.fromEntries(sanitizedEntries) as Record<string, string>)
+            : undefined;
+
+        // Update RSVP
+        await ctx.db.patch(rsvp._id as Id<"rsvps">, {
+          customFieldValues: sanitizedValues,
+          updatedAt: Date.now(),
+        });
+
+        results.updated++;
+        console.log(
+          `[RENAME KEYS] Updated RSVP ${rsvp._id}: Renamed ${Object.keys(keyMappings).join(", ")}`,
+        );
+      } catch (error) {
+        const errorMessage = `Failed to update RSVP ${rsvp._id}: ${error}`;
+        results.errors.push(errorMessage);
+        console.error(`[RENAME KEYS] ${errorMessage}`);
+      }
+    }
+
+    return results;
   },
 });
 

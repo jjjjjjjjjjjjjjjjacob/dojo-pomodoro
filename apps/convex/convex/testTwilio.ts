@@ -7,6 +7,7 @@
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { UserIdentity } from "convex/server";
 import twilio from "twilio";
 
 type ActionResult<T> = T extends (...args: any[]) => Promise<infer R>
@@ -20,9 +21,16 @@ type TestTwilioSmsArgs = {
 
 type SendSmsResult = unknown;
 
+type IdentityWithRole = UserIdentity & { role?: string };
+
+const identityHasHostRole = (identity: IdentityWithRole): boolean => {
+  return identity.role === "org:admin";
+};
+
 /**
  * Test Twilio SMS integration
  * Call this from Convex dashboard to verify SMS functionality
+ * Only admins/hosts can trigger this function
  */
 export const testTwilioSms = action({
   args: {
@@ -39,6 +47,24 @@ export const testTwilioSms = action({
     error?: string;
     timestamp: string;
   }> => {
+    // Verify user is admin/host
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return {
+        success: false,
+        error: "Unauthorized",
+        timestamp: new Date().toISOString(),
+      };
+    }
+    const identityWithRole = identity as IdentityWithRole;
+    if (!identityHasHostRole(identityWithRole)) {
+      return {
+        success: false,
+        error: "Not authorized - only admins/hosts can trigger test SMS",
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     // Check if Twilio is enabled in development
     const devTwilioEnabled = process.env.DEV_TWILIO_ENABLED === "true";
     if (!devTwilioEnabled) {
@@ -74,12 +100,31 @@ export const testTwilioSms = action({
 
 /**
  * Test phone number formatting to E.164 format
+ * Only admins/hosts can trigger this function
  */
 export const testPhoneFormatting = action({
   args: {
     phoneNumbers: v.array(v.string()),
   },
   handler: async (ctx, args) => {
+    // Verify user is admin/host
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return {
+        success: false,
+        error: "Unauthorized",
+        results: [],
+      };
+    }
+    const identityWithRole = identity as IdentityWithRole;
+    if (!identityHasHostRole(identityWithRole)) {
+      return {
+        success: false,
+        error: "Not authorized - only admins/hosts can trigger phone formatting tests",
+        results: [],
+      };
+    }
+
     const results = [];
 
     for (const phone of args.phoneNumbers) {
@@ -119,10 +164,27 @@ export const testPhoneFormatting = action({
 
 /**
  * Test Twilio account status and balance
+ * Only admins/hosts can trigger this function
  */
 export const testTwilioAccount = action({
   args: {},
-  handler: async () => {
+  handler: async (ctx) => {
+    // Verify user is admin/host
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+    const identityWithRole = identity as IdentityWithRole;
+    if (!identityHasHostRole(identityWithRole)) {
+      return {
+        success: false,
+        error: "Not authorized - only admins/hosts can check Twilio account status",
+      };
+    }
+
     // Check if Twilio is enabled in development
     const devTwilioEnabled = process.env.DEV_TWILIO_ENABLED === "true";
     if (!devTwilioEnabled) {
@@ -177,12 +239,29 @@ export const testTwilioAccount = action({
 /**
  * Send test SMS and check delivery status
  * Combines SMS sending with account verification
+ * Only admins/hosts can trigger this function
  */
 export const checkTwilioStatus = action({
   args: {
     testPhoneNumber: v.string(),
   },
   handler: async (ctx, args: { testPhoneNumber: string }) => {
+    // Verify user is admin/host
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+    const identityWithRole = identity as IdentityWithRole;
+    if (!identityHasHostRole(identityWithRole)) {
+      return {
+        success: false,
+        error: "Not authorized - only admins/hosts can check Twilio status",
+      };
+    }
+
     // Check if Twilio is enabled in development
     const devTwilioEnabled = process.env.DEV_TWILIO_ENABLED === "true";
     if (!devTwilioEnabled) {

@@ -7,6 +7,7 @@
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import twilio from "twilio";
 import { formatPhoneNumberForSms, obfuscatePhoneNumber } from "./lib/phoneUtils";
 
@@ -245,8 +246,107 @@ export const sendSmsInternal = internalAction({
 });
 
 /**
+ * Helper function to safely update notification status with retry logic for auth errors
+ * This is a best-effort operation - failures won't prevent SMS from being sent
+ */
+async function updateNotificationStatusSafely(
+  ctx: any,
+  notificationId: Id<"smsNotifications"> | undefined,
+  status: "sent" | "failed",
+  messageId?: string,
+  errorMessage?: string,
+  sentAt?: number,
+): Promise<void> {
+  if (!notificationId) return;
+  
+  try {
+    await ctx.runMutation(internal.sms.updateNotificationStatus, {
+      notificationId,
+      status,
+      messageId,
+      errorMessage,
+      sentAt,
+    });
+  } catch (error: any) {
+    // If we get an authentication error (OIDC token), log it but continue
+    // Internal actions shouldn't require authentication, but tokens can expire during long operations
+    const errorMessageValue = error.message || String(error);
+    if (errorMessageValue.includes("OIDC") || errorMessageValue.includes("Unauthenticated")) {
+      console.warn(`[sendBulkSmsInternal] Authentication error updating notification ${notificationId} (continuing anyway): ${errorMessageValue}`);
+      // Continue without updating - SMS was sent successfully, status update is secondary
+    } else {
+      // Log other errors but don't fail the SMS send
+      console.error(`[sendBulkSmsInternal] Error updating notification ${notificationId}: ${errorMessageValue}`);
+    }
+  }
+}
+
+/**
+ * Helper function to safely log SMS usage with retry logic for auth errors
+ * This is a best-effort operation - failures won't prevent SMS from being sent
+ */
+async function logSmsUsageSafely(
+  ctx: any,
+  messageId: string,
+  phoneNumber: string,
+  messageLength: number,
+  messageType: string,
+  estimatedCost: number,
+  timestamp: number,
+): Promise<void> {
+  try {
+    await ctx.runAction(internal.smsMonitoringActions.logSmsUsageAction, {
+      messageId,
+      phoneNumber,
+      messageLength,
+      messageType,
+      estimatedCost,
+      timestamp,
+    });
+  } catch (error: any) {
+    // If we get an authentication error (OIDC token), log it but continue
+    // Internal actions shouldn't require authentication, but tokens can expire during long operations
+    const errorMessage = error.message || String(error);
+    if (errorMessage.includes("OIDC") || errorMessage.includes("Unauthenticated")) {
+      console.warn(`[sendBulkSmsInternal] Authentication error logging SMS usage (continuing anyway): ${errorMessage}`);
+      // Continue without logging - SMS was sent successfully, logging is secondary
+    } else {
+      // Log other errors but don't fail the SMS send
+      console.error(`[sendBulkSmsInternal] Error logging SMS usage: ${errorMessage}`);
+    }
+  }
+}
+
+/**
+ * Helper function to safely check opt-out status with retry logic for auth errors
+ * Returns false (not opted out) if check fails due to auth errors
+ */
+async function checkOptOutSafely(
+  ctx: any,
+  phoneNumber: string,
+): Promise<boolean> {
+  try {
+    return await ctx.runAction(internal.smsMonitoringActions.checkOptOutAction, {
+      phoneNumber,
+    });
+  } catch (error: any) {
+    // If we get an authentication error (OIDC token), log it but continue
+    // Internal actions shouldn't require authentication, but tokens can expire during long operations
+    const errorMessage = error.message || String(error);
+    if (errorMessage.includes("OIDC") || errorMessage.includes("Unauthenticated")) {
+      console.warn(`[sendBulkSmsInternal] Authentication error checking opt-out status (continuing anyway): ${errorMessage}`);
+      // Continue without opt-out check - better to send than to fail silently
+      return false;
+    }
+    // Re-throw other errors
+    throw error;
+  }
+}
+
+/**
  * Internal action to send bulk SMS messages
  * Processes in batches to avoid overwhelming Twilio
+ * Sends messages directly via Twilio API to avoid auth token expiration issues
  */
 export const sendBulkSmsInternal = internalAction({
   args: {
@@ -282,6 +382,11 @@ export const sendBulkSmsInternal = internalAction({
       };
     }
 
+    const { accountSid, authToken, fromNumber } = credentials;
+    
+    // Create Twilio client once - this doesn't depend on Convex auth tokens
+    const twilioClient = twilio(accountSid, authToken);
+
     const batchSize = args.batchSize || 10; // Process 10 SMS at a time
     const results: Array<{
       clerkUserId: string;
@@ -300,62 +405,125 @@ export const sendBulkSmsInternal = internalAction({
       
       console.log(`[sendBulkSmsInternal] Processing batch ${batchNumber}/${totalBatches} (${batch.length} recipients)`);
 
-      // Send batch of SMS messages
-      // Wrap each call in try-catch to handle authentication errors gracefully
-      // Internal actions shouldn't require authentication, but tokens can expire during long operations
+      // Send batch of SMS messages directly via Twilio API
+      // This avoids auth token expiration issues since we're not using ctx.runAction
       const batchResults = await Promise.allSettled(
         batch.map(async (recipient) => {
           try {
-            return await ctx.runAction(internal.smsActions.sendSmsInternal, {
-              phoneNumber: recipient.phoneNumber,
-              message: recipient.personalizedMessage ?? args.message,
-              notificationId: recipient.notificationId,
-              mediaUrl: recipient.mediaUrl,
-              messageType: args.messageType,
-            });
-          } catch (error: any) {
-            // Handle authentication errors specifically - these shouldn't happen for internal actions
-            // but can occur when tokens expire during long-running operations
-            const errorMessage = error.message || String(error);
-            const errorCode = error.code || "";
-            const errorString = String(error);
-            
-            // Try to parse error if it's a JSON string
-            let parsedError: any = null;
+            // Format phone number for international format
+            let formattedPhone: string;
             try {
-              if (typeof errorMessage === "string" && errorMessage.trim().startsWith("{")) {
-                parsedError = JSON.parse(errorMessage);
-              }
-            } catch {
-              // Not JSON, continue with original error handling
-            }
-            
-            // Check for authentication errors in multiple ways:
-            // 1. Error code is "Unauthenticated"
-            // 2. Parsed error code is "Unauthenticated" (if error was JSON)
-            // 3. Error message contains "OIDC" or "Unauthenticated"
-            // 4. Error string contains authentication-related text
-            const isAuthError = 
-              errorCode === "Unauthenticated" ||
-              parsedError?.code === "Unauthenticated" ||
-              errorMessage.includes("OIDC") ||
-              errorMessage.includes("Unauthenticated") ||
-              errorString.includes("OIDC") ||
-              errorString.includes("Unauthenticated");
-            
-            if (isAuthError) {
-              const finalErrorMessage = parsedError?.message || errorMessage;
-              console.warn(`[sendBulkSmsInternal] Authentication error sending SMS to user ${recipient.clerkUserId} (token expired). Internal actions shouldn't require auth - this may be a Convex limitation: ${finalErrorMessage}`);
-              // Return a failure result instead of throwing, so we can continue processing other recipients
+              formattedPhone = formatPhoneNumberForSms(recipient.phoneNumber);
+            } catch (error: any) {
+              const errorMessage = `Invalid phone number format: ${error.message}`;
+              console.error(`[sendBulkSmsInternal] Phone formatting failed for ${obfuscatePhoneNumber(recipient.phoneNumber)}: ${errorMessage}`);
+              await updateNotificationStatusSafely(
+                ctx,
+                recipient.notificationId,
+                "failed",
+                undefined,
+                errorMessage,
+              );
               return {
                 success: false,
                 messageId: undefined,
                 phone: obfuscatePhoneNumber(recipient.phoneNumber),
-                error: `Authentication token expired during bulk send: ${finalErrorMessage}`,
+                error: errorMessage,
               };
             }
-            // Re-throw other errors to be handled by Promise.allSettled
-            throw error;
+
+            // Check if user has opted out (best-effort, won't fail if auth error)
+            const hasOptedOut = await checkOptOutSafely(ctx, formattedPhone);
+            if (hasOptedOut) {
+              const errorMessage = "User has opted out of SMS notifications";
+              console.warn(`[sendBulkSmsInternal] User opted out: ${obfuscatePhoneNumber(formattedPhone)}`);
+              await updateNotificationStatusSafely(
+                ctx,
+                recipient.notificationId,
+                "failed",
+                undefined,
+                errorMessage,
+              );
+              return {
+                success: false,
+                messageId: undefined,
+                phone: obfuscatePhoneNumber(formattedPhone),
+                skipped: "opted_out",
+                error: errorMessage,
+              };
+            }
+
+            // Send SMS/MMS via Twilio directly (no auth token dependency)
+            const personalizedMessage = recipient.personalizedMessage ?? args.message;
+            const messageConfig: {
+              body: string;
+              from: string;
+              to: string;
+              mediaUrl?: string[];
+            } = {
+              body: personalizedMessage,
+              from: fromNumber,
+              to: formattedPhone,
+            };
+            
+            // Add media URL for MMS if provided
+            if (recipient.mediaUrl) {
+              messageConfig.mediaUrl = [recipient.mediaUrl];
+            }
+
+            const message = await twilioClient.messages.create(messageConfig);
+
+            // Calculate message length and cost
+            const messageLength = personalizedMessage.length;
+            const estimatedCost = calculateSmsCost(messageLength);
+            const messageType = args.messageType || "Transactional";
+
+            // Log SMS usage (best-effort, won't fail if auth error)
+            await logSmsUsageSafely(
+              ctx,
+              message.sid,
+              formattedPhone,
+              messageLength,
+              messageType,
+              estimatedCost,
+              Date.now(),
+            );
+
+            // Update notification status (best-effort, won't fail if auth error)
+            await updateNotificationStatusSafely(
+              ctx,
+              recipient.notificationId,
+              "sent",
+              message.sid,
+              undefined,
+              Date.now(),
+            );
+
+            return {
+              success: true,
+              messageId: message.sid,
+              phone: obfuscatePhoneNumber(formattedPhone),
+            };
+          } catch (error: any) {
+            // Handle Twilio API errors
+            const errorMessage = error.message || String(error);
+            console.error(`[sendBulkSmsInternal] Failed to send SMS to ${obfuscatePhoneNumber(recipient.phoneNumber)}: ${errorMessage}`, error);
+            
+            // Update notification status (best-effort, won't fail if auth error)
+            await updateNotificationStatusSafely(
+              ctx,
+              recipient.notificationId,
+              "failed",
+              undefined,
+              errorMessage,
+            );
+
+            return {
+              success: false,
+              messageId: undefined,
+              phone: obfuscatePhoneNumber(recipient.phoneNumber),
+              error: errorMessage,
+            };
           }
         })
       );
@@ -372,7 +540,7 @@ export const sendBulkSmsInternal = internalAction({
               messageId: result.value.messageId,
             });
           } else {
-            // Promise fulfilled but SMS wasn't sent (e.g., opted out, dev mode disabled, auth error)
+            // Promise fulfilled but SMS wasn't sent (e.g., opted out, invalid phone, Twilio error)
             const errorMessage = result.value.error || "SMS send failed but no error provided";
             console.error(`[sendBulkSmsInternal] SMS failed for user ${recipient.clerkUserId}: ${errorMessage}`);
             results.push({
