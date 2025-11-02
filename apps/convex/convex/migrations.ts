@@ -2,7 +2,7 @@ import { Migrations } from "@convex-dev/migrations";
 import { components } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { Id } from "./_generated/dataModel";
-import { mutation } from "./_generated/server";
+import { internalMutation } from "./functions";
 import { v } from "convex/values";
 
 type EventCustomFieldDefinition = {
@@ -534,17 +534,12 @@ export const removeNameFromUsersWithFirstLastName = migrations.define({
 // Rename customFieldValues keys in RSVPs
 // Accepts a mapping of old keys to new keys
 // Example: { "IG:": "INSTAGRAM", "FB:": "FACEBOOK" }
-export const renameCustomFieldKeys = mutation({
+// This is an internal mutation so it can be called from scripts or the dashboard
+export const renameCustomFieldKeys = internalMutation({
   args: {
     keyMappings: v.record(v.string(), v.string()), // oldKey -> newKey
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const role = (identity as any).role;
-    const hasAdminRole = role === "org:admin";
-    if (!hasAdminRole) throw new Error("Forbidden: admin role required");
-
     const keyMappings = args.keyMappings;
     if (!keyMappings || Object.keys(keyMappings).length === 0) {
       throw new Error("keyMappings must not be empty");
