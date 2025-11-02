@@ -185,12 +185,16 @@ export default function RsvpsPage() {
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [listFilter, setListFilter] = React.useState<string>("all");
   const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
+  const [sortBy, setSortBy] = React.useState<string>("createdAt");
+  const [sortOrder, setSortOrder] = React.useState<"asc" | "desc">("desc");
 
   // Reset cursor and history when filters change
   React.useEffect(() => {
     setCursor(null);
     setCursorHistory([]);
-  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter]);
+    // Clear table sorting state when global sort changes
+    setSorting([]);
+  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter, sortBy, sortOrder]);
 
   const rsvpsPaginated = useQuery(
     api.rsvps.listForEventPaginated,
@@ -203,6 +207,8 @@ export default function RsvpsPage() {
           statusFilter,
           listFilter,
           redemptionFilter,
+          sortBy,
+          sortOrder,
         }
       : "skip",
   ) as PaginatedHostRsvpResult | undefined;
@@ -290,6 +296,38 @@ export default function RsvpsPage() {
       ];
       return new Set(allColumnIds);
     },
+  );
+
+  // Convert visibleColumns Set to columnVisibility object for TanStack Table
+  const columnVisibility = React.useMemo(() => {
+    const visibility: Record<string, boolean> = {};
+    getAllAvailableColumnIds().forEach((columnId) => {
+      visibility[columnId] = visibleColumns.has(columnId);
+    });
+    return visibility;
+  }, [visibleColumns, getAllAvailableColumnIds]);
+
+  // Handle column visibility changes from TanStack Table
+  const handleColumnVisibilityChange = React.useCallback(
+    (updater: any) => {
+      setVisibleColumns((prevVisibleColumns) => {
+        const newVisibility =
+          typeof updater === "function" ? updater(columnVisibility) : updater;
+        const newVisibleColumns = new Set(prevVisibleColumns);
+        
+        // Update based on new visibility object
+        Object.entries(newVisibility).forEach(([columnId, isVisible]) => {
+          if (isVisible) {
+            newVisibleColumns.add(columnId);
+          } else {
+            newVisibleColumns.delete(columnId);
+          }
+        });
+        
+        return newVisibleColumns;
+      });
+    },
+    [columnVisibility],
   );
 
   // Update visible columns when custom fields change
@@ -1259,6 +1297,8 @@ export default function RsvpsPage() {
     setStatusFilter("all");
     setListFilter("all");
     setRedemptionFilter("all");
+    setSortBy("createdAt");
+    setSortOrder("desc");
   };
 
   // Check if any filters are active
@@ -1618,15 +1658,18 @@ export default function RsvpsPage() {
   const table = useReactTable({
     data: rsvps,
     columns: initialCols,
-    state: { sorting, columnOrder, columnSizing },
+    state: { sorting, columnOrder, columnSizing, columnVisibility },
     manualPagination: true, // Enable manual pagination
+    manualSorting: true, // Enable manual sorting (server-side)
+    enableSorting: false, // Disable column header sorting - use global sort dropdowns instead
     onSortingChange: setSorting,
     onColumnOrderChange: setColumnOrder,
     onColumnSizingChange: setColumnSizing,
+    onColumnVisibilityChange: handleColumnVisibilityChange,
     enableColumnResizing: false,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    // Remove getPaginationRowModel() for manual pagination
+    // Don't use getSortedRowModel() since we're doing server-side sorting
+    // getSortedRowModel: getSortedRowModel(),
   });
 
   const [draggedColumnIdentifier, setDraggedColumnIdentifier] =
@@ -1999,10 +2042,10 @@ export default function RsvpsPage() {
     return () => document.removeEventListener("keydown", handleKeydown);
   }, [toggleSelectAllCurrent]);
 
-  // Create the final columns with proper header checkbox, filtered by visibility
+  // Create the final columns with proper header checkbox
   const finalCols = React.useMemo<ColumnDef<HostRsvp>[]>(
     () => {
-      const allCols = [
+      return [
         {
           id: "select",
           header: ({ table }: HeaderContext<HostRsvp, unknown>) => (
@@ -2037,15 +2080,6 @@ export default function RsvpsPage() {
         },
         ...baseCols,
       ];
-      
-      // Filter columns based on visibility (always show select column)
-      return allCols.filter((col) => {
-        const columnId = col.id;
-        if (columnId === "select") {
-          return true; // Always show select column
-        }
-        return columnId ? visibleColumns.has(columnId) : true;
-      });
     },
     [
       baseCols,
@@ -2054,11 +2088,10 @@ export default function RsvpsPage() {
       someSelected,
       toggleSelectAllCurrent,
       toggleSelectRow,
-      visibleColumns,
     ],
   );
 
-  // Update table columns
+  // Update table columns when they change
   React.useEffect(() => {
     table.setOptions((prev) => ({
       ...prev,
@@ -2515,6 +2548,30 @@ export default function RsvpsPage() {
           <SelectOption value="not-issued">None</SelectOption>
         </Select>
         <span className="mx-2 h-6 w-px bg-foreground/20" />
+        <Select
+          value={sortBy}
+          onValueChange={setSortBy}
+          className="w-36"
+        >
+          <SelectOption value="createdAt">Created Date</SelectOption>
+          <SelectOption value="updatedAt">Updated Date</SelectOption>
+          <SelectOption value="name">Guest Name</SelectOption>
+          <SelectOption value="firstName">First Name</SelectOption>
+          <SelectOption value="lastName">Last Name</SelectOption>
+          <SelectOption value="status">Approval Status</SelectOption>
+          <SelectOption value="ticketStatus">Ticket Status</SelectOption>
+          <SelectOption value="listKey">List</SelectOption>
+          <SelectOption value="attendees">Attendees</SelectOption>
+        </Select>
+        <Select
+          value={sortOrder}
+          onValueChange={(value) => setSortOrder(value as "asc" | "desc")}
+          className="w-28"
+        >
+          <SelectOption value="desc">Descending</SelectOption>
+          <SelectOption value="asc">Ascending</SelectOption>
+        </Select>
+        <span className="mx-2 h-6 w-px bg-foreground/20" />
         <Popover open={columnVisibilityOpen} onOpenChange={setColumnVisibilityOpen}>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="h-8">
@@ -2539,16 +2596,9 @@ export default function RsvpsPage() {
                           id={`column-${columnId}`}
                           checked={isVisible}
                           onCheckedChange={(checked) => {
-                            setVisibleColumns((previousVisibleColumns) => {
-                              const updatedVisibleColumns = new Set(
-                                previousVisibleColumns,
-                              );
-                              if (checked === true) {
-                                updatedVisibleColumns.add(columnId);
-                              } else {
-                                updatedVisibleColumns.delete(columnId);
-                              }
-                              return updatedVisibleColumns;
+                            handleColumnVisibilityChange({
+                              ...columnVisibility,
+                              [columnId]: checked === true,
                             });
                           }}
                         />

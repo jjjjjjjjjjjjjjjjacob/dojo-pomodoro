@@ -301,16 +301,63 @@ export const sendBulkSmsInternal = internalAction({
       console.log(`[sendBulkSmsInternal] Processing batch ${batchNumber}/${totalBatches} (${batch.length} recipients)`);
 
       // Send batch of SMS messages
+      // Wrap each call in try-catch to handle authentication errors gracefully
+      // Internal actions shouldn't require authentication, but tokens can expire during long operations
       const batchResults = await Promise.allSettled(
-        batch.map((recipient) =>
-          ctx.runAction(internal.smsActions.sendSmsInternal, {
-            phoneNumber: recipient.phoneNumber,
-            message: recipient.personalizedMessage ?? args.message,
-            notificationId: recipient.notificationId,
-            mediaUrl: recipient.mediaUrl,
-            messageType: args.messageType,
-          })
-        )
+        batch.map(async (recipient) => {
+          try {
+            return await ctx.runAction(internal.smsActions.sendSmsInternal, {
+              phoneNumber: recipient.phoneNumber,
+              message: recipient.personalizedMessage ?? args.message,
+              notificationId: recipient.notificationId,
+              mediaUrl: recipient.mediaUrl,
+              messageType: args.messageType,
+            });
+          } catch (error: any) {
+            // Handle authentication errors specifically - these shouldn't happen for internal actions
+            // but can occur when tokens expire during long-running operations
+            const errorMessage = error.message || String(error);
+            const errorCode = error.code || "";
+            const errorString = String(error);
+            
+            // Try to parse error if it's a JSON string
+            let parsedError: any = null;
+            try {
+              if (typeof errorMessage === "string" && errorMessage.trim().startsWith("{")) {
+                parsedError = JSON.parse(errorMessage);
+              }
+            } catch {
+              // Not JSON, continue with original error handling
+            }
+            
+            // Check for authentication errors in multiple ways:
+            // 1. Error code is "Unauthenticated"
+            // 2. Parsed error code is "Unauthenticated" (if error was JSON)
+            // 3. Error message contains "OIDC" or "Unauthenticated"
+            // 4. Error string contains authentication-related text
+            const isAuthError = 
+              errorCode === "Unauthenticated" ||
+              parsedError?.code === "Unauthenticated" ||
+              errorMessage.includes("OIDC") ||
+              errorMessage.includes("Unauthenticated") ||
+              errorString.includes("OIDC") ||
+              errorString.includes("Unauthenticated");
+            
+            if (isAuthError) {
+              const finalErrorMessage = parsedError?.message || errorMessage;
+              console.warn(`[sendBulkSmsInternal] Authentication error sending SMS to user ${recipient.clerkUserId} (token expired). Internal actions shouldn't require auth - this may be a Convex limitation: ${finalErrorMessage}`);
+              // Return a failure result instead of throwing, so we can continue processing other recipients
+              return {
+                success: false,
+                messageId: undefined,
+                phone: obfuscatePhoneNumber(recipient.phoneNumber),
+                error: `Authentication token expired during bulk send: ${finalErrorMessage}`,
+              };
+            }
+            // Re-throw other errors to be handled by Promise.allSettled
+            throw error;
+          }
+        })
       );
 
       // Collect results
@@ -325,7 +372,7 @@ export const sendBulkSmsInternal = internalAction({
               messageId: result.value.messageId,
             });
           } else {
-            // Promise fulfilled but SMS wasn't sent (e.g., opted out, dev mode disabled)
+            // Promise fulfilled but SMS wasn't sent (e.g., opted out, dev mode disabled, auth error)
             const errorMessage = result.value.error || "SMS send failed but no error provided";
             console.error(`[sendBulkSmsInternal] SMS failed for user ${recipient.clerkUserId}: ${errorMessage}`);
             results.push({
@@ -335,7 +382,7 @@ export const sendBulkSmsInternal = internalAction({
             });
           }
         } else {
-          // Promise rejected - exception thrown
+          // Promise rejected - exception thrown (shouldn't happen with our try-catch, but handle anyway)
           const errorMessage =
             result.reason instanceof Error
               ? result.reason.message

@@ -709,6 +709,7 @@ type EnrichedRsvp = {
   redemptionStatus: "none" | "issued" | "redeemed" | "disabled";
   redemptionCode?: string;
   createdAt: number;
+  updatedAt: number;
 };
 
 type PaginatedRsvpResult = {
@@ -726,6 +727,8 @@ export const listForEventPaginated = query({
     statusFilter: v.optional(v.string()),
     listFilter: v.optional(v.string()), // Filter by list key
     redemptionFilter: v.optional(v.string()),
+    sortBy: v.optional(v.string()),
+    sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   handler: async (
     ctx,
@@ -737,8 +740,13 @@ export const listForEventPaginated = query({
       statusFilter = "all",
       listFilter = "all",
       redemptionFilter = "all",
+      sortBy = "createdAt",
+      sortOrder = "desc",
     },
   ): Promise<PaginatedRsvpResult> => {
+    // Debug logging for sorting
+    console.log(`[RSVP_PAGINATED] Sort params: sortBy=${sortBy}, sortOrder=${sortOrder}, search="${guestSearch}", filters: status=${statusFilter}, list=${listFilter}, redemption=${redemptionFilter}`);
+    
     const normalizeTicketStatusFilter = (
       filter: string,
     ): "not-issued" | "issued" | "disabled" | "redeemed" | null => {
@@ -800,29 +808,93 @@ export const listForEventPaginated = query({
       }
     }
 
-    // Use proper Convex cursor-based pagination
-    let paginatedResult;
+    // For proper global sorting, we need to fetch all matching records, sort them, then paginate
+    // This is necessary because Convex's .order() on an index only reverses index order,
+    // not by createdAt or other fields. Cursor pagination requires consistent ordering.
+    let allMatchingRsvps: Doc<"rsvps">[];
+    
     if (guestSearch.trim()) {
-      // For search queries, don't apply ordering (they use relevance order)
-      paginatedResult = await baseQuery.paginate({
-        cursor: cursor ?? null,
-        numItems: pageSize,
-      });
+      // For search queries, fetch all matching results
+      allMatchingRsvps = await baseQuery.collect();
     } else {
-      // For non-search queries, apply descending order
-      paginatedResult = await baseQuery.order("desc").paginate({
-        cursor: cursor ?? null,
-        numItems: pageSize,
-      });
+      // For non-search queries, fetch all matching results
+      allMatchingRsvps = await baseQuery.collect();
     }
+    
+    console.log(`[RSVP_PAGINATED] Fetched ${allMatchingRsvps.length} total RSVPs for sorting`);
+
+    // Sort all matching RSVPs before pagination
+    // For fields that require enrichment (name, firstName, lastName), we'll sort after enrichment
+    // For fields on the RSVP document directly, we can sort before enrichment
+    const needsEnrichmentForSort = sortBy === "name" || sortBy === "firstName" || sortBy === "lastName";
+    
+    if (!needsEnrichmentForSort) {
+      // Sort before enrichment for better performance
+      allMatchingRsvps.sort((a: Doc<"rsvps">, b: Doc<"rsvps">) => {
+        let comparison = 0;
+        const directionMultiplier = sortOrder === "asc" ? 1 : -1;
+
+        switch (sortBy) {
+          case "updatedAt":
+            comparison = (a.updatedAt ?? a.createdAt) - (b.updatedAt ?? b.createdAt);
+            break;
+          case "createdAt":
+            comparison = a.createdAt - b.createdAt;
+            break;
+          case "status":
+            comparison = (a.status || "").localeCompare(b.status || "");
+            break;
+          case "ticketStatus":
+            const aTicketStatus = (a.ticketStatus as string | undefined) ?? "not-issued";
+            const bTicketStatus = (b.ticketStatus as string | undefined) ?? "not-issued";
+            comparison = aTicketStatus.localeCompare(bTicketStatus);
+            break;
+          case "listKey":
+            comparison = (a.listKey || "").localeCompare(b.listKey || "");
+            break;
+          case "attendees":
+            comparison = (a.attendees ?? 0) - (b.attendees ?? 0);
+            break;
+          default:
+            // Fallback to createdAt
+            comparison = a.createdAt - b.createdAt;
+            break;
+        }
+
+        // If values are equal, use createdAt as tiebreaker
+        if (comparison === 0) {
+          comparison = a.createdAt - b.createdAt;
+        }
+
+        return directionMultiplier * comparison;
+      });
+      
+      console.log(`[RSVP_PAGINATED] Pre-sorted ${allMatchingRsvps.length} RSVPs by ${sortBy} ${sortOrder}`);
+    }
+
+    // Manual pagination - we'll sort after enrichment if needed
+    const cursorIndex = cursor ? parseInt(cursor, 10) : 0;
+    const startIndex = cursorIndex;
+    const endIndex = startIndex + pageSize;
+    const paginatedRsvps = needsEnrichmentForSort 
+      ? allMatchingRsvps // Will sort after enrichment
+      : allMatchingRsvps.slice(startIndex, endIndex); // Pre-sorted, can paginate now
+    const nextCursor = needsEnrichmentForSort 
+      ? null // Will be set after enrichment and sorting
+      : (endIndex < allMatchingRsvps.length ? String(endIndex) : null);
+    const isDone = needsEnrichmentForSort
+      ? false // Will be set after enrichment and sorting
+      : (endIndex >= allMatchingRsvps.length);
 
     // Batch fetch related data to avoid N+1 queries
     // Note: credentialId field has been removed from schema
     // We'll handle credential lookups via listKey when needed
 
     // Batch fetch user data for metadata (custom fields)
+    // For name-based sorting, we need to fetch all users to sort properly
+    const rsvpsToEnrich = needsEnrichmentForSort ? allMatchingRsvps : paginatedRsvps;
     const userClerkIds = [
-      ...new Set(paginatedResult.page.map((r: Doc<"rsvps">) => r.clerkUserId)),
+      ...new Set(rsvpsToEnrich.map((r: Doc<"rsvps">) => r.clerkUserId)),
     ] as string[];
     const users = await Promise.all(
       userClerkIds.map(async (clerkUserId: string) =>
@@ -839,7 +911,7 @@ export const listForEventPaginated = query({
     );
 
     // Batch fetch redemption data only for RSVPs with active codes
-    const rsvpsNeedingRedemption = paginatedResult.page.filter(
+    const rsvpsNeedingRedemption = rsvpsToEnrich.filter(
       (rsvp: Doc<"rsvps">) =>
         ((rsvp.ticketStatus as string | undefined) ?? "not-issued") !==
         "not-issued",
@@ -859,7 +931,7 @@ export const listForEventPaginated = query({
     );
 
     // Enrich with batched data (avoid N+1 queries)
-    let enrichedPage = paginatedResult.page.map((rsvp: Doc<"rsvps">) => {
+    let enrichedPage = rsvpsToEnrich.map((rsvp: Doc<"rsvps">) => {
       const redemption = redemptionMap[rsvp.clerkUserId];
       const ticketStatus =
         (rsvp.ticketStatus as
@@ -921,9 +993,57 @@ export const listForEventPaginated = query({
         redemptionStatus,
         redemptionCode: redemption?.code,
         createdAt: rsvp.createdAt,
+        updatedAt: rsvp.updatedAt ?? rsvp.createdAt,
         smsConsent: rsvp.smsConsent ?? undefined,
       };
     });
+
+    // Note: Sorting is already done before pagination above for most fields
+    // For name-based sorting, sort after enrichment, then paginate
+    if (needsEnrichmentForSort) {
+      enrichedPage.sort((a: EnrichedRsvp, b: EnrichedRsvp) => {
+        let comparison = 0;
+        const directionMultiplier = sortOrder === "asc" ? 1 : -1;
+
+        switch (sortBy) {
+          case "name":
+            comparison = (a.name || "").localeCompare(b.name || "");
+            break;
+          case "firstName":
+            comparison = (a.firstName || "").localeCompare(b.firstName || "");
+            break;
+          case "lastName":
+            comparison = (a.lastName || "").localeCompare(b.lastName || "");
+            break;
+          default:
+            comparison = a.createdAt - b.createdAt;
+            break;
+        }
+
+        // If values are equal, use createdAt as tiebreaker
+        if (comparison === 0) {
+          comparison = a.createdAt - b.createdAt;
+        }
+
+        return directionMultiplier * comparison;
+      });
+      
+      console.log(`[RSVP_PAGINATED] Post-enrichment sorted ${enrichedPage.length} RSVPs by ${sortBy} ${sortOrder}`);
+      
+      // Now paginate after sorting
+      const cursorIndex = cursor ? parseInt(cursor, 10) : 0;
+      const startIndex = cursorIndex;
+      const endIndex = startIndex + pageSize;
+      enrichedPage = enrichedPage.slice(startIndex, endIndex);
+      const finalNextCursor = endIndex < allMatchingRsvps.length ? String(endIndex) : null;
+      const finalIsDone = endIndex >= allMatchingRsvps.length;
+      
+      return {
+        page: enrichedPage,
+        nextCursor: finalNextCursor,
+        isDone: finalIsDone,
+      };
+    }
 
     // Apply listKey filter after enrichment (needed for search queries)
     if (guestSearch.trim() && listFilter !== "all") {
@@ -938,10 +1058,11 @@ export const listForEventPaginated = query({
       );
     }
 
+    // For non-enrichment sorts, enriched page already maintains sort order from pre-sorted paginatedRsvps
     return {
       page: enrichedPage,
-      nextCursor: paginatedResult.continueCursor,
-      isDone: paginatedResult.isDone,
+      nextCursor,
+      isDone,
     };
   },
 });
@@ -1515,6 +1636,66 @@ export const backfillRsvpAggregate = migrations.define({
   migrateOne: async (ctx, rsvpDoc) => {
     // Insert existing record into aggregate
     await insertRsvpIntoAggregate(ctx, rsvpDoc);
+  },
+});
+
+/**
+ * Check aggregate health - compares aggregate count with database count
+ * Returns the difference if aggregate is out of sync
+ */
+export const checkAggregateHealth = query({
+  args: {
+    eventId: v.optional(v.id("events")),
+  },
+  handler: async (ctx, { eventId }) => {
+    try {
+      // Get aggregate count
+      let aggregateCount: number;
+      if (eventId) {
+        aggregateCount = await countRsvpsWithAggregate(ctx, eventId, "all", "all");
+      } else {
+        // Count all RSVPs across all events
+        const allRsvps = await ctx.db.query("rsvps").collect();
+        aggregateCount = allRsvps.length;
+        // This is a rough check - aggregate doesn't have a simple "count all" API
+        // So we'll use DB count as baseline
+      }
+
+      // Get database count
+      let dbCount: number;
+      if (eventId) {
+        const dbRsvps = await ctx.db
+          .query("rsvps")
+          .withIndex("by_event", (q) => q.eq("eventId", eventId))
+          .collect();
+        dbCount = dbRsvps.length;
+      } else {
+        const dbRsvps = await ctx.db.query("rsvps").collect();
+        dbCount = dbRsvps.length;
+      }
+
+      const difference = dbCount - aggregateCount;
+      const isHealthy = difference === 0;
+
+      return {
+        isHealthy,
+        aggregateCount,
+        dbCount,
+        difference,
+        message: isHealthy
+          ? "Aggregate is in sync"
+          : `Aggregate is out of sync: ${difference} RSVPs missing. Run backfillRsvpAggregate migration.`,
+      };
+    } catch (error) {
+      return {
+        isHealthy: false,
+        aggregateCount: 0,
+        dbCount: 0,
+        difference: 0,
+        message: `Error checking aggregate health: ${error instanceof Error ? error.message : String(error)}`,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   },
 });
 
