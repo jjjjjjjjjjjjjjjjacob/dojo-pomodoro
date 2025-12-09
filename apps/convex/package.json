@@ -13,9 +13,10 @@
     "@convex-dev/aggregate": "^0.1.24",
     "@convex-dev/migrations": "^0.2.9",
     "@types/qrcode": "^1.5.6",
-    "convex": "^1.27.0",
+    "convex": "^1.30.0",
     "convex-helpers": "^0.1.104",
     "qrcode": "^1.5.4",
+    "svix": "^1.82.0",
     "twilio": "^5.9.0"
   },
   "devDependencies": {
