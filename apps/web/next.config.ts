@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    // Empty config to acknowledge Turbopack is enabled by default in Next.js 16
+  },
   images: {
     remotePatterns: [
       {
@@ -15,9 +18,6 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     tsconfigPath: "./tsconfig.build.json",
-  },
-  experimental: {
-    forceSwcTransforms: true,
   },
   webpack: (config, { dev }) => {
     // Exclude test files from webpack bundling
