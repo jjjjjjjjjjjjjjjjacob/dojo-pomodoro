@@ -816,6 +816,31 @@ export const listForEventPaginated = query({
     if (guestSearch.trim()) {
       // For search queries, fetch all matching results
       allMatchingRsvps = await baseQuery.collect();
+
+      // Apply listFilter post-filter (search index can't filter by listKey)
+      if (listFilter !== "all") {
+        allMatchingRsvps = allMatchingRsvps.filter(
+          (rsvp: Doc<"rsvps">) => rsvp.listKey === listFilter,
+        );
+      }
+
+      // Apply ticketStatusFilter post-filter for "not-issued" case
+      // (search index can't match undefined values)
+      if (ticketStatusFilter) {
+        allMatchingRsvps = allMatchingRsvps.filter((rsvp: Doc<"rsvps">) => {
+          const status =
+            (rsvp.ticketStatus as
+              | "not-issued"
+              | "issued"
+              | "disabled"
+              | "redeemed"
+              | undefined) ?? "not-issued";
+          if (ticketStatusFilter === "not-issued") {
+            return status === "not-issued";
+          }
+          return status === ticketStatusFilter;
+        });
+      }
     } else {
       // For non-search queries, fetch all matching results
       allMatchingRsvps = await baseQuery.collect();

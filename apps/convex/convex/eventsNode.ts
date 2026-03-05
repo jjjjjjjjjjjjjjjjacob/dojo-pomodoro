@@ -2,7 +2,7 @@
 import { action, query } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
-import { hmacFingerprint, hashPassword } from "./lib/passwordUtils";
+import { hmacFingerprint, hashPassword, encryptPassword } from "./lib/passwordUtils";
 import {
   ValidationError,
   DuplicateError,
@@ -120,11 +120,15 @@ export const create = action({
       }
     }
 
+    const credentialEncryptionKey = process.env.CREDENTIAL_ENCRYPTION_KEY as
+      | string
+      | undefined;
+
     const derivedCredentials: CredentialData[] = args.lists.map(
       ({ listKey, password, generateQR }) => {
         const { saltB64, hashB64, iterations } = hashPassword(password);
         const fingerprint = hmacFingerprint(fingerprintSecret, password);
-        return {
+        const credentialData: CredentialData = {
           listKey,
           passwordHash: hashB64,
           passwordSalt: saltB64,
@@ -132,6 +136,10 @@ export const create = action({
           passwordFingerprint: fingerprint,
           generateQR,
         };
+        if (credentialEncryptionKey) {
+          credentialData.encryptedPassword = encryptPassword(password, credentialEncryptionKey);
+        }
+        return credentialData;
       },
     );
 
@@ -372,6 +380,10 @@ export const update = action({
     if (!fingerprintSecret)
       throw new ValidationError("Missing FINGERPRINT_SECRET env");
 
+    const updateCredentialEncryptionKey = process.env.CREDENTIAL_ENCRYPTION_KEY as
+      | string
+      | undefined;
+
     for (const list of lists) {
       const currentCredential = list.id ? existingById.get(list.id) : undefined;
       const wantsPasswordUpdate = list.password && list.password.length > 0;
@@ -384,6 +396,7 @@ export const update = action({
           | "passwordSalt"
           | "passwordIterations"
           | "passwordFingerprint"
+          | "encryptedPassword"
           | "generateQR"
         >
       >;
@@ -422,6 +435,9 @@ export const update = action({
           credentialPatch.passwordSalt = saltB64;
           credentialPatch.passwordIterations = iterations;
           credentialPatch.passwordFingerprint = fingerprint;
+          if (updateCredentialEncryptionKey) {
+            credentialPatch.encryptedPassword = encryptPassword(list.password!, updateCredentialEncryptionKey);
+          }
         }
         const currentGenerateQrCodeEnabled =
           currentCredential.generateQR ?? false;
@@ -460,6 +476,9 @@ export const update = action({
           passwordSalt: saltB64,
           passwordIterations: iterations,
           passwordFingerprint: fingerprint,
+          encryptedPassword: updateCredentialEncryptionKey
+            ? encryptPassword(list.password!, updateCredentialEncryptionKey)
+            : undefined,
           generateQR: nextGenerateQrCodeEnabled,
         });
       }

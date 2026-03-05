@@ -72,6 +72,9 @@ export default defineSchema({
     passwordSalt: v.string(), // base64
     passwordIterations: v.number(), // pbkdf2 iterations
     passwordFingerprint: v.string(), // HMAC-SHA256 hex/base64
+    encryptedPassword: v.optional(
+      v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
+    ), // AES-256-GCM encrypted plaintext for host display
     generateQR: v.optional(v.boolean()), // whether to generate QR codes for this list
     createdAt: v.number(),
   })

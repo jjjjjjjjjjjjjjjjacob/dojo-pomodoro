@@ -29,8 +29,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Event } from "@/lib/types";
-import { formatEventDateTime, copyEventLink } from "@/lib/utils";
+import { formatEventDateTime } from "@/lib/utils";
 import { toast } from "sonner";
+import { ShareEventPopover } from "@/components/share-event-popover";
 import {
   MoreHorizontal,
   ExternalLink,
@@ -107,21 +108,22 @@ export default function EventCardClient({
             </div>
 
             <div className="flex gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="aspect-square"
-                    onClick={() => copyEventLink(event._id)}
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Share</p>
-                </TooltipContent>
-              </Tooltip>
+              <ShareEventPopover eventId={event._id}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="aspect-square"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Share</p>
+                  </TooltipContent>
+                </Tooltip>
+              </ShareEventPopover>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="sm">

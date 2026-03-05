@@ -46,8 +46,9 @@ import {
   Trash2,
   CheckCircle,
 } from "lucide-react";
-import { formatEventDateTime, copyEventLink } from "@/lib/utils";
+import { formatEventDateTime } from "@/lib/utils";
 import { toast } from "sonner";
+import { ShareEventPopover } from "@/components/share-event-popover";
 import { formatEventTitleInline } from "@/lib/event-display";
 
 type ViewMode = "card" | "list";
@@ -270,20 +271,21 @@ function EventListItem({ event }: { event: any }) {
           >
             RSVPs
           </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => copyEventLink(event._id)}
-              >
-                <ExternalLink className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Share</p>
-            </TooltipContent>
-          </Tooltip>
+          <ShareEventPopover eventId={event._id}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Share</p>
+              </TooltipContent>
+            </Tooltip>
+          </ShareEventPopover>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

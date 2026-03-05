@@ -53,3 +53,48 @@ export function timingSafeEqual(a: Buffer, b: Buffer): boolean {
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
+
+/**
+ * Encrypts a plaintext password using AES-256-GCM for host display.
+ * Requires CREDENTIAL_ENCRYPTION_KEY env var (64-char hex = 32 bytes).
+ */
+export function encryptPassword(plaintext: string, encryptionKey: string): {
+  ivB64: string;
+  ctB64: string;
+  tagB64: string;
+} {
+  const key = Buffer.from(encryptionKey, "hex");
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+  return {
+    ivB64: iv.toString("base64"),
+    ctB64: encrypted.toString("base64"),
+    tagB64: authTag.toString("base64"),
+  };
+}
+
+/**
+ * Decrypts an encrypted password using AES-256-GCM.
+ * Returns the plaintext password.
+ */
+export function decryptPassword(
+  encrypted: { ivB64: string; ctB64: string; tagB64: string },
+  encryptionKey: string,
+): string {
+  const key = Buffer.from(encryptionKey, "hex");
+  const iv = Buffer.from(encrypted.ivB64, "base64");
+  const ciphertext = Buffer.from(encrypted.ctB64, "base64");
+  const authTag = Buffer.from(encrypted.tagB64, "base64");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(authTag);
+  const decrypted = Buffer.concat([
+    decipher.update(ciphertext),
+    decipher.final(),
+  ]);
+  return decrypted.toString("utf8");
+}

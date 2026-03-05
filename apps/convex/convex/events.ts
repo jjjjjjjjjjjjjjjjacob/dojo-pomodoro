@@ -50,6 +50,9 @@ export const insertWithCreds = mutation({
         passwordSalt: v.string(),
         passwordIterations: v.number(),
         passwordFingerprint: v.string(),
+        encryptedPassword: v.optional(
+          v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
+        ),
         generateQR: v.optional(v.boolean()),
       }),
     ),
@@ -237,6 +240,9 @@ export const addListCredential = mutation({
     passwordSalt: v.string(),
     passwordIterations: v.number(),
     passwordFingerprint: v.string(),
+    encryptedPassword: v.optional(
+      v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
+    ),
     generateQR: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -248,6 +254,7 @@ export const addListCredential = mutation({
       passwordSalt: args.passwordSalt,
       passwordIterations: args.passwordIterations,
       passwordFingerprint: args.passwordFingerprint,
+      encryptedPassword: args.encryptedPassword,
       generateQR: args.generateQR,
       createdAt: now,
     });
@@ -264,6 +271,9 @@ export const updateListCredential = mutation({
       passwordSalt: v.optional(v.string()),
       passwordIterations: v.optional(v.number()),
       passwordFingerprint: v.optional(v.string()),
+      encryptedPassword: v.optional(
+        v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
+      ),
       generateQR: v.optional(v.boolean()),
     }),
   },
@@ -306,6 +316,9 @@ export const updateListCredentialWithCascade = mutation({
       passwordSalt: v.optional(v.string()),
       passwordIterations: v.optional(v.number()),
       passwordFingerprint: v.optional(v.string()),
+      encryptedPassword: v.optional(
+        v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
+      ),
       generateQR: v.optional(v.boolean()),
     }),
   },

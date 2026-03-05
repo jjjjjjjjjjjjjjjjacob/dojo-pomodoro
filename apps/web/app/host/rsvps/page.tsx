@@ -100,7 +100,7 @@ import {
   HeaderContext,
   CellContext,
 } from "@tanstack/react-table";
-import { cn, sanitizeFieldValue } from "@/lib/utils";
+import { cn, sanitizeFieldValue, ensureAbsoluteUrl } from "@/lib/utils";
 import { formatEventTitleInline } from "@/lib/event-display";
 import type { Event, HostRsvp, ListCredential } from "@/lib/types";
 
@@ -548,7 +548,7 @@ export default function RsvpsPage() {
         // Handle fields with prependUrl
         if (hasPrependUrl && rawValue && rawValue !== "-") {
           const sanitizedValue = sanitizeFieldValue(rawValue, field.key);
-          const fullUrl = `${field.prependUrl}${sanitizedValue}`;
+          const fullUrl = ensureAbsoluteUrl(`${field.prependUrl}${sanitizedValue}`);
 
           return (
             <ContextMenu>

@@ -38,6 +38,13 @@ export function copyEventLink(eventId: string): void {
   });
 }
 
+export function ensureAbsoluteUrl(url: string): string {
+  if (!url) return url;
+  const trimmedUrl = url.trim();
+  if (/^https?:\/\//i.test(trimmedUrl)) return trimmedUrl;
+  return `https://${trimmedUrl}`;
+}
+
 export function sanitizeFieldValue(value: string, fieldKey?: string): string {
   if (!value) return '';
 

@@ -342,6 +342,61 @@ export const migrateUserMetadataIntoRsvpCustomFields = migrations.define({
   },
 });
 
+// Backfill smsConsent for RSVPs of a specific event
+export const backfillSmsConsentForEvent = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    statusFilter: v.optional(v.array(v.string())), // e.g., ["approved", "attending"]
+  },
+  handler: async (ctx, args) => {
+    const allowedStatuses = args.statusFilter ?? ["approved", "attending"];
+
+    const rsvps = await ctx.db
+      .query("rsvps")
+      .withIndex("by_event", (q: any) => q.eq("eventId", args.eventId))
+      .collect();
+
+    const results = {
+      processed: 0,
+      updated: 0,
+      skipped: 0,
+    };
+
+    for (const rsvp of rsvps) {
+      results.processed++;
+
+      // Skip if already has smsConsent
+      if (rsvp.smsConsent === true) {
+        results.skipped++;
+        continue;
+      }
+
+      // Skip if status doesn't match filter
+      if (!allowedStatuses.includes(rsvp.status)) {
+        results.skipped++;
+        continue;
+      }
+
+      await ctx.db.patch(rsvp._id as Id<"rsvps">, {
+        smsConsent: true,
+        smsConsentTimestamp: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      results.updated++;
+      console.log(
+        `[SMS BACKFILL] Set smsConsent=true for RSVP ${rsvp._id} (status: ${rsvp.status})`,
+      );
+    }
+
+    console.log(
+      `[SMS BACKFILL] Complete: ${results.processed} processed, ${results.updated} updated, ${results.skipped} skipped`,
+    );
+
+    return results;
+  },
+});
+
 // ==================== CREDENTIALID SUNSET MIGRATIONS ====================
 
 // Phase 1: Validation migrations - Ensure all records have complete listKey data

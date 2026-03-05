@@ -145,6 +145,10 @@ export default function EditEventDialog({
   const [customFields, setCustomFields] = React.useState<CustomFieldDef[]>(
     event.customFields ?? [],
   );
+  const getDecryptedPasswords = useAction(api.credentialsNode.getDecryptedPasswordsForEvent);
+  const [decryptedPasswords, setDecryptedPasswords] = React.useState<
+    Map<string, string>
+  >(new Map());
 
   useEffect(() => {
     if (open && creds) {
@@ -156,8 +160,23 @@ export default function EditEventDialog({
           generateQR: credential.generateQR ?? false,
         })),
       );
+      // Fetch decrypted passwords for display
+      getDecryptedPasswords({ eventId: event._id })
+        .then((results) => {
+          const passwordMap = new Map<string, string>();
+          for (const result of results) {
+            if (result.password) {
+              passwordMap.set(result.credentialId, result.password);
+            }
+          }
+          setDecryptedPasswords(passwordMap);
+        })
+        .catch(() => {
+          // Silently fail - passwords just won't be shown
+          setDecryptedPasswords(new Map());
+        });
     }
-  }, [open, creds]);
+  }, [open, creds, event._id, getDecryptedPasswords]);
 
   const addList = () =>
     setLists((array) => [
@@ -382,15 +401,34 @@ export default function EditEventDialog({
                     </div>
                     <div className="flex flex-col w-full">
                       <label className="text-xs font-medium text-muted-foreground">
-                        New Password
+                        Password
                       </label>
-                      <Input
-                        placeholder="Leave blank to keep current"
-                        value={listPassword.password}
-                        onChange={(event) =>
-                          setList(index, "password", event.target.value.trim())
-                        }
-                      />
+                      {listPassword.id && decryptedPasswords.get(listPassword.id) && !listPassword.password ? (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={decryptedPasswords.get(listPassword.id) ?? ""}
+                            readOnly
+                            className="bg-muted/40 text-muted-foreground"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 text-xs"
+                            onClick={() => setList(index, "password", " ")}
+                          >
+                            Change
+                          </Button>
+                        </div>
+                      ) : (
+                        <Input
+                          placeholder={listPassword.id ? "Leave blank to keep current" : "Enter password"}
+                          value={listPassword.password}
+                          onChange={(event) =>
+                            setList(index, "password", event.target.value.trim())
+                          }
+                        />
+                      )}
                     </div>
                     <div className="flex flex-1 flex-col gap-2">
                       <label

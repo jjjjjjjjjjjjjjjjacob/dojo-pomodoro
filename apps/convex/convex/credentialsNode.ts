@@ -3,7 +3,7 @@ import { action, ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import * as crypto from "crypto";
 import { api } from "./_generated/api";
-import { verifyPassword, hmacFingerprint } from "./lib/passwordUtils";
+import { verifyPassword, hmacFingerprint, decryptPassword } from "./lib/passwordUtils";
 import { ValidationError } from "./lib/types";
 
 export const resolveListByPassword = action({
@@ -91,5 +91,53 @@ export const resolveEventByPassword = action({
         listKey: firstCredential.listKey,
       };
     return { ok: false as const };
+  },
+});
+
+type UserIdentityWithRole = { role?: string; subject: string };
+
+/**
+ * Decrypt passwords for all credentials of an event.
+ * Returns list key + decrypted password pairs.
+ * Host-only action (requires org:admin role).
+ */
+export const getDecryptedPasswordsForEvent = action({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, { eventId }): Promise<
+    { listKey: string; password: string | null; credentialId: string }[]
+  > => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const userRole = (identity as unknown as UserIdentityWithRole).role;
+    if (userRole !== "org:admin") {
+      throw new Error("Forbidden: admin role required");
+    }
+
+    const encryptionKey = process.env.CREDENTIAL_ENCRYPTION_KEY;
+    const credentials = await ctx.runQuery(api.credentials.getCredsForEvent, {
+      eventId,
+    });
+
+    return credentials.map((credential: any) => {
+      let decryptedPassword: string | null = null;
+      if (credential.encryptedPassword && encryptionKey) {
+        try {
+          decryptedPassword = decryptPassword(
+            credential.encryptedPassword,
+            encryptionKey,
+          );
+        } catch (error) {
+          console.error(
+            `[DECRYPT] Failed to decrypt password for credential ${credential._id}:`,
+            error,
+          );
+        }
+      }
+      return {
+        listKey: credential.listKey,
+        password: decryptedPassword,
+        credentialId: credential._id,
+      };
+    });
   },
 });

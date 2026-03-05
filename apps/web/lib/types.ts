@@ -187,6 +187,7 @@ export interface TextBlast {
   recipientCount: number;
   sentCount: number;
   failedCount: number;
+  sentBy: string;
   status: TextBlastStatus;
   createdAt: number;
   updatedAt: number;

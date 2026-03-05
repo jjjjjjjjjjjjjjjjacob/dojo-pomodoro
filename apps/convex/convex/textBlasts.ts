@@ -747,6 +747,65 @@ export const getBlastsByEvent = query({
 });
 
 /**
+ * Get text blasts for a specific event, enriched with sender display names
+ */
+export const getBlastsByEventWithSenderNames = query({
+  args: {
+    eventId: v.id("events"),
+    limit: v.optional(v.number()),
+    status: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<(Doc<"textBlasts"> & { sentByName: string })[]> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const identityWithRole = identity as IdentityWithRole;
+
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+
+    if (!identityHasHostRole(identityWithRole)) {
+      throw new Error("Not authorized for this event");
+    }
+
+    let blastQuery = ctx.db
+      .query("textBlasts")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId));
+
+    if (args.status) {
+      blastQuery = blastQuery.filter((q) => q.eq(q.field("status"), args.status));
+    }
+
+    const blasts = await blastQuery
+      .order("desc")
+      .take(args.limit || 100);
+
+    // Resolve unique sender names
+    const uniqueSenderIds = [...new Set(blasts.map((blast) => blast.sentBy))];
+    const senderNameMap = new Map<string, string>();
+    for (const senderId of uniqueSenderIds) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", senderId))
+        .unique();
+      if (user) {
+        const displayName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+        senderNameMap.set(senderId, displayName || "Unknown");
+      } else {
+        senderNameMap.set(senderId, "Unknown");
+      }
+    }
+
+    return blasts.map((blast) => ({
+      ...blast,
+      sentByName: senderNameMap.get(blast.sentBy) || "Unknown",
+    })) as (Doc<"textBlasts"> & { sentByName: string })[];
+  },
+});
+
+/**
  * Get text blasts sent by current user
  */
 export const getMyBlasts = query({

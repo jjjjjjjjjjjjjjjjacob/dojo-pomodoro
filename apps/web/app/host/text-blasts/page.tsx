@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -49,8 +50,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatEventDateTime } from "@/lib/utils";
+import { formatEventTitleInline } from "@/lib/event-display";
 import TextBlastDialog from "./text-blast-dialog";
 
+type TextBlastWithSender = TextBlast & { sentByName: string };
 type FilterOption = "all" | "draft" | "sent" | "failed";
 type SortOption = "date" | "name" | "recipients";
 
@@ -85,10 +88,37 @@ function getStatusBadgeProps(status: TextBlastStatus): { variant: NonNullable<Ba
 }
 
 export default function TextBlastsPage() {
-  const textBlasts = useQuery(api.textBlasts.getMyBlasts, {}) as
-    | TextBlast[]
-    | undefined;
+  const searchParams = useSearchParams();
   const events = useQuery(api.events.listAll, {}) as Event[] | undefined;
+
+  const eventsSorted = useMemo<Event[]>(
+    () =>
+      (events ?? [])
+        .slice()
+        .sort(
+          (firstEvent, secondEvent) =>
+            (secondEvent.eventDate ?? 0) - (firstEvent.eventDate ?? 0),
+        ),
+    [events],
+  );
+
+  const initialEventId = searchParams.get("eventId") ?? eventsSorted[0]?._id;
+  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(initialEventId);
+
+  // Auto-select first event when events load
+  useEffect(() => {
+    if (!selectedEventId && eventsSorted[0]?._id) {
+      setSelectedEventId(eventsSorted[0]._id);
+    }
+  }, [selectedEventId, eventsSorted]);
+
+  const textBlasts = useQuery(
+    api.textBlasts.getBlastsByEventWithSenderNames,
+    selectedEventId
+      ? { eventId: selectedEventId as Id<"events"> }
+      : "skip",
+  ) as TextBlastWithSender[] | undefined;
+
   const duplicateBlastMutation = useMutation(api.textBlasts.duplicateBlast);
   const deleteBlastMutation = useMutation(api.textBlasts.deleteBlast);
   const sendBlastAction = useAction(api.textBlasts.sendBlast);
@@ -96,9 +126,23 @@ export default function TextBlastsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [sortBy, setSortBy] = useState<SortOption>("date");
+  const [sentByFilter, setSentByFilter] = useState<string>("all");
   const [selectedBlastForDialog, setSelectedBlastForDialog] = useState<Id<"textBlasts"> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [sendingBlastId, setSendingBlastId] = useState<Id<"textBlasts"> | null>(null);
+
+  // Get unique sender names for filter dropdown
+  const uniqueSenders = useMemo(() => {
+    if (!textBlasts) return [];
+    const senderMap = new Map<string, string>();
+    textBlasts.forEach((blast) => {
+      senderMap.set(blast.sentBy, blast.sentByName);
+    });
+    return Array.from(senderMap.entries()).map(([sentById, sentByName]) => ({
+      sentById,
+      sentByName,
+    }));
+  }, [textBlasts]);
 
   const eventsMap = useMemo(() => {
     const map = new Map<Id<"events">, Event>();
@@ -108,7 +152,7 @@ export default function TextBlastsPage() {
     return map;
   }, [events]);
 
-  const filteredAndSortedBlasts = useMemo<TextBlast[]>(() => {
+  const filteredAndSortedBlasts = useMemo<TextBlastWithSender[]>(() => {
     if (!textBlasts) return [];
 
     let filtered = textBlasts.filter((blast) => {
@@ -122,8 +166,12 @@ export default function TextBlastsPage() {
       if (!matchesSearch) return false;
 
       // Status filter
-      if (filterBy === "all") return true;
-      return blast.status === filterBy;
+      if (filterBy !== "all" && blast.status !== filterBy) return false;
+
+      // Sent by filter
+      if (sentByFilter !== "all" && blast.sentBy !== sentByFilter) return false;
+
+      return true;
     });
 
     // Sort
@@ -141,7 +189,7 @@ export default function TextBlastsPage() {
     });
 
     return filtered;
-  }, [textBlasts, searchQuery, filterBy, sortBy, eventsMap]);
+  }, [textBlasts, searchQuery, filterBy, sentByFilter, sortBy, eventsMap]);
 
   const handleDuplicateBlast = async (blastId: Id<"textBlasts">) => {
     try {
@@ -214,7 +262,22 @@ export default function TextBlastsPage() {
 
       {/* Controls */}
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-2 flex-1">
+        <div className="flex flex-col sm:flex-row gap-2 flex-1 flex-wrap">
+          {/* Event Selector */}
+          <Select
+            value={selectedEventId ?? ""}
+            onValueChange={(value) => {
+              setSelectedEventId(value);
+              setSentByFilter("all");
+            }}
+          >
+            {eventsSorted.map((event) => (
+              <SelectOption key={event._id} value={event._id}>
+                {formatEventTitleInline(event)}
+              </SelectOption>
+            ))}
+          </Select>
+
           {/* Search */}
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -226,16 +289,31 @@ export default function TextBlastsPage() {
             />
           </div>
 
-          {/* Filters */}
+          {/* Status Filter */}
           <Select
             value={filterBy}
             onValueChange={(value) => setFilterBy(value as FilterOption)}
           >
-            <SelectOption value="all">All Blasts</SelectOption>
+            <SelectOption value="all">All Statuses</SelectOption>
             <SelectOption value="draft">Drafts</SelectOption>
             <SelectOption value="sent">Sent</SelectOption>
             <SelectOption value="failed">Failed</SelectOption>
           </Select>
+
+          {/* Sent By Filter */}
+          {uniqueSenders.length > 1 && (
+            <Select
+              value={sentByFilter}
+              onValueChange={(value) => setSentByFilter(value)}
+            >
+              <SelectOption value="all">All Hosts</SelectOption>
+              {uniqueSenders.map(({ sentById, sentByName }) => (
+                <SelectOption key={sentById} value={sentById}>
+                  {sentByName}
+                </SelectOption>
+              ))}
+            </Select>
+          )}
 
           {/* Sort */}
           <Select
@@ -249,14 +327,27 @@ export default function TextBlastsPage() {
         </div>
       </div>
 
+      {/* No event selected state */}
+      {!selectedEventId && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Send className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Select an event</h3>
+            <p className="text-muted-foreground text-center">
+              Choose an event above to view its text blasts
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Text Blasts Grid */}
-      {filteredAndSortedBlasts.length === 0 ? (
+      {selectedEventId && filteredAndSortedBlasts.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Send className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No text blasts found</h3>
             <p className="text-muted-foreground text-center mb-4">
-              {searchQuery || filterBy !== "all"
+              {searchQuery || filterBy !== "all" || sentByFilter !== "all"
                 ? "Try adjusting your search or filters"
                 : "Create your first text blast to send SMS messages to event attendees"}
             </p>
@@ -266,7 +357,7 @@ export default function TextBlastsPage() {
             </Button>
           </CardContent>
         </Card>
-      ) : (
+      ) : selectedEventId ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredAndSortedBlasts.map((blast) => {
             const event = eventsMap.get(blast.eventId);
@@ -280,7 +371,7 @@ export default function TextBlastsPage() {
                         {blast.name}
                       </CardTitle>
                       <p className="text-sm text-muted-foreground line-clamp-1">
-                        {event?.name || "Unknown Event"}
+                        Sent by {blast.sentByName}
                       </p>
                     </div>
                     <DropdownMenu>
@@ -442,7 +533,7 @@ export default function TextBlastsPage() {
             );
           })}
         </div>
-      )}
+      ) : null}
 
       {/* Text Blast Dialog */}
       <TextBlastDialog
