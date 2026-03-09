@@ -13,7 +13,8 @@ type ApprovalEventSummary = {
   hosts?: string[];
   productionCompany?: string;
   approvalMessage?: string;
-  qrCodeColor?: string;
+  themeBackgroundColor?: string;
+  themeTextColor?: string;
 };
 
 type SmsConsentEventSummary = {
@@ -262,12 +263,12 @@ export const sendApprovalSms = action({
       if (shouldIncludeQrCode) {
         // Generate QR code image
         const ticketUrl = `${validatedBaseUrl}/redeem/${args.code}`;
-        const qrCodeColor = event.qrCodeColor || "#000000";
         const qrCodeStorageId = await ctx.runAction(
           internal.lib.qrCodeGenerator.generateAndUploadQrCode,
           {
             value: ticketUrl,
-            qrCodeColor,
+            foregroundColor: event.themeTextColor,
+            backgroundColor: event.themeBackgroundColor,
           },
         );
         

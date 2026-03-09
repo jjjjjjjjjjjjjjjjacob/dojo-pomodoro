@@ -15,13 +15,8 @@ import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Download } from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import {
-  getEventThemeColors,
-  getAccessibleTextColor,
-  getColorContrastRatio,
-  EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
-} from "@/lib/event-theme";
 import { formatEventTitleInline, hasEventSecondaryTitle } from "@/lib/event-display";
+import { resolveQrCodeColors } from "../../../../../shared/qr-code-colors";
 
 function downloadQRCodeAsImage(
   qrCodeValue: string,
@@ -165,20 +160,11 @@ export default function TicketClientPage({
     mutationFn: useConvexMutation(api.rsvps.acceptRsvp),
   });
   const [celebrate, setCelebrate] = useState(false);
-  const { backgroundColor: eventBackgroundColor, textColor: eventTextColor } =
-    getEventThemeColors(event ?? null);
-  const contrastRatio = getColorContrastRatio(
-    eventTextColor,
-    eventBackgroundColor,
-  );
-  const hasAccessibleContrast = contrastRatio >= 4.5;
-  const fallbackQrForeground = getAccessibleTextColor(eventBackgroundColor);
-  const qrForegroundColor = hasAccessibleContrast
-    ? eventTextColor
-    : fallbackQrForeground;
-  const qrBackgroundColor = hasAccessibleContrast
-    ? eventBackgroundColor
-    : EVENT_THEME_DEFAULT_BACKGROUND_COLOR;
+  const { foregroundColor: qrForegroundColor, backgroundColor: qrBackgroundColor } =
+    resolveQrCodeColors({
+      foregroundColor: event?.themeTextColor,
+      backgroundColor: event?.themeBackgroundColor,
+    });
   const eventDisplayName = formatEventTitleInline(event);
   const eventHasSecondaryTitle = hasEventSecondaryTitle(event);
   const sanitizedFileName = eventDisplayName

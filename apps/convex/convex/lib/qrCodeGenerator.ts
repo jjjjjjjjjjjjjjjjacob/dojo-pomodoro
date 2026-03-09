@@ -2,7 +2,7 @@
 import QRCode from "qrcode";
 import { v } from "convex/values";
 import { internalAction, action } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { resolveQrCodeColors } from "../../../shared/qr-code-colors";
 
 /**
  * Generate a QR code image and upload it to Convex storage
@@ -11,18 +11,18 @@ import { internal } from "../_generated/api";
 export const generateAndUploadQrCode = internalAction({
   args: {
     value: v.string(), // The value to encode in the QR code
-    qrCodeColor: v.optional(v.string()), // Hex color for QR code (defaults to black)
+    foregroundColor: v.optional(v.string()), // QR foreground color
+    backgroundColor: v.optional(v.string()), // QR background color
   },
   handler: async (ctx, args) => {
-    // Generate QR code as PNG buffer
-    const qrCodeColor = args.qrCodeColor || "#000000";
+    const { foregroundColor, backgroundColor } = resolveQrCodeColors(args);
     const qrCodeBuffer = await QRCode.toBuffer(args.value, {
       type: "png",
       width: 500,
       margin: 2,
       color: {
-        dark: qrCodeColor,
-        light: "#FFFFFF",
+        dark: foregroundColor,
+        light: backgroundColor,
       },
     });
 
@@ -45,18 +45,18 @@ export const generateAndUploadQrCode = internalAction({
 export const generateAndUploadQrCodeWithAuth = action({
   args: {
     value: v.string(), // The value to encode in the QR code
-    qrCodeColor: v.optional(v.string()), // Hex color for QR code (defaults to black)
+    foregroundColor: v.optional(v.string()), // QR foreground color
+    backgroundColor: v.optional(v.string()), // QR background color
   },
   handler: async (ctx, args) => {
-    // Generate QR code as PNG buffer
-    const qrCodeColor = args.qrCodeColor || "#000000";
+    const { foregroundColor, backgroundColor } = resolveQrCodeColors(args);
     const qrCodeBuffer = await QRCode.toBuffer(args.value, {
       type: "png",
       width: 500,
       margin: 2,
       color: {
-        dark: qrCodeColor,
-        light: "#FFFFFF",
+        dark: foregroundColor,
+        light: backgroundColor,
       },
     });
 
@@ -92,8 +92,3 @@ export const getQrCodeUrl = internalAction({
     return url;
   },
 });
-
-
-
-
-

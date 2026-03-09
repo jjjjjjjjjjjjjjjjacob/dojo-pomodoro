@@ -58,7 +58,7 @@ export default defineSchema({
     themeBackgroundColor: v.optional(v.string()),
     themeTextColor: v.optional(v.string()),
     approvalMessage: v.optional(v.string()), // custom approval message for SMS
-    qrCodeColor: v.optional(v.string()), // QR code color for SMS (hex color)
+    qrCodeColor: v.optional(v.string()), // legacy QR code color field retained for compatibility
     createdAt: v.number(),
     updatedAt: v.number(),
   })

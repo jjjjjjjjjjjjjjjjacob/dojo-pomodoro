@@ -397,7 +397,6 @@ export const sendBlast = action({
             const ticketUrl = `${baseUrl}/redeem/${recipient.redemptionCode}`;
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
-            const qrCodeColor = event.qrCodeColor || "#000000";
             // Generate QR code using internal action (no auth required)
             // The internal action properly loads Node.js QRCode module
             // The QR code value is identical to what users see on their ticket page
@@ -405,7 +404,8 @@ export const sendBlast = action({
               internal.lib.qrCodeGenerator.generateAndUploadQrCode,
               {
                 value: ticketUrl,
-                qrCodeColor,
+                foregroundColor: event.themeTextColor,
+                backgroundColor: event.themeBackgroundColor,
               },
             );
             
@@ -601,7 +601,6 @@ export const sendBlastDirect = action({
             const ticketUrl = `${baseUrl}/redeem/${recipient.redemptionCode}`;
             redemptionLink = ticketUrl; // Store the redemption link for template variable
             
-            const qrCodeColor = event.qrCodeColor || "#000000";
             // Generate QR code using internal action (no auth required)
             // The internal action properly loads Node.js QRCode module
             // The QR code value is identical to what users see on their ticket page
@@ -609,7 +608,8 @@ export const sendBlastDirect = action({
               internal.lib.qrCodeGenerator.generateAndUploadQrCode,
               {
                 value: ticketUrl,
-                qrCodeColor,
+                foregroundColor: event.themeTextColor,
+                backgroundColor: event.themeBackgroundColor,
               },
             );
             

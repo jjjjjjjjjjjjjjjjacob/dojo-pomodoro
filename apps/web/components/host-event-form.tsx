@@ -541,7 +541,8 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
                     </span>
                   </FormLabel>
                   <FormDescription>
-                    Color for QR codes sent via SMS. Defaults to black if not set.
+                    Guest QR codes now use the event theme colors above. This
+                    legacy field is kept for compatibility.
                   </FormDescription>
                   <FormControl>
                     <Input
@@ -551,7 +552,8 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
                           "#000000"
                       }
                       onChange={(event) => onChange(event.target.value)}
-                      className="h-10 w-full cursor-pointer p-1"
+                      disabled
+                      className="h-10 w-full p-1 disabled:cursor-not-allowed"
                     />
                   </FormControl>
                   <FormMessage />

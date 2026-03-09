@@ -58,6 +58,7 @@ import {
 import { useTracking } from "@/app/hooks/use-tracking";
 import { fetchSmsConsentIpAddress } from "@/lib/sms-consent";
 import { resolveEventMessagingBrandName } from "@/lib/event-display";
+import { resolveQrCodeColors } from "../../../../../shared/qr-code-colors";
 
 export default function RsvpPage({
   params,
@@ -130,6 +131,11 @@ export default function RsvpPage({
       ),
     [event?.hosts, event?.name, event?.secondaryTitle, event?.productionCompany],
   );
+  const { foregroundColor: qrForegroundColor, backgroundColor: qrBackgroundColor } =
+    resolveQrCodeColors({
+      foregroundColor: event?.themeTextColor,
+      backgroundColor: event?.themeBackgroundColor,
+    });
 
   const resolve = useAction(api.credentialsNode.resolveListByPassword);
   const upsertContact = useAction(api.profilesNode.upsertEncryptedContact);
@@ -686,7 +692,8 @@ export default function RsvpPage({
                         <QRCode
                           value={`${window.location.origin}/redeem/${myRedemption.code}`}
                           size={240}
-                          fgColor="var(--primary)"
+                          fgColor={qrForegroundColor}
+                          bgColor={qrBackgroundColor}
                         />
                         <div className="text-xs text-primary/80 text-center">
                           Show this QR code at the door
