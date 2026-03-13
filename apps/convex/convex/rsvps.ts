@@ -1,5 +1,5 @@
 import { internalQuery, type MutationCtx } from "./_generated/server";
-import { mutation, query } from "./functions";
+import { internalMutation, mutation, query } from "./functions";
 import { api, components } from "./_generated/api";
 import { v } from "convex/values";
 import { Id, Doc } from "./_generated/dataModel";
@@ -1582,14 +1582,20 @@ export const bulkUpdateListKey = mutation({
 // Migrations for aggregate backfilling
 import { Migrations } from "@convex-dev/migrations";
 
-export const migrations = new Migrations(components.migrations);
+export const migrations = new Migrations(components.migrations, {
+  internalMutation,
+});
 export const run = migrations.runner();
 
 export const backfillRsvpAggregate = migrations.define({
   table: "rsvps",
   migrateOne: async (ctx, rsvpDoc) => {
-    // Insert existing record into aggregate
-    await insertRsvpIntoAggregate(ctx, rsvpDoc);
+    const existingRsvp = await ctx.db.get(rsvpDoc._id);
+    if (!existingRsvp) {
+      return;
+    }
+
+    await insertRsvpIntoAggregate(ctx, existingRsvp);
   },
 });
 
