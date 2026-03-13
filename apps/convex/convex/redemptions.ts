@@ -2,6 +2,7 @@ import { mutation, query } from "./functions";
 import { v } from "convex/values";
 import type { UserIdentity } from "convex/server";
 import { generateRedemptionCode } from "./lib/codeGenerators";
+import { canManuallyEditTicket } from "./lib/rsvpStatus";
 
 function hasJwtDoorOrHost(identity: UserIdentity) {
   const role = identity?.role as string | null | undefined;
@@ -227,9 +228,8 @@ export const toggleRedemptionStatus = mutation({
     const rsvpRecord = await ctx.db.get(rsvpId);
     if (!rsvpRecord) throw new Error("RSVP not found");
 
-    // Prevent enabling tickets for denied RSVPs
-    if (rsvpRecord.status === "denied") {
-      throw new Error("Cannot enable ticket for denied RSVP");
+    if (!canManuallyEditTicket(rsvpRecord.status)) {
+      throw new Error("Cannot modify ticket for this RSVP status");
     }
 
     const redemptionRecord = await ctx.db
@@ -248,11 +248,6 @@ export const toggleRedemptionStatus = mutation({
     }
 
     const currentlyDisabled = !!redemptionRecord.disabledAt;
-
-    // Additional check: don't allow enabling if RSVP is denied
-    if (currentlyDisabled && rsvpRecord.status === "denied") {
-      throw new Error("Cannot enable ticket for denied RSVP");
-    }
 
     const now = Date.now();
     await ctx.db.patch(redemptionRecord._id, {
@@ -284,9 +279,12 @@ export const updateTicketStatus = mutation({
     const rsvpRecord = await ctx.db.get(rsvpId);
     if (!rsvpRecord) throw new Error("RSVP not found");
 
-    // Can't modify ticket for denied RSVPs
     if (rsvpRecord.status === "denied") {
       throw new Error("Cannot modify ticket for denied RSVP");
+    }
+
+    if (!canManuallyEditTicket(rsvpRecord.status) && status !== "not-issued") {
+      throw new Error("Cannot issue or disable a ticket for a pending RSVP");
     }
 
     const existingRedemption = await ctx.db
@@ -305,6 +303,13 @@ export const updateTicketStatus = mutation({
         | "issued"
         | "disabled"
         | "redeemed") ?? "not-issued";
+
+    if (
+      !canManuallyEditTicket(rsvpRecord.status) &&
+      existingRedemption?.redeemedAt
+    ) {
+      throw new Error("Cannot remove a redeemed ticket from a pending RSVP");
+    }
 
     if (status === "issued") {
       if (!existingRedemption) {

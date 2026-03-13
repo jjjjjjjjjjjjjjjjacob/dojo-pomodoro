@@ -1,4 +1,4 @@
-import { internalQuery } from "./_generated/server";
+import { internalQuery, type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { api, components } from "./_generated/api";
 import { v } from "convex/values";
@@ -14,6 +14,17 @@ import {
   deleteRsvpFromAggregate,
   countRsvpsWithAggregate,
 } from "./lib/rsvpAggregate";
+import {
+  collectRsvpsMatchingFilters,
+  filtersRequireDirectRsvpCount,
+  normalizeTicketStatusFilter,
+  validRsvpStatuses,
+  type ValidRsvpStatus,
+} from "./lib/rsvpFilters";
+import {
+  deriveApprovalStatus,
+  type ApprovalStatus,
+} from "./lib/rsvpStatus";
 import { NotFoundError } from "./lib/types";
 
 export const submitRequest = mutation({
@@ -574,7 +585,14 @@ export const listForEvent = query({
 export const countForEventFiltered = query({
   args: {
     eventId: v.id("events"),
-    statusFilter: v.optional(v.string()),
+    approvalFilter: v.optional(
+      v.union(
+        v.literal("all"),
+        v.literal("pending"),
+        v.literal("approved"),
+        v.literal("denied"),
+      ),
+    ),
     listFilter: v.optional(v.string()),
     guestSearch: v.optional(v.string()),
     redemptionFilter: v.optional(v.string()),
@@ -583,109 +601,33 @@ export const countForEventFiltered = query({
     ctx,
     {
       eventId,
-      statusFilter = "all",
+      approvalFilter = "all",
       listFilter = "all",
       guestSearch = "",
       redemptionFilter = "all",
     },
   ) => {
-    const normalizeTicketStatusFilter = (
-      filter: string,
-    ): "not-issued" | "issued" | "disabled" | "redeemed" | null => {
-      if (filter === "not-issued") return "not-issued";
-      if (filter === "issued" || filter === "disabled" || filter === "redeemed")
-        return filter;
-      return null;
-    };
-
     const ticketStatusFilter = normalizeTicketStatusFilter(redemptionFilter);
 
-    // If there's a guest search, fall back to manual counting
-    // (aggregate doesn't support text search)
-    if (guestSearch.trim()) {
-      let baseQuery = ctx.db
-        .query("rsvps")
-        .withSearchIndex("search_text", (q) => {
-          let searchQuery = q.search("userName", guestSearch.trim());
-          searchQuery = searchQuery.eq("eventId", eventId);
-          if (statusFilter !== "all") {
-            searchQuery = searchQuery.eq("status", statusFilter);
-          }
-          if (ticketStatusFilter && ticketStatusFilter !== "not-issued") {
-            searchQuery = searchQuery.eq("ticketStatus", ticketStatusFilter);
-          }
-          // Note: Cannot filter by listKey in search index, will filter after
-          return searchQuery;
-        });
+    if (filtersRequireDirectRsvpCount({ guestSearch, ticketStatusFilter })) {
+      const matchingRsvps = await collectRsvpsMatchingFilters(ctx, {
+        eventId,
+        guestSearch,
+        approvalFilter,
+        listFilter,
+        ticketStatusFilter,
+      });
 
-      // Apply list filter after getting results (needed for search queries)
-      let results = await baseQuery.collect();
-      if (listFilter !== "all") {
-        results = results.filter((rsvp) => rsvp.listKey === listFilter);
-      }
-
-      if (ticketStatusFilter) {
-        results = results.filter((rsvp) => {
-          const status =
-            (rsvp.ticketStatus as
-              | "not-issued"
-              | "issued"
-              | "disabled"
-              | "redeemed"
-              | undefined) ?? "not-issued";
-          if (ticketStatusFilter === "not-issued") {
-            return status === "not-issued";
-          }
-          return status === ticketStatusFilter;
-        });
-      }
-
-      return results.length;
-    }
-
-    if (ticketStatusFilter) {
-      let ticketStatusQuery = ctx.db
-        .query("rsvps")
-        .withIndex("by_event", (q) => q.eq("eventId", eventId))
-        .filter((q) => {
-          if (ticketStatusFilter === "not-issued") {
-            return q.or(
-              q.eq(q.field("ticketStatus"), "not-issued"),
-              q.eq(q.field("ticketStatus"), undefined),
-            );
-          }
-          return q.eq(q.field("ticketStatus"), ticketStatusFilter);
-        });
-
-      if (statusFilter !== "all") {
-        ticketStatusQuery = ticketStatusQuery.filter((q) =>
-          q.eq(q.field("status"), statusFilter),
-        );
-      }
-      if (listFilter !== "all") {
-        ticketStatusQuery = ticketStatusQuery.filter((q) =>
-          q.eq(q.field("listKey"), listFilter),
-        );
-      }
-
-      const matching = await ticketStatusQuery.collect();
-      return matching.length;
+      return matchingRsvps.length;
     }
 
     // Use aggregate for efficient counting
-
-    // First, test aggregate health
-
-    const baseCount = await countRsvpsWithAggregate(
+    return countRsvpsWithAggregate(
       ctx,
       eventId,
-      statusFilter,
+      approvalFilter,
       listFilter,
     );
-
-    // For redemption filtering, we still need to check manually
-    // since redemption status is in a separate table
-    return baseCount;
   },
 });
 
@@ -698,7 +640,8 @@ type EnrichedRsvp = {
   lastName: string;
   listKey: string;
   note?: string;
-  status: string;
+  status: ValidRsvpStatus;
+  approvalStatus: ApprovalStatus;
   ticketStatus: "not-issued" | "issued" | "disabled" | "redeemed";
   attendees?: number;
   contact?: {
@@ -724,7 +667,14 @@ export const listForEventPaginated = query({
     cursor: v.optional(v.string()),
     pageSize: v.optional(v.number()),
     guestSearch: v.optional(v.string()),
-    statusFilter: v.optional(v.string()),
+    approvalFilter: v.optional(
+      v.union(
+        v.literal("all"),
+        v.literal("pending"),
+        v.literal("approved"),
+        v.literal("denied"),
+      ),
+    ),
     listFilter: v.optional(v.string()), // Filter by list key
     redemptionFilter: v.optional(v.string()),
     sortBy: v.optional(v.string()),
@@ -737,7 +687,7 @@ export const listForEventPaginated = query({
       cursor,
       pageSize = 20,
       guestSearch = "",
-      statusFilter = "all",
+      approvalFilter = "all",
       listFilter = "all",
       redemptionFilter = "all",
       sortBy = "createdAt",
@@ -745,108 +695,28 @@ export const listForEventPaginated = query({
     },
   ): Promise<PaginatedRsvpResult> => {
     // Debug logging for sorting
-    console.log(`[RSVP_PAGINATED] Sort params: sortBy=${sortBy}, sortOrder=${sortOrder}, search="${guestSearch}", filters: status=${statusFilter}, list=${listFilter}, redemption=${redemptionFilter}`);
-    
-    const normalizeTicketStatusFilter = (
-      filter: string,
-    ): "not-issued" | "issued" | "disabled" | "redeemed" | null => {
-      if (filter === "not-issued") return "not-issued";
-      if (filter === "issued" || filter === "disabled" || filter === "redeemed")
-        return filter;
-      return null;
-    };
+    console.log(`[RSVP_PAGINATED] Sort params: sortBy=${sortBy}, sortOrder=${sortOrder}, search="${guestSearch}", filters: approval=${approvalFilter}, list=${listFilter}, redemption=${redemptionFilter}`);
 
     const ticketStatusFilter = normalizeTicketStatusFilter(redemptionFilter);
 
     // Fetch event once since all RSVPs are for the same event
-    const event = await ctx.db.get(eventId);
-    if (!event) throw new Error("Event not found");
-
-    // Choose the most efficient index based on filters
-    let baseQuery: any = ctx.db.query("rsvps");
-
-    // Use text search if searching by guest name
-    if (guestSearch.trim()) {
-      baseQuery = baseQuery.withSearchIndex("search_text", (q: any) => {
-        let searchQuery = q.search("userName", guestSearch.trim());
-        searchQuery = searchQuery.eq("eventId", eventId);
-        if (statusFilter !== "all") {
-          searchQuery = searchQuery.eq("status", statusFilter);
-        }
-        if (ticketStatusFilter && ticketStatusFilter !== "not-issued") {
-          searchQuery = searchQuery.eq("ticketStatus", ticketStatusFilter);
-        }
-        return searchQuery;
-      });
-    } else {
-      baseQuery = baseQuery.withIndex("by_event", (q: any) =>
-        q.eq("eventId", eventId),
-      );
-
-      if (statusFilter !== "all") {
-        baseQuery = baseQuery.filter((q: any) =>
-          q.eq(q.field("status"), statusFilter),
-        );
-      }
-
-      if (ticketStatusFilter) {
-        baseQuery = baseQuery.filter((q: any) => {
-          if (ticketStatusFilter === "not-issued") {
-            return q.or(
-              q.eq(q.field("ticketStatus"), "not-issued"),
-              q.eq(q.field("ticketStatus"), undefined),
-            );
-          }
-          return q.eq(q.field("ticketStatus"), ticketStatusFilter);
-        });
-      }
-
-      if (listFilter !== "all") {
-        baseQuery = baseQuery.filter((q: any) =>
-          q.eq(q.field("listKey"), listFilter),
-        );
-      }
-    }
+    const existingEvent = await ctx.db.get(eventId);
+    if (!existingEvent) throw new Error("Event not found");
 
     // For proper global sorting, we need to fetch all matching records, sort them, then paginate
     // This is necessary because Convex's .order() on an index only reverses index order,
     // not by createdAt or other fields. Cursor pagination requires consistent ordering.
-    let allMatchingRsvps: Doc<"rsvps">[];
-    
-    if (guestSearch.trim()) {
-      // For search queries, fetch all matching results
-      allMatchingRsvps = await baseQuery.collect();
+    const allMatchingRsvps = await collectRsvpsMatchingFilters(ctx, {
+      eventId,
+      guestSearch,
+      approvalFilter,
+      listFilter,
+      ticketStatusFilter,
+    });
 
-      // Apply listFilter post-filter (search index can't filter by listKey)
-      if (listFilter !== "all") {
-        allMatchingRsvps = allMatchingRsvps.filter(
-          (rsvp: Doc<"rsvps">) => rsvp.listKey === listFilter,
-        );
-      }
-
-      // Apply ticketStatusFilter post-filter for "not-issued" case
-      // (search index can't match undefined values)
-      if (ticketStatusFilter) {
-        allMatchingRsvps = allMatchingRsvps.filter((rsvp: Doc<"rsvps">) => {
-          const status =
-            (rsvp.ticketStatus as
-              | "not-issued"
-              | "issued"
-              | "disabled"
-              | "redeemed"
-              | undefined) ?? "not-issued";
-          if (ticketStatusFilter === "not-issued") {
-            return status === "not-issued";
-          }
-          return status === ticketStatusFilter;
-        });
-      }
-    } else {
-      // For non-search queries, fetch all matching results
-      allMatchingRsvps = await baseQuery.collect();
-    }
-    
-    console.log(`[RSVP_PAGINATED] Fetched ${allMatchingRsvps.length} total RSVPs for sorting`);
+    console.log(
+      `[RSVP_PAGINATED] Fetched ${allMatchingRsvps.length} matching RSVPs for sorting`,
+    );
 
     // Sort all matching RSVPs before pagination
     // For fields that require enrichment (name, firstName, lastName), we'll sort after enrichment
@@ -866,8 +736,11 @@ export const listForEventPaginated = query({
           case "createdAt":
             comparison = a.createdAt - b.createdAt;
             break;
+          case "approvalStatus":
           case "status":
-            comparison = (a.status || "").localeCompare(b.status || "");
+            comparison = deriveApprovalStatus(a.status).localeCompare(
+              deriveApprovalStatus(b.status),
+            );
             break;
           case "ticketStatus":
             const aTicketStatus = (a.ticketStatus as string | undefined) ?? "not-issued";
@@ -1005,7 +878,8 @@ export const listForEventPaginated = query({
           (rsvp.userName ? rsvp.userName.split(" ").slice(1).join(" ") : ""),
         listKey: rsvp.listKey || "",
         note: rsvp.note,
-        status: rsvp.status,
+        status: sanitizeStatus(rsvp.status),
+        approvalStatus: deriveApprovalStatus(rsvp.status),
         ticketStatus,
         attendees: rsvp.attendees,
         contact: rsvp.shareContact
@@ -1068,19 +942,6 @@ export const listForEventPaginated = query({
         nextCursor: finalNextCursor,
         isDone: finalIsDone,
       };
-    }
-
-    // Apply listKey filter after enrichment (needed for search queries)
-    if (guestSearch.trim() && listFilter !== "all") {
-      enrichedPage = enrichedPage.filter(
-        (rsvp: EnrichedRsvp) => rsvp.listKey === listFilter,
-      );
-    }
-
-    if (guestSearch.trim() && ticketStatusFilter) {
-      enrichedPage = enrichedPage.filter(
-        (rsvp: any) => rsvp.ticketStatus === ticketStatusFilter,
-      );
     }
 
     // For non-enrichment sorts, enriched page already maintains sort order from pre-sorted paginatedRsvps
@@ -1150,22 +1011,27 @@ export const statusForUserEventServer = query({
 
 type RawRsvp = Doc<"rsvps">;
 
-const statusPriority = ["approved", "attending", "pending", "denied"] as const;
+const statusPriority: readonly ValidRsvpStatus[] = [
+  "approved",
+  "attending",
+  "pending",
+  "denied",
+];
 
 function selectPrimaryRsvp(rsvps: RawRsvp[]): RawRsvp {
   const prioritized = [...rsvps].sort((a, b) => {
     const priorityDiff =
-      statusPriority.indexOf((b.status as typeof statusPriority[number]) ?? "denied") -
-      statusPriority.indexOf((a.status as typeof statusPriority[number]) ?? "denied");
+      statusPriority.indexOf(sanitizeStatus(b.status)) -
+      statusPriority.indexOf(sanitizeStatus(a.status));
     if (priorityDiff !== 0) return priorityDiff;
     return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
   });
   return prioritized[0];
 }
 
-function sanitizeStatus(status: string): "approved" | "pending" | "denied" | "attending" {
-  const typedStatus = status as "approved" | "pending" | "denied" | "attending";
-  return statusPriority.includes(typedStatus) ? typedStatus : "pending";
+function sanitizeStatus(status: string): ValidRsvpStatus {
+  const typedStatus = status as ValidRsvpStatus;
+  return validRsvpStatuses.includes(typedStatus) ? typedStatus : "pending";
 }
 
 async function resolveListCredential(
@@ -1361,6 +1227,130 @@ export const deleteRSVP = mutation({
   },
 });
 
+type MutableTicketStatus = "issued" | "not-issued" | "disabled";
+
+async function getRedemptionForRsvp(
+  ctx: MutationCtx,
+  rsvp: Doc<"rsvps">,
+) {
+  return ctx.db
+    .query("redemptions")
+    .withIndex("by_event_user", (query) =>
+      query.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
+    )
+    .unique();
+}
+
+async function patchRsvpAndSyncAggregate(
+  ctx: MutationCtx,
+  rsvpId: Id<"rsvps">,
+  patch: Partial<Doc<"rsvps">>,
+) {
+  const oldRsvp = await ctx.db.get(rsvpId);
+  if (!oldRsvp) {
+    throw new Error("RSVP not found");
+  }
+
+  await ctx.db.patch(rsvpId, patch);
+
+  const newRsvp = await ctx.db.get(rsvpId);
+  if (newRsvp) {
+    await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
+  }
+
+  return newRsvp;
+}
+
+async function applyApprovalStatusTransition(
+  ctx: MutationCtx,
+  {
+    rsvp,
+    nextApprovalStatus,
+    decidedBy,
+    now,
+  }: {
+    rsvp: Doc<"rsvps">;
+    nextApprovalStatus: ApprovalStatus;
+    decidedBy: string;
+    now: number;
+  },
+) {
+  const currentApprovalStatus = deriveApprovalStatus(rsvp.status);
+  if (currentApprovalStatus === nextApprovalStatus) {
+    return false;
+  }
+
+  const existingRedemption = await getRedemptionForRsvp(ctx, rsvp);
+
+  if (nextApprovalStatus === "pending") {
+    if (rsvp.status === "attending") {
+      throw new Error("Cannot move an attending RSVP back to pending");
+    }
+
+    if (existingRedemption?.redeemedAt) {
+      throw new Error("Cannot move an RSVP with a redeemed ticket back to pending");
+    }
+
+    if (existingRedemption) {
+      await ctx.db.delete(existingRedemption._id);
+    }
+
+    await patchRsvpAndSyncAggregate(ctx, rsvp._id, {
+      status: "pending",
+      ticketStatus: "not-issued",
+      updatedAt: now,
+    });
+  } else if (nextApprovalStatus === "approved") {
+    await patchRsvpAndSyncAggregate(ctx, rsvp._id, {
+      status: "approved",
+      updatedAt: now,
+    });
+
+    await ctx.runMutation(api.redemptions.updateTicketStatus, {
+      rsvpId: rsvp._id,
+      status: "issued",
+    });
+
+    const redemption = await getRedemptionForRsvp(ctx, rsvp);
+    if (redemption && rsvp.shareContact && rsvp.listKey) {
+      await ctx.scheduler.runAfter(0, api.notifications.sendApprovalSms, {
+        eventId: rsvp.eventId,
+        clerkUserId: rsvp.clerkUserId,
+        listKey: rsvp.listKey,
+        code: redemption.code,
+        shareContact: rsvp.shareContact,
+      });
+    }
+  } else {
+    let nextTicketStatus: Doc<"rsvps">["ticketStatus"] = "not-issued";
+
+    if (existingRedemption) {
+      if (!existingRedemption.disabledAt) {
+        await ctx.db.patch(existingRedemption._id, { disabledAt: now });
+      }
+      nextTicketStatus = "disabled";
+    }
+
+    await patchRsvpAndSyncAggregate(ctx, rsvp._id, {
+      status: "denied",
+      ticketStatus: nextTicketStatus,
+      updatedAt: now,
+    });
+  }
+
+  await ctx.db.insert("approvals", {
+    eventId: rsvp.eventId,
+    rsvpId: rsvp._id,
+    clerkUserId: rsvp.clerkUserId,
+    listKey: rsvp.listKey,
+    decision: nextApprovalStatus,
+    decidedBy,
+    decidedAt: now,
+  });
+
+  return true;
+}
+
 // Complete RSVP update with approval and ticket status
 export const updateRsvpComplete = mutation({
   args: {
@@ -1388,83 +1378,22 @@ export const updateRsvpComplete = mutation({
 
     const now = Date.now();
 
-    // Update approval status if provided
-    if (args.approvalStatus && args.approvalStatus !== rsvp.status) {
-      // Get old state before update for aggregate sync
-      const oldRsvp = await ctx.db.get(args.rsvpId);
-
-      await ctx.db.patch(args.rsvpId, {
-        status: args.approvalStatus,
-        updatedAt: now,
-      });
-
-      // Sync with aggregate
-      const newRsvp = await ctx.db.get(args.rsvpId);
-      if (oldRsvp && newRsvp) {
-        await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
-      }
-
-      // Handle redemption based on approval status
-      if (args.approvalStatus === "approved") {
-        // Auto-create redemption when approving
-        await ctx.runMutation(api.redemptions.updateTicketStatus, {
-          rsvpId: args.rsvpId,
-          status: "issued",
-        });
-        
-        // Get redemption code for SMS notification
-        const redemption = await ctx.db
-          .query("redemptions")
-          .withIndex("by_event_user", (q) =>
-            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
-          )
-          .unique();
-        
-        // Schedule SMS notification if contact sharing is allowed and redemption exists
-        if (redemption && rsvp.shareContact && rsvp.listKey) {
-          await ctx.scheduler.runAfter(0, api.notifications.sendApprovalSms, {
-            eventId: rsvp.eventId,
-            clerkUserId: rsvp.clerkUserId,
-            listKey: rsvp.listKey,
-            code: redemption.code,
-            shareContact: rsvp.shareContact,
-          });
-        }
-      } else if (args.approvalStatus === "denied") {
-        // Auto-disable redemption when denying
-        const existingRedemption = await ctx.db
-          .query("redemptions")
-          .withIndex("by_event_user", (q) =>
-            q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
-          )
-          .unique();
-        if (existingRedemption && !existingRedemption.disabledAt) {
-          await ctx.db.patch(existingRedemption._id, { disabledAt: now });
-          await ctx.db.patch(args.rsvpId, {
-            ticketStatus: "disabled",
-            updatedAt: now,
-          });
-        }
-      }
-
-      // Record approval audit
-      await ctx.db.insert("approvals", {
-        eventId: rsvp.eventId,
-        rsvpId: args.rsvpId,
-        clerkUserId: rsvp.clerkUserId,
-        listKey: rsvp.listKey,
-        decision: args.approvalStatus,
+    if (args.approvalStatus) {
+      await applyApprovalStatusTransition(ctx, {
+        rsvp,
+        nextApprovalStatus: args.approvalStatus,
         decidedBy: identity.subject,
-        decidedAt: now,
+        now,
       });
     }
 
-    // Update ticket status if provided and not overridden by approval logic
-    if (args.ticketStatus && args.approvalStatus !== "denied") {
-      await ctx.runMutation(api.redemptions.updateTicketStatus, {
-        rsvpId: args.rsvpId,
-        status: args.ticketStatus,
-      });
+    if (args.ticketStatus) {
+      if (args.approvalStatus !== "denied") {
+        await ctx.runMutation(api.redemptions.updateTicketStatus, {
+          rsvpId: args.rsvpId,
+          status: args.ticketStatus,
+        });
+      }
     }
 
     return { status: "ok" as const };
@@ -1789,52 +1718,11 @@ export const bulkUpdateApproval = mutation({
           continue;
         }
 
-        // Get old state before update for aggregate sync
-        const oldRsvp = await ctx.db.get(update.rsvpId);
-
-        // Update approval status
-        await ctx.db.patch(update.rsvpId, {
-          status: update.approvalStatus,
-          updatedAt: now,
-        });
-
-        // Sync with aggregate
-        const newRsvp = await ctx.db.get(update.rsvpId);
-        if (oldRsvp && newRsvp) {
-          await updateRsvpInAggregate(ctx, oldRsvp, newRsvp);
-        }
-
-        // Handle redemption based on approval status
-        if (update.approvalStatus === "approved") {
-          await ctx.runMutation(api.redemptions.updateTicketStatus, {
-            rsvpId: update.rsvpId,
-            status: "issued",
-          });
-        } else if (update.approvalStatus === "denied") {
-          const redemption = await ctx.db
-            .query("redemptions")
-            .withIndex("by_event_user", (q) =>
-              q.eq("eventId", rsvp.eventId).eq("clerkUserId", rsvp.clerkUserId),
-            )
-            .unique();
-          if (redemption && !redemption.disabledAt) {
-            await ctx.db.patch(redemption._id, { disabledAt: now });
-            await ctx.db.patch(update.rsvpId, {
-              ticketStatus: "disabled",
-              updatedAt: now,
-            });
-          }
-        }
-
-        // Record approval audit
-        await ctx.db.insert("approvals", {
-          eventId: rsvp.eventId,
-          rsvpId: update.rsvpId,
-          clerkUserId: rsvp.clerkUserId,
-          listKey: rsvp.listKey,
-          decision: update.approvalStatus,
+        await applyApprovalStatusTransition(ctx, {
+          rsvp,
+          nextApprovalStatus: update.approvalStatus,
           decidedBy: identity.subject,
-          decidedAt: now,
+          now,
         });
 
         results.success++;

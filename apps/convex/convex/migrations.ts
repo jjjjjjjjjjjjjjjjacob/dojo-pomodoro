@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { Id } from "./_generated/dataModel";
 import { internalMutation } from "./functions";
 import { v } from "convex/values";
+import { buildApprovalMessageBackfillPatch } from "../../shared/approval-messages";
 
 type EventCustomFieldDefinition = {
   key: string;
@@ -115,6 +116,23 @@ export const migrateRedemptionsCredentialRefs = migrations.define({
     );
   },
 });
+
+export const backfillListCredentialApprovalMessagesFromEvents =
+  migrations.define({
+    table: "listCredentials",
+    migrateOne: async (ctx, rawCredential) => {
+      const credential = rawCredential as Doc<"listCredentials">;
+      const event = (await ctx.db.get(
+        credential.eventId as Id<"events">,
+      )) as Doc<"events"> | null;
+      if (!event) return;
+
+      return buildApprovalMessageBackfillPatch({
+        credentialApprovalMessage: credential.approvalMessage,
+        eventApprovalMessage: event.approvalMessage,
+      });
+    },
+  });
 
 // Backfill userName field for search functionality
 export const backfillUserNameInRsvps = migrations.define({
@@ -701,4 +719,3 @@ export const renameCustomFieldKeys = internalMutation({
     return results;
   },
 });
-

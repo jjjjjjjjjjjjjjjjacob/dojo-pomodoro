@@ -3,18 +3,13 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { resolveEventMessagingBrandName } from "../../shared/event-branding";
+import { resolveApprovalMessageText } from "../../shared/approval-messages";
 
 type ApprovalEventSummary = {
   name: string;
-  location: string;
-  eventDate: number;
-  eventTimezone?: string;
   hosts?: string[];
   productionCompany?: string;
   approvalMessage?: string;
-  themeBackgroundColor?: string;
-  themeTextColor?: string;
 };
 
 type SmsConsentEventSummary = {
@@ -61,40 +56,22 @@ type SmsActionSkipped = {
 
 type SmsActionResult = SmsActionSuccess | SmsActionSkipped;
 
-function fmtDate(timestamp: number, timezone?: string): string {
-  try {
-    const date = new Date(timestamp);
-    // Format date/time in the event's timezone, or UTC if not specified
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone ?? "UTC",
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-    return formatter.format(date);
-  } catch (error) {
-    console.warn("Failed to format event date", error);
-    return "";
-  }
-}
-
 function formatApprovalMessage(
   event: ApprovalEventSummary,
   code: string,
   baseUrl: string,
+  listApprovalMessage?: string,
 ): string {
   const ticketUrl = `${baseUrl}/redeem/${code}`;
-  
+
   // Get header (production company or host names)
   const header = getSmsMessageHeader(event as SmsConsentEventSummary);
-  
-  // Use custom approval message or default
-  const approvalMessage = event.approvalMessage?.trim() || 
-    `You have been approved for ${event.name.toUpperCase()}. We're looking forward to seeing you.`;
+
+  const approvalMessage = resolveApprovalMessageText({
+    eventName: event.name,
+    listApprovalMessage,
+    eventApprovalMessage: event.approvalMessage,
+  });
 
   return `${header}:
 
@@ -287,6 +264,7 @@ export const sendApprovalSms = action({
         event as ApprovalEventSummary,
         args.code,
         validatedBaseUrl,
+        matchingCredential?.approvalMessage,
       );
 
       // Create SMS notification record

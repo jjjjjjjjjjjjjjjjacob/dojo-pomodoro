@@ -111,6 +111,7 @@ type PaginatedHostRsvpResult = {
 };
 
 type ApprovalStatusOption = "pending" | "approved" | "denied";
+type ApprovalFilterOption = "all" | ApprovalStatusOption;
 type TicketStatusOption = "issued" | "not-issued" | "disabled";
 type TicketDisplayStatus = TicketStatusOption | "redeemed";
 type ExportableApprovalStatusOption =
@@ -182,7 +183,8 @@ export default function RsvpsPage() {
   // Filter state - moved before useQuery to avoid uninitialized variable error
   const [guestSearch, setGuestSearch] = React.useState("");
   const debouncedGuest = useDebounce(guestSearch, 250);
-  const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [approvalFilter, setApprovalFilter] =
+    React.useState<ApprovalFilterOption>("all");
   const [listFilter, setListFilter] = React.useState<string>("all");
   const [redemptionFilter, setRedemptionFilter] = React.useState<string>("all");
   const [sortBy, setSortBy] = React.useState<string>("createdAt");
@@ -194,7 +196,7 @@ export default function RsvpsPage() {
     setCursorHistory([]);
     // Clear table sorting state when global sort changes
     setSorting([]);
-  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter, sortBy, sortOrder]);
+  }, [debouncedGuest, approvalFilter, listFilter, redemptionFilter, sortBy, sortOrder]);
 
   const rsvpsPaginated = useQuery(
     api.rsvps.listForEventPaginated,
@@ -204,7 +206,7 @@ export default function RsvpsPage() {
           ...(cursor && { cursor }),
           pageSize,
           guestSearch: debouncedGuest,
-          statusFilter,
+          approvalFilter,
           listFilter,
           redemptionFilter,
           sortBy,
@@ -220,7 +222,7 @@ export default function RsvpsPage() {
       ? {
           eventId: eventId as Id<"events">,
           guestSearch: debouncedGuest,
-          statusFilter,
+          approvalFilter,
           listFilter,
           redemptionFilter,
         }
@@ -363,18 +365,6 @@ export default function RsvpsPage() {
   }, [listCredentials, selectedListsForExport.length]);
 
   // Convert mutations to TanStack Query
-  const approveMutation = useMutation({
-    mutationFn: useConvexMutation(api.approvals.approve),
-  });
-  const denyMutation = useMutation({
-    mutationFn: useConvexMutation(api.approvals.deny),
-  });
-  const toggleRedemptionStatusMutation = useMutation({
-    mutationFn: useConvexMutation(api.redemptions.toggleRedemptionStatus),
-  });
-  const updateTicketStatusMutation = useMutation({
-    mutationFn: useConvexMutation(api.redemptions.updateTicketStatus),
-  });
   const updateRsvpCompleteMutation = useMutation({
     mutationFn: useConvexMutation(api.rsvps.updateRsvpComplete),
   });
@@ -460,15 +450,6 @@ export default function RsvpsPage() {
       .trim();
   };
 
-  const normalizeApprovalStatus = (
-    status: HostRsvp["status"],
-  ): ApprovalStatusOption => {
-    if (status === "approved" || status === "denied") {
-      return status;
-    }
-    return "pending";
-  };
-
   const normalizeTicketStatus = (
     status: HostRsvp["redemptionStatus"],
   ): TicketDisplayStatus => {
@@ -485,6 +466,10 @@ export default function RsvpsPage() {
       return undefined;
     }
     return status;
+  };
+
+  const canEditTicketForRsvp = (rsvp: HostRsvp): boolean => {
+    return rsvp.approvalStatus === "approved";
   };
 
   // Generate dynamic custom field columns
@@ -860,15 +845,16 @@ export default function RsvpsPage() {
       {
         id: "approvalStatus",
         header: "Approval",
-        accessorKey: "status",
+        accessorKey: "approvalStatus",
         enableResizing: true,
         size: 110,
         minSize: 90,
         maxSize: 150,
         cell: ({ row }) => {
           const rsvp = row.original;
-          const originalApprovalStatus = normalizeApprovalStatus(rsvp.status);
+          const originalApprovalStatus = rsvp.approvalStatus;
           const currentApprovalStatus = originalApprovalStatus;
+          const isAttendingRsvp = rsvp.status === "attending";
 
           // Use shared loading state for this row
           const isUpdatingApproval = loadingApprovalUpdates.has(rsvp.id);
@@ -964,7 +950,12 @@ export default function RsvpsPage() {
                     handleStatusChange(value as ApprovalStatusOption)
                   }
                 >
-                  <DropdownMenuRadioItem value="pending">
+                  <DropdownMenuRadioItem
+                    value="pending"
+                    disabled={
+                      isAttendingRsvp || rsvp.redemptionStatus === "redeemed"
+                    }
+                  >
                     <span className="text-amber-700">Pending</span>
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="approved">
@@ -975,6 +966,11 @@ export default function RsvpsPage() {
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
+              {isAttendingRsvp && (
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  Attending
+                </div>
+              )}
             </DropdownMenu>
           );
         },
@@ -994,6 +990,7 @@ export default function RsvpsPage() {
           );
           const currentTicketStatus = originalTicketStatus;
           const isRedeemed = originalTicketStatus === "redeemed";
+          const ticketEditingIsAllowed = canEditTicketForRsvp(rsvp);
 
           // Use shared loading state for this row
           const isUpdatingTicket = loadingTicketUpdates.has(rsvp.id);
@@ -1001,6 +998,7 @@ export default function RsvpsPage() {
           const handleTicketStatusChange = async (
             newStatus: TicketStatusOption,
           ) => {
+            if (!ticketEditingIsAllowed) return;
             if (isRedeemed) return; // Cannot change redeemed status
             if (newStatus === originalTicketStatus) return;
 
@@ -1088,7 +1086,11 @@ export default function RsvpsPage() {
                   variant="outline"
                   size="xs"
                   className={cn(getTicketStatusColor(currentTicketStatus))}
-                  disabled={isRedeemed || isUpdatingTicket}
+                  disabled={
+                    isRedeemed ||
+                    isUpdatingTicket ||
+                    !ticketEditingIsAllowed
+                  }
                 >
                   {isUpdatingTicket && <Spinner className="mr-1 h-3 w-3" />}
                   {!isUpdatingTicket &&
@@ -1287,14 +1289,14 @@ export default function RsvpsPage() {
     return listCredentials?.map((cred) => cred.listKey).sort() || [];
   }, [listCredentials]);
 
-  const uniqueStatuses = React.useMemo(() => {
-    return ["pending", "approved", "denied", "attending"];
+  const uniqueApprovalStatuses = React.useMemo<ApprovalStatusOption[]>(() => {
+    return ["pending", "approved", "denied"];
   }, []);
 
   // Clear all filters function
   const clearAllFilters = () => {
     setGuestSearch("");
-    setStatusFilter("all");
+    setApprovalFilter("all");
     setListFilter("all");
     setRedemptionFilter("all");
     setSortBy("createdAt");
@@ -1304,7 +1306,7 @@ export default function RsvpsPage() {
   // Check if any filters are active
   const hasActiveFilters =
     guestSearch.trim() !== "" ||
-    statusFilter !== "all" ||
+    approvalFilter !== "all" ||
     listFilter !== "all" ||
     redemptionFilter !== "all";
 
@@ -1325,7 +1327,7 @@ export default function RsvpsPage() {
   // Clear selection when filters change or page changes
   React.useEffect(() => {
     setSelectedRows(new Set());
-  }, [debouncedGuest, statusFilter, listFilter, redemptionFilter, cursor]);
+  }, [debouncedGuest, approvalFilter, listFilter, redemptionFilter, cursor]);
 
   // Calculate pagination info for cursor-based pagination
   const currentPage = cursorHistory.length + 1;
@@ -1481,16 +1483,17 @@ export default function RsvpsPage() {
     const selectedRsvps = rsvps.filter((rsvp) =>
       selectedRows.has(rsvp.id),
     );
-    // Filter out redeemed tickets as they can't be changed
+    // Filter out tickets that cannot be edited in the current approval state.
     const changeableRsvps = selectedRsvps.filter(
-      (rsvp) => rsvp.redemptionStatus !== "redeemed",
+      (rsvp) =>
+        rsvp.redemptionStatus !== "redeemed" && canEditTicketForRsvp(rsvp),
     );
     const count = changeableRsvps.length;
-    const redeemedCount = selectedRsvps.length - changeableRsvps.length;
+    const skippedCount = selectedRsvps.length - changeableRsvps.length;
 
     if (count === 0) {
-      if (redeemedCount > 0) {
-        toast.error("Cannot change ticket status for redeemed tickets");
+      if (skippedCount > 0) {
+        toast.error("Ticket changes are only available for approved RSVPs with unredeemed tickets");
       }
       return;
     }
@@ -1527,14 +1530,14 @@ export default function RsvpsPage() {
 
       if (result.failed > 0) {
         let message = `Updated ${result.success} of ${count} RSVPs. ${result.failed} failed: ${result.errors.join(", ")}`;
-        if (redeemedCount > 0) {
-          message += ` (${redeemedCount} redeemed tickets skipped)`;
+        if (skippedCount > 0) {
+          message += ` (${skippedCount} RSVPs skipped because their ticket state is locked)`;
         }
         toast.warning(message);
       } else {
         let message = `Changed ticket status to '${statusLabel}' for ${count} RSVPs`;
-        if (redeemedCount > 0) {
-          message += ` (${redeemedCount} redeemed tickets skipped)`;
+        if (skippedCount > 0) {
+          message += ` (${skippedCount} RSVPs skipped because their ticket state is locked)`;
         }
         toast.success(message);
       }
@@ -2513,12 +2516,14 @@ export default function RsvpsPage() {
         />
         <span className="mx-2 h-6 w-px bg-foreground/20" />
         <Select
-          value={statusFilter}
-          onValueChange={setStatusFilter}
+          value={approvalFilter}
+          onValueChange={(value) =>
+            setApprovalFilter(value as ApprovalFilterOption)
+          }
           className="w-32"
         >
           <SelectOption value="all">All Approval</SelectOption>
-          {uniqueStatuses.map((status) => (
+          {uniqueApprovalStatuses.map((status) => (
             <SelectOption key={status} value={status}>
               {status.charAt(0).toUpperCase() + status.slice(1)}
             </SelectOption>
@@ -2558,7 +2563,7 @@ export default function RsvpsPage() {
           <SelectOption value="name">Guest Name</SelectOption>
           <SelectOption value="firstName">First Name</SelectOption>
           <SelectOption value="lastName">Last Name</SelectOption>
-          <SelectOption value="status">Approval Status</SelectOption>
+          <SelectOption value="approvalStatus">Approval Status</SelectOption>
           <SelectOption value="ticketStatus">Ticket Status</SelectOption>
           <SelectOption value="listKey">List</SelectOption>
           <SelectOption value="attendees">Attendees</SelectOption>
@@ -2642,12 +2647,12 @@ export default function RsvpsPage() {
               </button>
             </Badge>
           )}
-          {statusFilter !== "all" && (
+          {approvalFilter !== "all" && (
             <Badge variant="secondary" className="gap-1">
               Approval:{" "}
-              {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+              {approvalFilter.charAt(0).toUpperCase() + approvalFilter.slice(1)}
               <button
-                onClick={() => setStatusFilter("all")}
+                onClick={() => setApprovalFilter("all")}
                 className="ml-1 hover:bg-foreground/20 rounded-full p-0.5"
               >
                 <X className="w-3 h-3" />

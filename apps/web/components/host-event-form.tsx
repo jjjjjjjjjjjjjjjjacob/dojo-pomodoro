@@ -489,44 +489,8 @@ export function HostEventForm<FormValues extends BaseEventFormValues>({
 
         <div className="rounded-lg border bg-card p-4 space-y-4">
           <h3 className="font-medium text-sm text-muted-foreground">
-            SMS APPROVAL MESSAGES
+            QR CODE SETTINGS
           </h3>
-          <FormField
-            control={form.control}
-            name={"approvalMessage" as Path<FormValues>}
-            render={({ field }) => {
-              const { value, onChange, ref, ...rest } = field
-              const eventName = form.watch("name" as Path<FormValues>) as string | undefined;
-              const defaultMessage = eventName 
-                ? `You have been approved for ${eventName.toUpperCase()}. We're looking forward to seeing you.`
-                : "You have been approved. We're looking forward to seeing you.";
-              const displayValue = (value as string | undefined) || "";
-              return (
-                <FormItem>
-                  <FormLabel>
-                    Approval Message{" "}
-                    <span className="text-sm text-muted-foreground">
-                      (optional)
-                    </span>
-                  </FormLabel>
-                  <FormDescription>
-                    Custom message sent when guests are approved. If not set, uses default message.
-                  </FormDescription>
-                  <FormControl>
-                    <textarea
-                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      placeholder={defaultMessage}
-                      value={displayValue}
-                      onChange={onChange}
-                      ref={ref}
-                      {...rest}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )
-            }}
-          />
           <FormField
             control={form.control}
             name={"qrCodeColor" as Path<FormValues>}

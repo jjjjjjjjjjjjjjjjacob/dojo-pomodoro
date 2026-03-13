@@ -76,6 +76,7 @@ export default defineSchema({
       v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
     ), // AES-256-GCM encrypted plaintext for host display
     generateQR: v.optional(v.boolean()), // whether to generate QR codes for this list
+    approvalMessage: v.optional(v.string()), // per-list approval SMS copy
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"]) // lookup for a given event

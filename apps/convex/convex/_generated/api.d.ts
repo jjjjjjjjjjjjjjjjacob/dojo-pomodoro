@@ -27,6 +27,8 @@ import type * as lib_passwordUtils from "../lib/passwordUtils.js";
 import type * as lib_phoneUtils from "../lib/phoneUtils.js";
 import type * as lib_qrCodeGenerator from "../lib/qrCodeGenerator.js";
 import type * as lib_rsvpAggregate from "../lib/rsvpAggregate.js";
+import type * as lib_rsvpFilters from "../lib/rsvpFilters.js";
+import type * as lib_rsvpStatus from "../lib/rsvpStatus.js";
 import type * as lib_types from "../lib/types.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
@@ -72,6 +74,8 @@ declare const fullApi: ApiFromModules<{
   "lib/phoneUtils": typeof lib_phoneUtils;
   "lib/qrCodeGenerator": typeof lib_qrCodeGenerator;
   "lib/rsvpAggregate": typeof lib_rsvpAggregate;
+  "lib/rsvpFilters": typeof lib_rsvpFilters;
+  "lib/rsvpStatus": typeof lib_rsvpStatus;
   "lib/types": typeof lib_types;
   migrations: typeof migrations;
   notifications: typeof notifications;

@@ -1,5 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { hasApprovedRsvpStatus } from "./lib/rsvpStatus";
 
 export const getDashboardStats = query({
   args: {},
@@ -21,7 +22,7 @@ export const getDashboardStats = query({
 
     // Approval rates (includes all positive statuses after approval)
     const approvedRsvps = rsvps.filter((rsvp) =>
-      ["approved", "attending", "issued", "redeemed"].includes(rsvp.status),
+      hasApprovedRsvpStatus(rsvp.status),
     ).length;
     const pendingRsvps = rsvps.filter(
       (rsvp) => rsvp.status === "pending",
@@ -33,10 +34,10 @@ export const getDashboardStats = query({
 
     // Redemption rates
     const redeemedTickets = rsvps.filter(
-      (rsvp) => rsvp.status === "redeemed",
+      (rsvp) => rsvp.ticketStatus === "redeemed",
     ).length;
     const issuedTickets = rsvps.filter(
-      (rsvp) => rsvp.status === "issued",
+      (rsvp) => rsvp.ticketStatus === "issued",
     ).length;
     const totalActiveTickets = redeemedTickets + issuedTickets;
     const redemptionRate =
@@ -146,10 +147,10 @@ export const getEventPerformance = query({
       .map((event) => {
         const eventRsvps = rsvps.filter((rsvp) => rsvp.eventId === event._id);
         const approvedRsvps = eventRsvps.filter((rsvp) =>
-          ["approved", "attending", "issued", "redeemed"].includes(rsvp.status),
+          hasApprovedRsvpStatus(rsvp.status),
         );
         const redeemedTickets = eventRsvps.filter(
-          (rsvp) => rsvp.status === "redeemed",
+          (rsvp) => rsvp.ticketStatus === "redeemed",
         );
 
         return {
@@ -351,4 +352,3 @@ export const getSmsTrends = query({
     return trends;
   },
 });
-

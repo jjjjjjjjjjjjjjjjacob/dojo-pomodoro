@@ -73,7 +73,7 @@ export type EventPatch = Partial<Pick<Doc<"events">,
  * List credential patch type
  */
 export type ListCredentialPatch = Partial<Pick<Doc<"listCredentials">,
-  "listKey" | "passwordHash" | "passwordSalt" | "passwordIterations" | "passwordFingerprint" | "encryptedPassword" | "generateQR"
+  "listKey" | "passwordHash" | "passwordSalt" | "passwordIterations" | "passwordFingerprint" | "encryptedPassword" | "generateQR" | "approvalMessage"
 >>;
 
 /**
@@ -84,6 +84,7 @@ export type ListUpdate = {
   listKey: string;
   password?: string;
   generateQR?: boolean;
+  approvalMessage?: string;
 };
 
 /**
@@ -97,4 +98,5 @@ export type CredentialData = {
   passwordFingerprint: string;
   encryptedPassword?: { ivB64: string; ctB64: string; tagB64: string };
   generateQR?: boolean;
+  approvalMessage?: string;
 };

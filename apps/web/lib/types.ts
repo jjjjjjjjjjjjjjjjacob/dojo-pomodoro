@@ -86,7 +86,7 @@ export interface Event {
   customFields?: CustomField[];
   themeBackgroundColor?: string;
   themeTextColor?: string;
-  approvalMessage?: string;
+  approvalMessage?: string; // deprecated fallback during per-list rollout
   qrCodeColor?: string;
   createdAt: number;
   updatedAt: number;
@@ -101,6 +101,7 @@ export interface ListCredential {
   passwordIterations: number;
   passwordFingerprint: string;
   generateQR?: boolean;
+  approvalMessage?: string;
   createdAt: number;
 }
 
@@ -141,7 +142,7 @@ export interface Approval {
   rsvpId: Id<"rsvps">;
   clerkUserId: string;
   listKey: string;
-  decision: "approved" | "denied";
+  decision: "pending" | "approved" | "denied";
   decidedBy: string;
   decidedAt: number;
   denialReason?: string;
@@ -228,6 +229,7 @@ export interface HostRsvp {
   listKey: string;
   note?: string;
   status: RSVP["status"];
+  approvalStatus: "pending" | "approved" | "denied";
   ticketStatus: "not-issued" | "issued" | "disabled" | "redeemed";
   attendees?: number;
   contact?: {
@@ -288,6 +290,7 @@ export interface ListCredentialEdit {
   listKey: string;
   password: string;
   generateQR: boolean;
+  approvalMessage: string;
 }
 
 // Credential from API response
@@ -296,6 +299,7 @@ export interface CredentialResponse {
   listKey: string;
   // password is never returned from API
   generateQR?: boolean;
+  approvalMessage?: string;
 }
 
 export interface DateTimePickerProps {
@@ -327,7 +331,6 @@ export interface BaseEventFormValues extends Record<string, unknown> {
   maxAttendees?: number;
   themeBackgroundColor?: string;
   themeTextColor?: string;
-  approvalMessage?: string;
   qrCodeColor?: string;
 }
 
@@ -350,6 +353,7 @@ export interface ListCredentialInput {
   listKey: string;
   password: string;
   generateQR?: boolean;
+  approvalMessage?: string;
 }
 
 // API response types

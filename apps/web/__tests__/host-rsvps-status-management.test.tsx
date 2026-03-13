@@ -483,17 +483,65 @@ describe('RSVP Status Validation Logic', () => {
 
   it('should validate ticket status business rules', () => {
     const canEnableTicket = (approvalStatus: string, ticketStatus: string) => {
-      // Cannot enable ticket for denied RSVP
-      if (approvalStatus === 'denied') return false
+      // Manual ticket edits are only available for approved host rows.
+      if (approvalStatus !== 'approved') return false
       // Cannot change redeemed tickets
       if (ticketStatus === 'redeemed') return false
       return true
     }
 
     expect(canEnableTicket('approved', 'disabled')).toBe(true)
-    expect(canEnableTicket('pending', 'none')).toBe(true)
+    expect(canEnableTicket('pending', 'none')).toBe(false)
     expect(canEnableTicket('denied', 'disabled')).toBe(false)
     expect(canEnableTicket('approved', 'redeemed')).toBe(false)
+  })
+
+  it('treats attending rows as approved in host approval views', () => {
+    const deriveHostApprovalStatus = (status: string) => {
+      if (status === 'approved' || status === 'attending') return 'approved'
+      if (status === 'denied') return 'denied'
+      return 'pending'
+    }
+
+    expect(deriveHostApprovalStatus('attending')).toBe('approved')
+    expect(deriveHostApprovalStatus('approved')).toBe('approved')
+    expect(deriveHostApprovalStatus('pending')).toBe('pending')
+  })
+
+  it('includes attending rows when filtering by approved approval status', () => {
+    const mockRsvps = [
+      { id: 'rsvp1', status: 'approved', listKey: 'vip' },
+      { id: 'rsvp2', status: 'attending', listKey: 'vip' },
+      { id: 'rsvp3', status: 'pending', listKey: 'vip' },
+      { id: 'rsvp4', status: 'denied', listKey: 'general' },
+    ]
+
+    const filterByApproval = (
+      rsvps: typeof mockRsvps,
+      approvalFilter: 'all' | 'pending' | 'approved' | 'denied',
+      listFilter: string,
+    ) => {
+      return rsvps.filter((rsvp) => {
+        const approvalStatus =
+          rsvp.status === 'approved' || rsvp.status === 'attending'
+            ? 'approved'
+            : rsvp.status
+
+        if (approvalFilter !== 'all' && approvalStatus !== approvalFilter) {
+          return false
+        }
+
+        if (listFilter !== 'all' && rsvp.listKey !== listFilter) {
+          return false
+        }
+
+        return true
+      })
+    }
+
+    const filteredRows = filterByApproval(mockRsvps, 'approved', 'vip')
+    expect(filteredRows.map((rsvp) => rsvp.id)).toEqual(['rsvp1', 'rsvp2'])
+    expect(filteredRows).toHaveLength(2)
   })
 })
 

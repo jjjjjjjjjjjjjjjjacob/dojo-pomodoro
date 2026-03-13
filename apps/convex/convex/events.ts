@@ -54,6 +54,7 @@ export const insertWithCreds = mutation({
           v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
         ),
         generateQR: v.optional(v.boolean()),
+        approvalMessage: v.optional(v.string()),
       }),
     ),
   },
@@ -244,6 +245,7 @@ export const addListCredential = mutation({
       v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
     ),
     generateQR: v.optional(v.boolean()),
+    approvalMessage: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -256,6 +258,7 @@ export const addListCredential = mutation({
       passwordFingerprint: args.passwordFingerprint,
       encryptedPassword: args.encryptedPassword,
       generateQR: args.generateQR,
+      approvalMessage: args.approvalMessage,
       createdAt: now,
     });
     return { ok: true as const };
@@ -275,6 +278,7 @@ export const updateListCredential = mutation({
         v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
       ),
       generateQR: v.optional(v.boolean()),
+      approvalMessage: v.optional(v.string()),
     }),
   },
   handler: async (ctx, { id, patch }) => {
@@ -320,6 +324,7 @@ export const updateListCredentialWithCascade = mutation({
         v.object({ ivB64: v.string(), ctB64: v.string(), tagB64: v.string() }),
       ),
       generateQR: v.optional(v.boolean()),
+      approvalMessage: v.optional(v.string()),
     }),
   },
   handler: async (ctx, { id, patch }) => {

@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { HostEventForm } from "@/components/host-event-form";
 import {
   CustomFieldsEditor,
@@ -22,11 +23,16 @@ import {
   normalizeHexColorInput,
 } from "@/lib/event-theme";
 import { Id } from "@convex/_generated/dataModel";
+import {
+  getDefaultApprovalMessage,
+  sanitizeOptionalApprovalMessage,
+} from "../../../../shared/approval-messages";
 
 type ListRow = {
   listKey: string;
   password: string;
   shouldGenerateQrCode: boolean;
+  approvalMessage: string;
 };
 
 function validateCreate(values: EventFormData, lists: ListRow[]): string[] {
@@ -78,7 +84,6 @@ export default function NewEventClient() {
       maxAttendees: 1,
       themeBackgroundColor: EVENT_THEME_DEFAULT_BACKGROUND_COLOR,
       themeTextColor: EVENT_THEME_DEFAULT_TEXT_COLOR,
-      approvalMessage: "",
       qrCodeColor: "#000000",
     },
   });
@@ -87,16 +92,33 @@ export default function NewEventClient() {
   const eventIconStorageId = form.watch("customIconStorageId") ?? null;
   const guestPortalImageStorageId =
     form.watch("guestPortalImageStorageId") ?? null;
+  const eventName = form.watch("name");
+  const defaultApprovalMessage = getDefaultApprovalMessage(eventName);
   const [lists, setLists] = React.useState<ListRow[]>([
-    { listKey: "vip", password: "", shouldGenerateQrCode: false },
-    { listKey: "ga", password: "", shouldGenerateQrCode: false },
+    {
+      listKey: "vip",
+      password: "",
+      shouldGenerateQrCode: false,
+      approvalMessage: "",
+    },
+    {
+      listKey: "ga",
+      password: "",
+      shouldGenerateQrCode: false,
+      approvalMessage: "",
+    },
   ]);
   const [customFields, setCustomFields] = React.useState<CustomFieldDef[]>([]);
 
   const addList = () =>
     setLists((current) => [
       ...current,
-      { listKey: "", password: "", shouldGenerateQrCode: false },
+      {
+        listKey: "",
+        password: "",
+        shouldGenerateQrCode: false,
+        approvalMessage: "",
+      },
     ]);
   const setList = <Key extends keyof ListRow>(
     index: number,
@@ -146,6 +168,7 @@ export default function NewEventClient() {
           listKey: list.listKey.trim(),
           password: list.password.trim(),
           generateQR: list.shouldGenerateQrCode,
+          approvalMessage: sanitizeOptionalApprovalMessage(list.approvalMessage),
         }))
         .filter((list) => list.listKey && list.password);
       const trimmedSecondaryTitle = values.secondaryTitle?.trim() ?? "";
@@ -190,7 +213,6 @@ export default function NewEventClient() {
         })),
         themeBackgroundColor: normalizedThemeBackgroundColor,
         themeTextColor: normalizedThemeTextColor,
-        approvalMessage: values.approvalMessage?.trim() || undefined,
         qrCodeColor: normalizeHexColorInput(values.qrCodeColor) || undefined,
       });
       toast.success("Event created");
@@ -212,7 +234,7 @@ export default function NewEventClient() {
         </div>
       </div>
 
-      <div className="max-w-2xl space-y-6">
+      <div className="mx-auto w-full max-w-[1200px] space-y-6 px-4 sm:px-6 lg:px-8">
         <HostEventForm
           form={form}
           onSubmit={onSubmit}
@@ -242,67 +264,85 @@ export default function NewEventClient() {
                 {lists.map((list, idx) => (
                   <div
                     key={idx}
-                    className="flex gap-3 items-start p-3 rounded-lg border bg-background"
+                    className="space-y-4 rounded-lg border bg-background p-4"
                   >
-                    <div className="flex flex-col w-full">
-                      <label className="text-xs font-medium text-muted-foreground">
-                        List Name
-                      </label>
-                      <Input
-                        placeholder="e.g. vip, general, backstage"
-                        value={list.listKey}
-                        onChange={(event) =>
-                          setList(idx, "listKey", event.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex w-full flex-col">
-                      <label className="text-xs font-medium text-muted-foreground">
-                        Password
-                      </label>
-                      <Input
-                        placeholder="Enter secure password"
-                        value={list.password}
-                        onChange={(event) =>
-                          setList(idx, "password", event.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex flex-1 flex-col gap-2">
-                      <label
-                        htmlFor={`generate-qr-${idx}`}
-                        className="text-xs font-medium text-muted-foreground"
-                      >
-                        QR Code Generation
-                      </label>
-                      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
-                        <Checkbox
-                          id={`generate-qr-${idx}`}
-                          checked={list.shouldGenerateQrCode}
-                          onCheckedChange={(checked) =>
-                            setList(
-                              idx,
-                              "shouldGenerateQrCode",
-                              Boolean(checked),
-                            )
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                      <div className="flex flex-col">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          List Name
+                        </label>
+                        <Input
+                          placeholder="e.g. vip, general, backstage"
+                          value={list.listKey}
+                          onChange={(event) =>
+                            setList(idx, "listKey", event.target.value)
                           }
                         />
+                      </div>
+                      <div className="flex flex-col">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Password
+                        </label>
+                        <Input
+                          placeholder="Enter secure password"
+                          value={list.password}
+                          onChange={(event) =>
+                            setList(idx, "password", event.target.value)
+                          }
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
                         <label
                           htmlFor={`generate-qr-${idx}`}
-                          className="text-sm text-muted-foreground leading-tight"
+                          className="text-xs font-medium text-muted-foreground"
                         >
-                          Generate QR code for guests on this list
+                          QR Code Generation
                         </label>
+                        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                          <Checkbox
+                            id={`generate-qr-${idx}`}
+                            checked={list.shouldGenerateQrCode}
+                            onCheckedChange={(checked) =>
+                              setList(
+                                idx,
+                                "shouldGenerateQrCode",
+                                Boolean(checked),
+                              )
+                            }
+                          />
+                          <label
+                            htmlFor={`generate-qr-${idx}`}
+                            className="text-sm text-muted-foreground leading-tight"
+                          >
+                            Generate QR code for guests on this list
+                          </label>
+                        </div>
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => removeList(idx)}
+                        className="h-10 lg:self-end"
+                      >
+                        Remove
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => removeList(idx)}
-                      className="h-10"
-                    >
-                      Remove
-                    </Button>
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Approval Message{" "}
+                        <span className="text-muted-foreground">(optional)</span>
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Sent when a guest on this list is approved.
+                      </p>
+                      <Textarea
+                        placeholder={defaultApprovalMessage}
+                        value={list.approvalMessage}
+                        onChange={(event) =>
+                          setList(idx, "approvalMessage", event.target.value)
+                        }
+                      />
+                    </div>
                   </div>
                 ))}
                 <Button

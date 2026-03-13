@@ -445,6 +445,23 @@ describe("RSVP Status Management Unit Tests", () => {
       expect(formatApprovalStatus("denied")).toBe("Denied");
     });
 
+    it("should display raw attending RSVPs as approved in the host table", () => {
+      const deriveApprovalStatus = (status: string) => {
+        if (status === "approved" || status === "attending") {
+          return "approved";
+        }
+
+        if (status === "denied") {
+          return "denied";
+        }
+
+        return "pending";
+      };
+
+      expect(deriveApprovalStatus("attending")).toBe("approved");
+      expect(deriveApprovalStatus("attending")).not.toBe("pending");
+    });
+
     it("should format ticket status correctly", () => {
       const formatTicketStatus = (status: string) => {
         switch (status) {
@@ -511,4 +528,3 @@ describe("RSVP Status Management Unit Tests", () => {
     });
   });
 });
-

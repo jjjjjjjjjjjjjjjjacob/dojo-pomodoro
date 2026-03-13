@@ -1,17 +1,17 @@
 "use node";
-import { action, query } from "./_generated/server";
+import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { hmacFingerprint, hashPassword, encryptPassword } from "./lib/passwordUtils";
 import {
   ValidationError,
   DuplicateError,
-  NotFoundError,
   type EventPatch,
-  type ListUpdate,
+  type ListCredentialPatch,
   type CredentialData,
 } from "./lib/types";
 import type { Doc } from "./_generated/dataModel";
+import { sanitizeOptionalApprovalMessage } from "../../shared/approval-messages";
 
 const HEX_COLOR_PATTERN = /^#(?:[0-9A-Fa-f]{6})$/;
 
@@ -54,6 +54,7 @@ export const create = action({
         listKey: v.string(),
         password: v.string(),
         generateQR: v.optional(v.boolean()),
+        approvalMessage: v.optional(v.string()),
       }),
     ),
     customFields: v.optional(
@@ -125,7 +126,7 @@ export const create = action({
       | undefined;
 
     const derivedCredentials: CredentialData[] = args.lists.map(
-      ({ listKey, password, generateQR }) => {
+      ({ listKey, password, generateQR, approvalMessage }) => {
         const { saltB64, hashB64, iterations } = hashPassword(password);
         const fingerprint = hmacFingerprint(fingerprintSecret, password);
         const credentialData: CredentialData = {
@@ -135,6 +136,7 @@ export const create = action({
           passwordIterations: iterations,
           passwordFingerprint: fingerprint,
           generateQR,
+          approvalMessage: sanitizeOptionalApprovalMessage(approvalMessage),
         };
         if (credentialEncryptionKey) {
           credentialData.encryptedPassword = encryptPassword(password, credentialEncryptionKey);
@@ -263,6 +265,7 @@ export const update = action({
           listKey: v.string(),
           password: v.optional(v.string()),
           generateQR: v.optional(v.boolean()),
+          approvalMessage: v.optional(v.string()),
         }),
       ),
     ),
@@ -286,7 +289,9 @@ export const update = action({
         );
       }
       if (patch.approvalMessage !== undefined) {
-        sanitizedPatch.approvalMessage = patch.approvalMessage.trim() || undefined;
+        sanitizedPatch.approvalMessage = sanitizeOptionalApprovalMessage(
+          patch.approvalMessage,
+        );
       }
       if (patch.qrCodeColor !== undefined) {
         sanitizedPatch.qrCodeColor = normalizeOptionalHexColor(
@@ -388,18 +393,9 @@ export const update = action({
       const currentCredential = list.id ? existingById.get(list.id) : undefined;
       const wantsPasswordUpdate = list.password && list.password.length > 0;
       const nextGenerateQrCodeEnabled = list.generateQR ?? false;
-      type ListCredentialPatch = Partial<
-        Pick<
-          Doc<"listCredentials">,
-          | "listKey"
-          | "passwordHash"
-          | "passwordSalt"
-          | "passwordIterations"
-          | "passwordFingerprint"
-          | "encryptedPassword"
-          | "generateQR"
-        >
-      >;
+      const nextApprovalMessage = sanitizeOptionalApprovalMessage(
+        list.approvalMessage,
+      );
       const credentialPatch: ListCredentialPatch = {};
 
       if (currentCredential) {
@@ -444,6 +440,9 @@ export const update = action({
         if (nextGenerateQrCodeEnabled !== currentGenerateQrCodeEnabled) {
           credentialPatch.generateQR = nextGenerateQrCodeEnabled;
         }
+        if (nextApprovalMessage !== currentCredential.approvalMessage) {
+          credentialPatch.approvalMessage = nextApprovalMessage;
+        }
         if (Object.keys(credentialPatch).length > 0) {
           await ctx.runMutation(api.events.updateListCredential, {
             id: currentCredential._id,
@@ -480,6 +479,7 @@ export const update = action({
             ? encryptPassword(list.password!, updateCredentialEncryptionKey)
             : undefined,
           generateQR: nextGenerateQrCodeEnabled,
+          approvalMessage: nextApprovalMessage,
         });
       }
     }

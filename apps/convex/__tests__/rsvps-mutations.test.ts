@@ -121,6 +121,58 @@ describe("RSVP Management Mutations", () => {
       }).toThrow("Cannot modify ticket for denied RSVP");
     });
 
+    it("should reject issuing a ticket for a pending RSVP", () => {
+      const mockRsvp = {
+        _id: "rsvp_123",
+        eventId: "event_123",
+        clerkUserId: "user_123",
+        status: "pending",
+        listKey: "general",
+      };
+
+      const updateTicketStatusLogic = (rsvp: typeof mockRsvp, status: string) => {
+        if (rsvp.status === "denied") {
+          throw new Error("Cannot modify ticket for denied RSVP");
+        }
+
+        if (rsvp.status === "pending" && status !== "not-issued") {
+          throw new Error("Cannot issue or disable a ticket for a pending RSVP");
+        }
+
+        return { status };
+      };
+
+      expect(() => {
+        updateTicketStatusLogic(mockRsvp, "issued");
+      }).toThrow("Cannot issue or disable a ticket for a pending RSVP");
+    });
+
+    it("should reject removing a redeemed ticket from a pending RSVP", () => {
+      const mockRsvp = {
+        _id: "rsvp_123",
+        eventId: "event_123",
+        clerkUserId: "user_123",
+        status: "pending",
+        listKey: "general",
+        ticketStatus: "redeemed",
+      };
+
+      const updateTicketStatusLogic = (
+        rsvp: typeof mockRsvp,
+        status: string,
+      ) => {
+        if (rsvp.status === "pending" && rsvp.ticketStatus === "redeemed") {
+          throw new Error("Cannot remove a redeemed ticket from a pending RSVP");
+        }
+
+        return { status };
+      };
+
+      expect(() => {
+        updateTicketStatusLogic(mockRsvp, "not-issued");
+      }).toThrow("Cannot remove a redeemed ticket from a pending RSVP");
+    });
+
     it("should require admin role", () => {
       const validateRole = (role: string) => {
         const allowedRoles = ["org:admin", "door", "host"];
@@ -239,6 +291,91 @@ describe("RSVP Management Mutations", () => {
       const result = updateRsvpCompleteLogic(mockRsvp, "denied");
 
       expect(result.redemption?.status).toBe("disabled");
+    });
+
+    it("should delete a non-redeemed ticket when moving back to pending", () => {
+      const mockRsvp = {
+        _id: "rsvp_123",
+        eventId: "event_123",
+        clerkUserId: "user_123",
+        status: "approved",
+        ticketStatus: "issued",
+        listKey: "general",
+      };
+
+      const updateRsvpCompleteLogic = (
+        rsvp: typeof mockRsvp,
+        approvalStatus: string,
+      ) => {
+        if (approvalStatus === "pending") {
+          return {
+            rsvp: {
+              ...rsvp,
+              status: "pending",
+              ticketStatus: "not-issued",
+            },
+            redemptionDeleted: true,
+          };
+        }
+
+        return { rsvp, redemptionDeleted: false };
+      };
+
+      const result = updateRsvpCompleteLogic(mockRsvp, "pending");
+      expect(result.rsvp.status).toBe("pending");
+      expect(result.rsvp.ticketStatus).toBe("not-issued");
+      expect(result.redemptionDeleted).toBe(true);
+    });
+
+    it("should reject moving an attending RSVP back to pending", () => {
+      const mockRsvp = {
+        _id: "rsvp_123",
+        eventId: "event_123",
+        clerkUserId: "user_123",
+        status: "attending",
+        listKey: "general",
+      };
+
+      const updateRsvpCompleteLogic = (
+        rsvp: typeof mockRsvp,
+        approvalStatus: string,
+      ) => {
+        if (rsvp.status === "attending" && approvalStatus === "pending") {
+          throw new Error("Cannot move an attending RSVP back to pending");
+        }
+
+        return { rsvp: { ...rsvp, status: approvalStatus } };
+      };
+
+      expect(() => {
+        updateRsvpCompleteLogic(mockRsvp, "pending");
+      }).toThrow("Cannot move an attending RSVP back to pending");
+    });
+
+    it("should reject moving a redeemed RSVP back to pending", () => {
+      const mockRsvp = {
+        _id: "rsvp_123",
+        eventId: "event_123",
+        clerkUserId: "user_123",
+        status: "approved",
+        ticketStatus: "redeemed",
+        listKey: "general",
+      };
+
+      const updateRsvpCompleteLogic = (
+        rsvp: typeof mockRsvp,
+        approvalStatus: string,
+      ) => {
+        if (approvalStatus === "pending" && rsvp.ticketStatus === "redeemed") {
+          throw new Error("Cannot move an RSVP with a redeemed ticket back to pending");
+        }
+
+        return { rsvp: { ...rsvp, status: approvalStatus } };
+      };
+
+      expect(() => {
+        updateRsvpCompleteLogic(mockRsvp, "pending");
+      }).toThrow("Cannot move an RSVP with a redeemed ticket back to pending");
     });
 
     it("should record approval audit trail", () => {
@@ -596,6 +733,40 @@ describe("RSVP Management Mutations", () => {
       const pendingResult = handleApprovalLogic(mockRsvp, "pending");
       expect(pendingResult.redemptionCreated).toBeUndefined();
       expect(pendingResult.redemptionDisabled).toBeUndefined();
+    });
+
+    it("should mirror pending cleanup rules in bulk approval updates", () => {
+      const mockRsvp = {
+        _id: "rsvp_1",
+        eventId: "event_123",
+        clerkUserId: "user_123",
+        listKey: "general",
+        status: "approved",
+        ticketStatus: "disabled",
+      };
+
+      const handleApprovalLogic = (
+        rsvp: typeof mockRsvp,
+        status: "approved" | "denied" | "pending",
+      ) => {
+        if (status === "pending") {
+          return {
+            rsvpUpdated: true,
+            ticketStatus: "not-issued",
+            redemptionDeleted: true,
+            auditRecorded: true,
+          };
+        }
+
+        return {
+          rsvpUpdated: true,
+          auditRecorded: true,
+        };
+      };
+
+      const pendingResult = handleApprovalLogic(mockRsvp, "pending");
+      expect(pendingResult.ticketStatus).toBe("not-issued");
+      expect(pendingResult.redemptionDeleted).toBe(true);
     });
 
     it("should handle partial failures during approval updates", () => {
